@@ -2,23 +2,49 @@
     "name": "browser-testbench-director",
     "private": true,
     "type": "module",
+    "bin": {
+        "browser-testbench-director": "dist/server/server/cli.js"
+    },
     "scripts": {
-        "guess-the-price": "node --import tsx projects/youtube/shorts/binderium/guess-the-price/generate.ts",
-        "test:timeline": "node --import tsx --test tests/**/*.spec.ts",
-        "typecheck:timeline": "tsc -p tsconfig.json",
-        "typecheck:guess-the-price": "tsc -p projects/youtube/shorts/binderium/guess-the-price/tsconfig.json",
+        "dev": "node --import tsx src/server/cli.ts start --dev",
+        "dev:https": "node --import tsx src/server/cli.ts start --dev --https",
+        "build": "npm run build:ui && npm run build:server",
+        "build:ui": "vite build",
+        "build:server": "tsc -p tsconfig.server.json",
+        "preview": "node dist/server/server/cli.js start",
+        "start": "node dist/server/server/cli.js start",
+        "test": "node --import tsx --test tests/**/*.spec.ts",
+        "test:ui": "node --import tsx scripts/verify-ui.ts",
+        "test:input-persistence": "node --import tsx scripts/verify-input-persistence.ts",
+        "test:remote": "node --import tsx scripts/verify-remote-workflow.ts",
+        "test:recording": "node --import tsx scripts/verify-recording.ts",
+        "typecheck": "tsc -p tsconfig.json",
         "testbench:start:no-open": "browser-testbench start --no-open"
     },
     "devDependencies": {
-        "@fontsource/lilita-one": "5.3.0",
         "@types/node": "^24.5.2",
-        "browser-testbench": "^0.5.0",
-        "esbuild": "^0.28.1",
+        "@vitejs/plugin-vue": "^6.0.9",
         "onnxruntime-web": "1.29.0",
         "prettier": "^3.8.1",
-        "sass": "^1.97.3",
         "sharp": "^0.35.4",
         "tsx": "^4.23.12",
-        "typescript": "~5.9.2"
+        "typescript": "~5.9.2",
+        "vite": "^8.3.1"
+    },
+    "dependencies": {
+        "@joint/core": "^4.3.3",
+        "@modelcontextprotocol/sdk": "^1.30.0",
+        "acorn": "^8.15.0",
+        "acorn-walk": "^8.3.4",
+        "bootstrap-icons": "^1.13.1",
+        "browser-testbench": "^0.5.1",
+        "elkjs": "^0.11.1",
+        "es-module-lexer": "3.0.2",
+        "selfsigned": "^5.5.0",
+        "vue": "^3.5.43",
+        "zod": "^4.6.5"
+    },
+    "overrides": {
+        "morgan": "1.12.1"
     }
 }
