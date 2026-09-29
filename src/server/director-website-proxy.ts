@@ -214,9 +214,33 @@ export class DirectorWebsiteProxy {
                     ? location.pathname.slice(prefix.length)
                     : location.pathname === prefix ? '/' : location.pathname,
             });
+            try {
+                const previewCamera = window.parent !== window &&
+                    window.parent.__directorPreviewCameraStream;
+                const mediaDevices = navigator.mediaDevices;
+                if (typeof previewCamera === 'function' && mediaDevices) {
+                    const nativeGetUserMedia = mediaDevices.getUserMedia?.bind(mediaDevices);
+                    Object.defineProperty(mediaDevices, 'getUserMedia', {
+                        configurable: true,
+                        value: async (constraints = {}) => {
+                            if (!constraints.video && nativeGetUserMedia) {
+                                return nativeGetUserMedia(constraints);
+                            }
+                            const stream = await previewCamera();
+                            return new MediaStream(
+                                stream.getVideoTracks().map((track) => track.clone()),
+                            );
+                        },
+                    });
+                }
+            } catch {}
             const rewrite = (value) => {
                 const source = String(value);
                 const url = new URL(source, location.href);
+                if (url.origin === location.origin &&
+                    (url.pathname === prefix || url.pathname.startsWith(prefix + '/'))) {
+                    return source;
+                }
                 if (url.origin === targetOrigin ||
                     (url.origin === location.origin && !url.pathname.startsWith(prefix + '/'))) {
                     return prefix + url.pathname + url.search + url.hash;

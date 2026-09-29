@@ -30,7 +30,7 @@ export class PreviewDocument {
         const websiteUrl = plan.website?.url.trim() ?? '';
         const pageBackground = websiteUrl ? 'transparent' : '#fff';
         const website = websiteUrl
-            ? `<iframe class="director-website" src="${PreviewDocument.safeAttribute(websiteUrl)}" title="Website" allow="camera; microphone"></iframe>`
+            ? `<iframe class="director-website" data-director-src="${PreviewDocument.safeAttribute(websiteUrl)}" title="Website" allow="camera; microphone"></iframe>`
             : '';
         const serialized = JSON.stringify(PreviewDocument.runtimeSteps(plan));
         return `<!doctype html>
@@ -72,19 +72,36 @@ const referenceRects = new Map();
 const previewCameraStream = cameraInputId && inputs[cameraInputId]
     ? createPreviewCameraStream(inputs[cameraInputId])
     : null;
+Object.defineProperty(globalThis, '__directorPreviewCameraStream', {
+    configurable: true,
+    value: () => previewCameraStream,
+});
 const websiteReady = website
     ? new Promise((resolve, reject) => {
           let initialLoad = true;
-          website.addEventListener('load', () => {
+          const loaded = () => {
               try {
                   installPreviewCamera();
-                  if (initialLoad) resolve();
-                  initialLoad = false;
+                  if (initialLoad) {
+                      initialLoad = false;
+                      resolve();
+                  }
               } catch (error) {
-                  if (initialLoad) reject(error);
+                  if (initialLoad) {
+                      initialLoad = false;
+                      reject(error);
+                  }
                   else showError(error);
               }
-          });
+          };
+          website.addEventListener('load', loaded);
+          try {
+              if (
+                  website.contentDocument?.readyState === 'complete' &&
+                  website.contentDocument.URL !== 'about:blank'
+              ) loaded();
+          } catch {}
+          website.src = website.dataset.directorSrc;
       })
     : Promise.resolve();
 
@@ -280,6 +297,10 @@ function cancel() {
     activeController.abort();
 }
 
+function remove(nodeId) {
+    unmountLayer({ id: nodeId });
+}
+
 function report(executionId, nodeId, status, error) {
     window.parent.postMessage({
         type: 'director:execution',
@@ -308,7 +329,7 @@ async function run(nextSteps, executionId = null) {
 }
 
 const ready = run(steps, initialExecutionId);
-window.__director = Object.freeze({ run, execute, begin, cancel, ready });
+window.__director = Object.freeze({ run, execute, begin, cancel, remove, ready });
 ready.catch(showError);
 `)}
 <\/script>

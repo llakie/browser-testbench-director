@@ -19,6 +19,9 @@
         "test:remote": "node --import tsx scripts/verify-remote-workflow.ts",
         "test:recording": "node --import tsx scripts/verify-recording.ts",
         "typecheck": "tsc -p tsconfig.json",
+        "verify:core": "npm run typecheck && npm test && npm run build",
+        "verify:browser": "npm run test:ui && npm run test:input-persistence && npm run test:remote && npm run test:recording",
+        "verify": "npm run verify:core && npm run verify:browser",
         "testbench:start:no-open": "browser-testbench start --no-open"
     },
     "devDependencies": {

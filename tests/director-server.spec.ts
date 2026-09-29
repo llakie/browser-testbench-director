@@ -154,6 +154,16 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         assert.match(html, /<base href="\/director-website\/[^/]+\/">/u);
         assert.match(html, /Element\.prototype\.setAttribute/u);
         assert.match(html, /new MutationObserver/u);
+        assert.match(
+            html,
+            /url\.pathname === prefix \|\| url\.pathname\.startsWith\(prefix \+ '\/'\)/u,
+            'Already proxied same-origin URLs must not be rewritten repeatedly.',
+        );
+        assert.match(
+            html,
+            /__directorPreviewCameraStream/u,
+            'The preview camera bridge must run before application scripts.',
+        );
 
         const prefix = url.slice(0, url.indexOf('/price-check/scan'));
         const asset = await fetch(`${server.origin()}${prefix}/main.js`);

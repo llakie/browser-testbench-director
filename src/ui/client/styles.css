@@ -889,7 +889,7 @@ textarea:focus-visible {
 
 .alignment-button-group {
     display: inline-grid;
-    grid-template-columns: repeat(3, var(--control-size));
+    grid-template-columns: repeat(3, calc(var(--control-size) - 2px));
     height: var(--control-size);
     padding: 0;
     border: 1px solid var(--color-border);
@@ -898,6 +898,7 @@ textarea:focus-visible {
 }
 
 .alignment-button-group .alignment-icon-button {
+    width: calc(var(--control-size) - 2px);
     height: calc(var(--control-size) - 2px);
     padding: 0;
 }

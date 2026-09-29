@@ -75,6 +75,7 @@ test('Browser-Testbench-Vorschau veröffentlicht ein Dokument unter einer virtue
         target: 'chrome',
         url: 'http://127.0.0.1:5173/director-preview/nodes/layer-1/preview-token',
         headless: false,
+        leaseTimeoutMs: 15 * 60 * 1_000,
     });
     assert.deepEqual(JSON.parse(String(requests[2]?.body)), {
         type: 'script',
@@ -115,6 +116,7 @@ test('Lokale HTTPS-Shell akzeptiert das Director-Entwicklungszertifikat', async 
         target: 'chrome',
         url: 'https://127.0.0.1:5173/director-preview/nodes/layer-1/preview-token',
         headless: false,
+        leaseTimeoutMs: 15 * 60 * 1_000,
         capabilities: { acceptInsecureCerts: true },
     });
 });
@@ -237,6 +239,36 @@ test('Browser-Testbench-Targets erhalten verständliche Namen', () => {
     );
 });
 
+test('Desktop-Viewport behält sein Seitenverhältnis trotz Browser-Mindestbreite', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<Record<string, unknown>> = [];
+    globalThis.fetch = async (_input, init = {}) => {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        requests.push(body);
+        return new Response(
+            JSON.stringify(
+                body['action'] === 'evaluate'
+                    ? { innerWidth: 500, innerHeight: 497, outerWidth: 500, outerHeight: 640 }
+                    : {},
+            ),
+            { headers: { 'Content-Type': 'application/json' } },
+        );
+    };
+
+    try {
+        await BrowserTestbenchPreview.setViewport('desktop-session', {
+            width: 360,
+            height: 640,
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(requests[0], { action: 'viewport', width: 360, height: 640 });
+    assert.equal(requests[1]?.['action'], 'evaluate');
+    assert.deepEqual(requests[2], { action: 'viewport', width: 500, height: 1032 });
+});
+
 test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeiten an', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
@@ -305,6 +337,7 @@ test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeit
     assert.equal(requests[0]?.headers.get('content-type'), 'application/octet-stream');
     assert.equal(requests[0]?.headers.get('x-browser-testbench-asset-content-type'), 'image/png');
     const session = JSON.parse(String(requests[1]?.body)) as Record<string, unknown>;
+    assert.equal(session['leaseTimeoutMs'], 15 * 60 * 1_000);
     assert.deepEqual(session['permissions'], [
         { name: 'camera', origin: 'https://www.binderium.com' },
     ]);
@@ -772,6 +805,56 @@ test('Aufnahme markiert ein Layer-Intervall erst nach dem Mount', async () => {
     assert.deepEqual(
         urls.map((url) => url.split('/').at(-1)),
         ['browser', 'browser', 'marks', 'marks', 'browser'],
+    );
+});
+
+test('Preview-Shell markiert Layer für den geschnittenen Aufnahmeexport', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = async (input, init = {}) => {
+        requests.push({
+            url: String(input),
+            body: JSON.parse(String(init.body)) as Record<string, unknown>,
+        });
+        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    try {
+        await BrowserTestbenchPreview.execute(
+            'session-shell',
+            [
+                {
+                    id: 'intro',
+                    type: 'layer',
+                    speed: 'live',
+                    source: '',
+                    html: '<strong>Intro</strong>',
+                    css: '',
+                    placement: {
+                        reference: { type: 'viewport' },
+                        horizontal: 'center',
+                        vertical: 'center',
+                    },
+                    playback: { durationMs: 10, removeAfter: true },
+                },
+            ],
+            true,
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(
+        requests.map(({ url, body }) => ({
+            endpoint: url.split('/').at(-1),
+            name: body['name'],
+        })),
+        [
+            { endpoint: 'browser', name: undefined },
+            { endpoint: 'marks', name: 'director.layer.start' },
+            { endpoint: 'marks', name: 'director.layer.end' },
+            { endpoint: 'browser', name: undefined },
+        ],
     );
 });
 

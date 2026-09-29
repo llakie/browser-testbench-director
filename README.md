@@ -18,6 +18,8 @@ Der gemeinsame Abspielgeräte-Selektor enthält lokale Viewport-Presets und – 
 
 Der Aufnahmebutton im Graph-Header startet eine saubere Remote-Session, nimmt deren Viewport während des vollständigen Workflows auf und lädt anschließend ein MP4 herunter. Ist das gewählte Target bereits die Remote-Vorschau, wird deren Session reproduzierbar zurückgesetzt und zeigt nach der Aufnahme den finalen Stand weiter an. Aufnahmen auf einem anderen Target lassen die laufende Vorschau unberührt. Größe und SHA-256 des Browser-Testbench-Artefakts werden geprüft; der Director normalisiert das Video serverseitig mit FFmpeg auf die im Projekt eingestellten Ausgabemaße. CSS-Viewport und Videoausgabe sind getrennt, damit responsive Seiten beispielsweise mit `360 × 640` CSS-Pixeln gerendert und trotzdem exakt als `1080 × 1920` exportiert werden können.
 
+Desktop-Browser werden beim Aufnehmen headless gestartet. Der Director gleicht Browser-Chrome und Mindestfenstergrößen aus und erhält dabei das Seitenverhältnis des Projekt-Viewports. Damit kann ein Portrait-Short stabil in Chrome aufgenommen werden, ohne sichtbare Browserfenster, abgeschnittene Viewports oder Letterboxing; die interaktive Remote-Vorschau bleibt weiterhin sichtbar.
+
 Projekte deklarieren Laufzeitdateien als Input-Nodes vor der Website-Root. Der Dateiselektor und die aktuelle Auswahl sind direkt in der Node sichtbar; MIME-Typen, Pflichtfeld und Prepare-Module werden in ihren Node-Eigenschaften konfiguriert. Ausgewählte Dateien werden content-addressiert unter `projects/.director-assets/` abgelegt und im Projekt-JSON über Name, Typ, Größe und SHA-256 referenziert. Beim erneuten Öffnen stellt der Director sie automatisch wieder her. Der Director validiert und bereitet alle verbundenen Inputs vor dem Start der Website auf. Kameraquellen werden anschließend binär an Browser Testbench übertragen; andere Dateien stehen Scripts als Data-URLs unter `director.inputs` zur Verfügung. Ein Projekt kann damit beispielsweise einen Android-Emulator mit Reverse-Origin, Kameraberechtigung, Sprache/Locale, einem injizierten Kamerabild und einer Schrift starten, ohne Binärdaten in der `.btd.json`-Datei abzulegen.
 
 Der Director enthält keine fest eingebaute Produktionslogik. Beim Videoexport werden die markierten Layer-Intervalle zusammengeschnitten. Warte-Nodes können mit `omitFromRecording` explizit aus dem Video entfernt oder darin belassen werden.
@@ -65,6 +67,12 @@ npm run test:remote
 npm run test:recording
 ```
 
+Der vollständige Release-Gate fasst Typprüfung, Unit-Tests, Produktions-Build und alle vier Browser-Prüfungen zusammen. Director und Browser Testbench müssen dafür wie oben beschrieben laufen:
+
+```bash
+npm run verify
+```
+
 Über `BROWSER_TESTBENCH_TARGET` kann für `test:ui` ein anderes Ziel gewählt werden, beispielsweise `firefox`. Der Remote-Test steuert standardmäßig die UI in Firefox und die Vorschau in Chrome; `DIRECTOR_CONTROLLER_TARGET` und `DIRECTOR_PREVIEW_TARGET` ändern diese Ziele.
 
-`test:recording` führt über dieselbe UI einen kurzen Workflow auf einem echten Chrome-Android-Emulator aus, lädt das native Recording herunter und prüft Container, Videodimensionen und Dauer mit `ffprobe`.
+`test:recording` führt über dieselbe UI einen kurzen Workflow in Chrome aus, lädt das Recording herunter und prüft Container, Videodimensionen und Dauer mit `ffprobe`. Mit `DIRECTOR_RECORDING_TARGET` kann derselbe Test auf ein anderes aufnahmefähiges Ziel gelegt werden.

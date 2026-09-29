@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { RemoteTestbench, type RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../src/ui/client/core/project-format.js';
+import { playGraphNode, selectGraphNode } from './support/director-ui.js';
 
 const applicationUrl = process.env['DIRECTOR_UI_URL'] ?? 'http://127.0.0.1:5173/';
 const server = process.env['BROWSER_TESTBENCH_URL'] ?? 'http://127.0.0.1:55808';
@@ -28,8 +29,9 @@ try {
     const project = ProjectFormat.create('Remote workflow');
     const website = project.nodes.find((node) => node.type === 'website')!;
     website.url = new URL('/example-site.html', applicationUrl).toString();
+    website.position = { x: 32, y: 8 };
     const layer = project.nodes.find((node) => node.type === 'layer')!;
-    layer.position = { x: 32, y: 144 };
+    layer.position = { x: 1_056, y: 8 };
     layer.playback = { durationMs: 50, removeAfter: true };
     layer.source.javascript += `
 const cardName = director.results['wait-for-action'].cardName;
@@ -78,7 +80,7 @@ return button ? { cardName: 'Pikachu' } : false;`,
         id: 'verify-layer-result',
         type: 'javascript',
         name: 'Verify layer result',
-        position: { x: 1056, y: 8 },
+        position: { x: 1_312, y: 8 },
         source: `document.body.dataset.remoteLayerResult =
     director.results['layer-1'].cardName;`,
     });
@@ -113,10 +115,9 @@ return button ? { cardName: 'Pikachu' } : false;`,
     const projectPath = join(directory, 'remote-workflow.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await controller.upload('[data-testid="project-file-input"]', projectPath);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
     await controller.waitForCount('[data-testid="graph-canvas"] .joint-element', 6, 5_000);
-    await controller.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="website-root"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(controller, 'website-root');
     const existing = new Set((await testbench.sessions()).map((session) => session.id));
     await controller.click('[data-testid="viewport-device-trigger"]');
     await controller.waitForElement(`[data-testid="remote-target-${previewTarget}"]`, 10_000);
@@ -138,6 +139,7 @@ return button ? { cardName: 'Pikachu' } : false;`,
         new URL('/example-site.html', applicationUrl).toString(),
         'The remote preview must use the configured website as its main document.',
     );
+    await controller.click('[data-testid="play-workflow"]');
     await preview.waitForState('body[data-remote-layer-result="Pikachu"]', 'present', 10_000);
     await preview.waitForState('[data-director-node="layer-1"]', 'absent', 10_000);
     await preview.waitForState(
@@ -145,9 +147,7 @@ return button ? { cardName: 'Pikachu' } : false;`,
         'present',
         10_000,
     );
-    await controller.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="prepare-website"] [joint-selector="playButton"]',
-    );
+    await playGraphNode(controller, 'prepare-website');
     await preview.waitForState(
         'body[data-remote-runs="1"][data-remote-speed="live"]',
         'present',
@@ -164,12 +164,12 @@ return button ? { cardName: 'Pikachu' } : false;`,
     `);
     assert.deepEqual(state, { runs: '1', speed: 'live' });
     await controller.waitForState('.notice', 'absent', 5_000);
-    await controller.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="layer-1"] [joint-selector="bodyText"] .v-line',
-    );
-    await controller.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="layer-1"] [joint-selector="playButton"]',
-    );
+    const graphNodeIds = await controller.evaluate<string[]>(`
+        return [...document.querySelectorAll('[data-testid="graph-canvas"] .joint-element')]
+            .map(node => node.getAttribute('model-id'));
+    `);
+    assert.ok(graphNodeIds.includes('layer-1'), `Layer node disappeared: ${graphNodeIds.join(', ')}`);
+    await playGraphNode(controller, 'layer-1');
     await controller.waitForScript(
         `return /Ausführung abgeschlossen|Execution completed|Ausführung fehlgeschlagen|Execution failed/u.test(
             document.querySelector('.notice')?.textContent || ''

@@ -1347,7 +1347,7 @@ export const EditorWorkspace = defineComponent({
                 if (recordingOnPreviewTarget && previewSessionId) {
                     await BrowserTestbenchPreview.close(previewSessionId).catch(() => undefined);
                 }
-                sessionId = await this.openRemotePlan(target, 'workflow', plan);
+                sessionId = await this.openRemotePlan(target, 'workflow', plan, true);
                 this.remotePreviewSessionId = sessionId;
                 await BrowserTestbenchPreview.startRecording(sessionId, filename);
                 recordingStarted = true;
@@ -1975,7 +1975,7 @@ export const EditorWorkspace = defineComponent({
                         plan.cameraInputId,
                     );
                 } else {
-                    await BrowserTestbenchPreview.execute(sessionId, [step]);
+                    await BrowserTestbenchPreview.execute(sessionId, [step], recording);
                 }
                 this.updateExecution(runId, step.id, 'success');
             }
@@ -2032,27 +2032,38 @@ export const EditorWorkspace = defineComponent({
             target: BrowserTestbenchTarget,
             nodeId: string,
             plan: ReturnType<typeof WorkflowPlanner.plan>,
+            recording = false,
         ): Promise<string> {
             this.remotePreviewDirect = this.usesDirectRemoteWebsite(plan, target);
+            let sessionId: string;
             if (this.remotePreviewDirect) {
-                return BrowserTestbenchPreview.openWebsite(
+                sessionId = await BrowserTestbenchPreview.openWebsite(
                     target,
                     plan.website!.url.trim(),
                     this.project.browserSession,
                     this.inputFiles,
                     plan.inputs,
                     plan.cameraInputId,
+                    recording && target.kind === 'desktop',
+                );
+            } else {
+                const inputs = await BrowserTestbenchPreview.prepareRuntimeInputs(
+                    this.inputFiles,
+                    plan.inputs,
+                );
+                sessionId = await BrowserTestbenchPreview.open(
+                    target.id,
+                    nodeId,
+                    await this.remoteShellDocument(plan, inputs),
+                    {},
+                    [],
+                    recording && target.kind === 'desktop',
                 );
             }
-            const inputs = await BrowserTestbenchPreview.prepareRuntimeInputs(
-                this.inputFiles,
-                plan.inputs,
-            );
-            return BrowserTestbenchPreview.open(
-                target.id,
-                nodeId,
-                await this.remoteShellDocument(plan, inputs),
-            );
+            if (target.kind === 'desktop') {
+                await BrowserTestbenchPreview.setViewport(sessionId, this.project.viewport);
+            }
+            return sessionId;
         },
         async remoteShellDocument(
             plan: ReturnType<typeof WorkflowPlanner.plan>,

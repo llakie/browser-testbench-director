@@ -102,6 +102,7 @@ export class BrowserTestbenchPreview {
     private static readonly apiBase = '/browser-testbench-api';
     private static readonly lifecycleUrl = '/director-api/browser-testbench';
     private static readonly inputChunkSize = 256 * 1024;
+    private static readonly sessionLeaseTimeoutMs = 15 * 60 * 1_000;
 
     static async targets(): Promise<BrowserTestbenchTarget[]> {
         const [targets, capabilities] = await Promise.all([
@@ -142,6 +143,7 @@ export class BrowserTestbenchPreview {
         document: string,
         inputFiles: Readonly<Record<string, File>> = {},
         inputs: readonly ProjectFileInput[] = [],
+        headless = false,
     ): Promise<string> {
         const preview = await this.publish(nodeId, document);
         const previewUrl = new URL(preview.url, globalThis.location.origin);
@@ -150,7 +152,8 @@ export class BrowserTestbenchPreview {
             body: JSON.stringify({
                 target,
                 url: previewUrl.toString(),
-                headless: false,
+                headless,
+                leaseTimeoutMs: this.sessionLeaseTimeoutMs,
                 ...(this.isLocalHttps(previewUrl.toString())
                     ? { capabilities: { acceptInsecureCerts: true } }
                     : {}),
@@ -167,6 +170,7 @@ export class BrowserTestbenchPreview {
         inputFiles: Readonly<Record<string, File>> = {},
         inputs: readonly ProjectFileInput[] = [],
         cameraInputId: string | null = null,
+        headless = false,
     ): Promise<string> {
         const absoluteUrl = this.absoluteUrl(url);
         const cameraInput = inputs.find((input) => input.id === cameraInputId);
@@ -203,7 +207,8 @@ export class BrowserTestbenchPreview {
             body: JSON.stringify({
                 target: target.id,
                 url: absoluteUrl,
-                headless: false,
+                headless,
+                leaseTimeoutMs: this.sessionLeaseTimeoutMs,
                 ...(configuration?.localOrigins && target.capabilities.localOrigins.reverse
                     ? { localOrigins: configuration.localOrigins }
                     : {}),
@@ -276,6 +281,38 @@ export class BrowserTestbenchPreview {
         return this.request(`/sessions/${encodeURIComponent(sessionId)}/recording/start`, {
             method: 'POST',
             body: JSON.stringify({ outputPath: filename, scope: 'viewport' }),
+        });
+    }
+
+    static async setViewport(
+        sessionId: string,
+        viewport: Readonly<{ width: number; height: number }>,
+    ): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'viewport',
+            width: viewport.width,
+            height: viewport.height,
+        });
+        const rect = await this.browserAction<{
+            innerWidth: number;
+            innerHeight: number;
+            outerWidth: number;
+            outerHeight: number;
+        }>(sessionId, {
+            action: 'evaluate',
+            script: `return {
+                innerWidth, innerHeight, outerWidth, outerHeight,
+            };`,
+            arguments: [],
+        });
+        const scale = Math.max(1, rect.innerWidth / viewport.width);
+        const innerWidth = Math.round(viewport.width * scale);
+        const innerHeight = Math.round(viewport.height * scale);
+        if (rect.innerWidth === innerWidth && rect.innerHeight === innerHeight) return;
+        await this.browserAction(sessionId, {
+            action: 'viewport',
+            width: innerWidth + Math.max(0, rect.outerWidth - rect.innerWidth),
+            height: innerHeight + Math.max(0, rect.outerHeight - rect.innerHeight),
         });
     }
 
@@ -354,8 +391,50 @@ export class BrowserTestbenchPreview {
         return response.blob();
     }
 
-    static async execute(sessionId: string, steps: readonly RuntimeStep[]): Promise<void> {
-        for (const step of steps) await this.executeRuntimeStep(sessionId, step);
+    static async execute(
+        sessionId: string,
+        steps: readonly RuntimeStep[],
+        markIntervals = false,
+    ): Promise<void> {
+        for (const step of steps) {
+            if (markIntervals && step.type === 'layer') {
+                const playback = step.playback!;
+                await this.executeRuntimeStep(sessionId, {
+                    ...step,
+                    playback: { durationMs: 0, removeAfter: false },
+                });
+                await this.mark(sessionId, 'director.layer.start', { nodeId: step.id });
+                try {
+                    if (step.speed === 'live' && playback.durationMs > 0) {
+                        await new Promise((resolve) => setTimeout(resolve, playback.durationMs));
+                    }
+                } finally {
+                    await this.mark(sessionId, 'director.layer.end', { nodeId: step.id });
+                    if (playback.removeAfter) await this.removeRuntimeLayer(sessionId, step.id);
+                }
+                continue;
+            }
+            const includeInterval =
+                markIntervals &&
+                step.type === 'browser-wait' &&
+                !step.omitFromRecording;
+            if (includeInterval) {
+                await this.mark(sessionId, 'director.wait.start', {
+                    nodeId: step.id,
+                });
+            }
+            try {
+                await this.executeRuntimeStep(sessionId, step);
+            } finally {
+                if (includeInterval) {
+                    await this.mark(
+                        sessionId,
+                        'director.wait.end',
+                        { nodeId: step.id },
+                    );
+                }
+            }
+        }
     }
 
     static async executeOnWebsite(
@@ -599,6 +678,14 @@ export class BrowserTestbenchPreview {
         });
     }
 
+    private static removeRuntimeLayer(sessionId: string, nodeId: string): Promise<unknown> {
+        return this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director.remove(arguments[0]);',
+            arguments: [nodeId],
+        });
+    }
+
     static async close(sessionId: string): Promise<void> {
         await this.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
     }
@@ -667,13 +754,24 @@ export class BrowserTestbenchPreview {
                         const selector = '#' + CSS.escape(element.id);
                         if (unique(selector)) return selector;
                     }
-                    for (const name of ['data-testid', 'data-test', 'aria-label', 'name', 'placeholder']) {
-                        const value = element.getAttribute(name);
-                        if (!value) continue;
-                        const attribute = attributeSelector(name, value);
-                        if (unique(attribute)) return attribute;
-                        const tagged = element.tagName.toLowerCase() + attribute;
-                        if (unique(tagged)) return tagged;
+                    const stableAttributes = [
+                        'data-testid', 'data-test', 'aria-label', 'name', 'placeholder'
+                    ];
+                    let stableCandidate = element;
+                    while (stableCandidate && stableCandidate instanceof TargetElement) {
+                        if (stableCandidate !== element && stableCandidate.id) {
+                            const selector = '#' + CSS.escape(stableCandidate.id);
+                            if (unique(selector)) return selector;
+                        }
+                        for (const name of stableAttributes) {
+                            const value = stableCandidate.getAttribute(name);
+                            if (!value) continue;
+                            const attribute = attributeSelector(name, value);
+                            if (unique(attribute)) return attribute;
+                            const tagged = stableCandidate.tagName.toLowerCase() + attribute;
+                            if (unique(tagged)) return tagged;
+                        }
+                        stableCandidate = stableCandidate.parentElement;
                     }
                     const classes = [...element.classList]
                         .filter(value => value && !value.startsWith('director-'))

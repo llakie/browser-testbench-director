@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { RemoteTestbench } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../src/ui/client/core/project-format.js';
+import { selectGraphNode } from './support/director-ui.js';
 
 const applicationUrl = process.env['DIRECTOR_UI_URL'] ?? 'https://127.0.0.1:5173/';
 const testbench = new RemoteTestbench({
@@ -48,9 +49,7 @@ try {
     await browser.waitForElement('.workspace', 10_000);
     await browser.setViewport(1440, 1000);
     await browser.upload('[data-testid="project-file-input"]', projectPath);
-    await browser.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="persistent-input"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(browser, 'persistent-input');
     await browser.waitForElement('[data-testid="project-input-persistent-input"]', 5_000);
     await browser.evaluate(`
         Object.defineProperty(window, 'showSaveFilePicker', {

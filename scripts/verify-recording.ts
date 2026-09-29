@@ -8,10 +8,11 @@ import { promisify } from 'node:util';
 import { RemoteTestbench } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../src/ui/client/core/project-format.js';
+import { selectGraphNode } from './support/director-ui.js';
 
 const applicationUrl = process.env['DIRECTOR_UI_URL'] ?? 'http://127.0.0.1:5173/';
 const server = process.env['BROWSER_TESTBENCH_URL'] ?? 'http://127.0.0.1:55808';
-const controllerTarget = process.env['DIRECTOR_CONTROLLER_TARGET'] ?? 'firefox';
+const controllerTarget = process.env['DIRECTOR_CONTROLLER_TARGET'] ?? 'edge';
 const recordingTarget = process.env['DIRECTOR_RECORDING_TARGET'] ?? 'chrome';
 const outputDirectory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-recording-'));
 const projectPath = join(outputDirectory, 'recording-verification.btd.json');
@@ -25,7 +26,7 @@ const testbench = new RemoteTestbench({ server, requestTimeoutMs: 180_000 });
 const project = ProjectFormat.create('Recording verification');
 project.name = 'Director Recording Verification';
 const website = project.nodes.find((node) => node.type === 'website')!;
-website.url = 'https://example.com/';
+website.url = new URL('/example-site.html', applicationUrl).toString();
 project.nodes.unshift(
     {
         id: 'camera-image',
@@ -84,9 +85,7 @@ try {
     await controller.setViewport(1440, 1000);
     await controller.waitForElement('.workspace', 10_000);
     await controller.upload('[data-testid="project-file-input"]', projectPath);
-    await controller.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="camera-image"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(controller, 'camera-image');
     await controller.waitForElement('[data-testid="project-input-camera-image"]', 10_000);
     await controller.upload('[data-testid="project-input-camera-image"]', cameraImagePath);
     await controller.waitForState('[data-testid="record-workflow"]', 'enabled', 30_000);

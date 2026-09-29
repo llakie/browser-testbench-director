@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { RemoteTestbench, type RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../src/ui/client/core/project-format.js';
+import { playGraphNode, selectGraphNode } from './support/director-ui.js';
 
 const applicationUrl = process.env['DIRECTOR_UI_URL'] ?? 'http://127.0.0.1:5173/';
 const server = process.env['BROWSER_TESTBENCH_URL'] ?? 'http://127.0.0.1:55808';
@@ -146,11 +147,7 @@ async function verifySelectorPicker(session: RemoteSession): Promise<void> {
         '[data-testid="graph-canvas"] .joint-element[model-id="pick-action"]',
         10_000,
     );
-    await session.evaluate(`
-        document.querySelector(
-            '[data-testid="graph-canvas"] .joint-element[model-id="pick-action"] [joint-selector="bodyText"] .v-line'
-        ).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    `);
+    await selectGraphNode(session, 'pick-action');
     await session.waitForElement('[data-testid="pick-browser-action-selector"]', 5_000);
     await session.click('[data-testid="viewport-device-trigger"]');
     await session.waitForElement('.device-flyout__menu .target-option', 10_000);
@@ -161,6 +158,13 @@ async function verifySelectorPicker(session: RemoteSession): Promise<void> {
     assert.ok(previewTargetId, 'selector picker: a remote preview target must be available.');
     await session.click(`[data-testid="remote-target-${previewTargetId}"]`);
     await session.waitForElement('.remote-preview-placeholder', 10_000);
+    await session.waitForScript(
+        `return /geöffnet|Opened preview/u.test(
+            document.querySelector('.notice')?.textContent || ''
+        );`,
+        [],
+        30_000,
+    );
     await session.waitForState('[data-testid="pick-browser-action-selector"]', 'enabled', 15_000);
     const existingSessions = new Set((await testbench.sessions()).map((candidate) => candidate.id));
     await session.click('[data-testid="pick-browser-action-selector"]');
@@ -173,7 +177,20 @@ async function verifySelectorPicker(session: RemoteSession): Promise<void> {
         );
     }
     assert.ok(pickerSession, 'selector picker: a remote picking session must open.');
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+    try {
+        await pickerSession.waitForScript(
+            `return window.__directorSelectorPicker?.status === 'picking';`,
+            [],
+            15_000,
+        );
+    } catch (error) {
+        const notice = await session.evaluate<string>(
+            `return document.querySelector('.notice')?.textContent?.trim() || '';`,
+        );
+        throw new Error(`Selector picker did not start. Director notice: ${notice}`, {
+            cause: error,
+        });
+    }
     const pickerState = await pickerSession.evaluate<{
         status: string | null;
         url: string;
@@ -409,6 +426,7 @@ async function verifyPreviewDevices(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="viewport-device-trigger"]');
     await session.click(`[data-testid="remote-target-${remoteTarget}"]`);
     await session.waitForElement('.remote-preview-placeholder', 5_000);
+    await session.waitForScript('return window.__directorOpenRequest !== null;', [], 5_000);
     const remoteState = await session.evaluate<{
         url: string;
         iframeCount: number;
@@ -486,7 +504,7 @@ async function verifyPreviewDevices(session: RemoteSession): Promise<void> {
 
 async function verifyLayerSelectionAndZoom(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
-    const project = ProjectFormat.create();
+    const project = ProjectFormat.create('Layer selection');
     const firstLayer = project.nodes.find((node) => node.type === 'layer')!;
     project.nodes.push({
         ...firstLayer,
@@ -501,7 +519,7 @@ async function verifyLayerSelectionAndZoom(session: RemoteSession): Promise<void
         source: {
             html: '<div id="second-layer">Second layer</div>',
             css: '#second-layer { width: 12rem; padding: 2rem; background: #ff6d38; }',
-            javascript: "document.querySelector('#second-layer').dataset.played = 'true';",
+            javascript: "director.root.querySelector('#second-layer').dataset.played = 'true';",
         },
     });
     project.connections.push({
@@ -515,9 +533,7 @@ async function verifyLayerSelectionAndZoom(session: RemoteSession): Promise<void
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 2, 5_000);
 
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="website-root"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'website-root');
     await session.waitForValue('[data-testid="website-url"]', '', 5_000);
     await session.evaluate(`
         const input = document.querySelector('[data-testid="website-url"]');
@@ -527,28 +543,47 @@ async function verifyLayerSelectionAndZoom(session: RemoteSession): Promise<void
     `);
     await session.waitForValue('[data-testid="website-url"]', '/example-site.html?root=1', 5_000);
     await session.click('[data-testid="play-workflow"]');
-    await session.switchFrame('.preview-viewport iframe');
-    await session.waitForElement('.director-website', 5_000);
-    await session.switchFrame('.director-website');
-    await session.waitForElement('#example-website', 5_000);
-    await session.switchFrame();
-    await session.waitForCount('[data-testid="play-workflow"]', 1, 10_000);
+    try {
+        await session.waitForScript(
+            `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
+            const website = preview?.querySelector('.director-website')?.contentDocument;
+            return Boolean(
+                preview?.querySelector('#second-layer[data-played="true"]') &&
+                website?.querySelector('#example-website')
+            );`,
+            [],
+            10_000,
+        );
+    } catch (error) {
+        const state = await session.evaluate(`
+            const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
+            return {
+                notice: document.querySelector('.notice')?.textContent?.trim() || '',
+                previewText: preview?.body?.textContent?.trim().slice(0, 200) || '',
+                nodes: [...document.querySelectorAll('.joint-element')].map(node => ({
+                    id: node.getAttribute('model-id'),
+                    status: node.querySelector('[joint-selector="statusText"]')?.textContent,
+                })),
+            };
+        `);
+        throw new Error(`Workflow preview did not finish: ${JSON.stringify(state)}`, {
+            cause: error,
+        });
+    }
 
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="layer-second"] [joint-selector="bodyText"] .v-line',
-    );
-    await session.switchFrame('.preview-viewport iframe');
-    await session.waitForElement('#second-layer[data-played="true"]', 5_000);
+    await selectGraphNode(session, 'layer-second');
     const frameSize = await session.evaluate<{ width: number; height: number }>(`
-        return { width: window.innerWidth, height: window.innerHeight };
+        const frame = document.querySelector('.preview-viewport iframe');
+        return {
+            width: frame.contentWindow.innerWidth,
+            height: frame.contentWindow.innerHeight,
+        };
     `);
     assert.deepEqual(
         frameSize,
-        { width: 1080, height: 1920 },
-        'preview: iframe uses project pixels.',
+        { width: 360, height: 640 },
+        'preview: iframe uses the configured CSS viewport.',
     );
-    await session.switchFrame();
-
     await session.click('[data-testid="graph-canvas"]');
     await session.waitForState('.preview-viewport iframe', 'present', 5_000);
     await session.waitForCount('.preview-panel', 1, 5_000);
@@ -585,9 +620,7 @@ async function verifyLayerSelectionAndZoom(session: RemoteSession): Promise<void
     assert.equal(unselected.maximized, false, 'selection: graph must not be maximized.');
     await session.screenshot(join(outputDirectory, 'selection-empty.png'), true);
 
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="layer-1"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'layer-1');
     await session.waitForElement('.preview-panel', 5_000);
     const scaleBefore = (await session.state('[data-testid="viewport-scale"]')).text;
     assert.match(scaleBefore, /360 × 640 CSS/u, 'preview: viewport label must be visible.');
@@ -1203,9 +1236,7 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
     const projectPath = join(outputDirectory, 'anchoring.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="anchored-child"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'anchored-child');
     await session.waitForElement('[data-testid="horizontal-right"]', 10_000);
     const horizontalLabels = await session.evaluate<boolean>(`
         return ['left', 'center', 'right'].every((alignment) => {
@@ -1220,39 +1251,39 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
     );
     const alignmentGeometry = await session.evaluate<{
         referenceOptions: string[];
-        horizontalSquare: boolean;
-        controlsInHeader: boolean;
-        placementStartsRow: boolean;
+        buttonsSquare: boolean;
+        buttonSizes: Array<{ width: number; height: number }>;
+        groupsAdjacent: boolean;
+        label: string;
         maximizeEndsRow: boolean;
-        verticalSquare: boolean;
-        controlsAreAdjacent: boolean;
-        visibleLabels: number;
     }>(`
-        const horizontalGroup = document.querySelector('.alignment-button-group');
-        const actionRow = horizontalGroup.closest('.panel-header-actions');
-        const placementControl = actionRow.querySelector('[data-testid="placement-reference"]');
-        const horizontalButtons = [...horizontalGroup.querySelectorAll('button')];
-        const verticalTrigger = document.querySelector('[data-testid="vertical-alignment-trigger"]');
-        const actionBounds = actionRow.getBoundingClientRect();
-        const placementBounds = placementControl.getBoundingClientRect();
-        const maximizeButton = actionRow.querySelector('[data-testid="maximize-editor"]');
+        const field = document.querySelector('.layer-alignment-field');
+        const controls = field.querySelector('.layer-alignment-controls');
+        const groups = [...controls.querySelectorAll('.alignment-button-group')];
+        const placementControl = controls.querySelector('[data-testid="placement-reference"]');
+        const buttons = groups.flatMap(group => [...group.querySelectorAll('button')]);
+        const header = document.querySelector('.panel__header--editor');
+        const headerBounds = header.getBoundingClientRect();
+        const maximizeButton = header.querySelector('[data-testid="maximize-editor"]');
         const maximizeBounds = maximizeButton.getBoundingClientRect();
-        const horizontalBounds = horizontalGroup.getBoundingClientRect();
-        const verticalBounds = verticalTrigger.getBoundingClientRect();
+        const horizontalBounds = groups[0].getBoundingClientRect();
+        const verticalBounds = groups[1].getBoundingClientRect();
+        const buttonSizes = buttons.map(button => {
+            const bounds = button.getBoundingClientRect();
+            return { width: bounds.width, height: bounds.height };
+        });
         return {
             referenceOptions: [...placementControl.options].map((option) => option.value),
-            horizontalSquare: horizontalButtons.every((button) => {
+            buttonsSquare: buttons.every((button) => {
                 const bounds = button.getBoundingClientRect();
                 return Math.abs(bounds.width - bounds.height) < 1;
             }),
-            controlsInHeader: Boolean(actionRow),
-            placementStartsRow: Math.abs(placementBounds.left - actionBounds.left) < 1,
-            maximizeEndsRow: Math.abs(maximizeBounds.right - actionBounds.right) < 1,
-            verticalSquare: Math.abs(verticalBounds.width - verticalBounds.height) < 1,
-            controlsAreAdjacent:
+            buttonSizes,
+            groupsAdjacent:
                 verticalBounds.left > horizontalBounds.right &&
                 verticalBounds.left - horizontalBounds.right <= 10,
-            visibleLabels: actionRow.querySelectorAll('.setting-group__label').length,
+            label: field.firstElementChild.textContent.trim(),
+            maximizeEndsRow: Math.abs(maximizeBounds.right - headerBounds.right) < 20,
         };
     `);
     assert.deepEqual(
@@ -1261,43 +1292,26 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
         'placement: reference source must offer viewport, layer, and DOM.',
     );
     assert.equal(
-        alignmentGeometry.horizontalSquare,
+        alignmentGeometry.buttonsSquare,
         true,
-        'placement: horizontal controls must be square.',
+        `placement: horizontal and vertical controls must be square (${JSON.stringify(alignmentGeometry.buttonSizes)}).`,
     );
     assert.equal(
-        alignmentGeometry.controlsInHeader,
+        alignmentGeometry.groupsAdjacent,
         true,
-        'placement: positioning controls must be in the editor header.',
+        'placement: horizontal and vertical groups must sit next to each other.',
     );
-    assert.equal(
-        alignmentGeometry.placementStartsRow,
-        true,
-        'placement: positioning controls must start at the left edge of the action row.',
+    assert.match(
+        alignmentGeometry.label,
+        /Ausrichtung|Alignment/u,
+        'placement: the positioning options need one shared group label.',
     );
     assert.equal(
         alignmentGeometry.maximizeEndsRow,
         true,
         'placement: maximize must be the only control aligned to the right edge.',
     );
-    assert.equal(
-        alignmentGeometry.verticalSquare,
-        true,
-        'placement: vertical control must be square.',
-    );
-    assert.equal(
-        alignmentGeometry.controlsAreAdjacent,
-        true,
-        'placement: vertical control must sit directly beside the horizontal controls.',
-    );
-    assert.equal(
-        alignmentGeometry.visibleLabels,
-        0,
-        'placement: alignment controls must not have visible labels.',
-    );
     await session.click('[data-testid="horizontal-right"]');
-    await session.click('[data-testid="vertical-alignment-trigger"]');
-    await session.waitForElement('[data-testid="vertical-bottom"]', 5_000);
     const verticalIconGeometry = await session.evaluate<{
         horizontalLines: boolean;
         topOffset: number;
@@ -1332,26 +1346,9 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
             verticalIconGeometry.centerOffset < verticalIconGeometry.bottomOffset,
         'placement: vertical alignment icons must place their lines at top, center, and bottom.',
     );
-    await session.screenshot(join(outputDirectory, 'vertical-alignment-flyout.png'), true);
     await session.click('[data-testid="vertical-bottom"]');
-    const verticalFlyout = await session.evaluate<{ expanded: string | null; icon: boolean }>(`
-        const trigger = document.querySelector('[data-testid="vertical-alignment-trigger"]');
-        return {
-            expanded: trigger.getAttribute('aria-expanded'),
-            icon: Boolean(trigger.querySelector('.alignment-icon--vertical-bottom')),
-        };
-    `);
-    assert.equal(
-        verticalFlyout.expanded,
-        'false',
-        'placement: vertical flyout must close after selection.',
-    );
-    assert.equal(
-        verticalFlyout.icon,
-        true,
-        'placement: vertical trigger must show the current alignment.',
-    );
-    await session.click('[data-testid="play-node"]');
+    await session.screenshot(join(outputDirectory, 'alignment-controls.png'), true);
+    await playGraphNode(session, 'anchored-child');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement(
         '.director-layer__anchor[data-horizontal="right"][data-vertical="bottom"]',
@@ -1379,7 +1376,7 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
         'layer-1',
         'placement: the preceding layer must be selected as the default parent.',
     );
-    await session.click('[data-testid="play-node"]');
+    await playGraphNode(session, 'anchored-child');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement(
         '[data-director-node="anchored-child"] .director-layer__anchor',
@@ -1418,7 +1415,7 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
         input.value = '#example-website';
         input.dispatchEvent(new Event('input', { bubbles: true }));
     `);
-    await session.click('[data-testid="play-node"]');
+    await playGraphNode(session, 'anchored-child');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement(
         '[data-director-node="anchored-child"] .director-layer__anchor',
@@ -1439,6 +1436,22 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
         'placement: DOM selector must define the anchor rectangle.',
     );
     await session.switchFrame();
+    await session.click('[data-testid="viewport-device-trigger"]');
+    await session.waitForElement('.device-flyout__menu .target-option', 10_000);
+    const pickerTargetId = await session.evaluate<string>(`
+        return [...document.querySelectorAll('.device-flyout__menu .target-option')]
+            .find(target => !target.disabled)?.dataset.testid.replace('remote-target-', '') || '';
+    `);
+    assert.ok(pickerTargetId, 'placement: a remote selector target must be available.');
+    await session.click(`[data-testid="remote-target-${pickerTargetId}"]`);
+    await session.waitForScript(
+        `return /geöffnet|Opened preview/u.test(
+            document.querySelector('.notice')?.textContent || ''
+        );`,
+        [],
+        30_000,
+    );
+    await session.waitForState('[data-testid="pick-placement-dom-selector"]', 'enabled', 10_000);
     await session.waitForState('[data-testid="play-workflow"]', 'enabled', 10_000);
     const existingSessions = new Set((await testbench.sessions()).map((candidate) => candidate.id));
     await session.click('[data-testid="pick-placement-dom-selector"]');
@@ -1467,7 +1480,7 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
 }
 
 async function verifyPlayback(session: RemoteSession): Promise<void> {
-    await session.click('[data-testid="play-node"]');
+    await playGraphNode(session, 'layer-1');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement('.director-layer', 5_000);
     await session.switchFrame();
@@ -1476,7 +1489,7 @@ async function verifyPlayback(session: RemoteSession): Promise<void> {
 
 async function verifyExecutionControls(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
-    const project = ProjectFormat.create();
+    const project = ProjectFormat.create('Execution controls');
     const website = project.nodes.find((node) => node.type === 'website')!;
     website.url = '';
     const layer = project.nodes.find((node) => node.type === 'layer')!;
@@ -1484,30 +1497,27 @@ async function verifyExecutionControls(session: RemoteSession): Promise<void> {
     layer.source.html = '<div id="execution-state-test">Running</div>';
     layer.source.css = '#execution-state-test { padding: 2rem; background: white; color: black; }';
     layer.source.javascript = `
-document.querySelector('#execution-state-test').dataset.started = 'true';
+director.root.querySelector('#execution-state-test').dataset.started = 'true';
 await director.wait(3000);
-document.querySelector('#execution-state-test').dataset.completed = 'true';`;
+director.root.querySelector('#execution-state-test').dataset.completed = 'true';`;
     const projectPath = join(outputDirectory, 'execution-state.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
+    await session.waitForValue('.project-title input', 'Execution controls', 10_000);
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 5_000);
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="layer-1"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'layer-1');
 
-    await session.click('[data-testid="play-node"]');
+    await playGraphNode(session, 'layer-1');
     await session.waitForCount('[data-testid="stop-workflow"]', 1, 5_000);
     await session.waitForElement('[model-id="layer-1"]', 5_000);
     const running = await session.evaluate<{
         animation: string;
-        playDisabled: boolean;
         ring: string;
     }>(`
         const node = document.querySelector('[model-id="layer-1"]');
         const ring = node.querySelector('circle.graph-node-status');
         return {
             animation: ring ? getComputedStyle(ring).animationName : 'missing',
-            playDisabled: document.querySelector('[data-testid="play-node"]').disabled,
             ring: node.outerHTML,
         };
     `);
@@ -1517,7 +1527,6 @@ document.querySelector('#execution-state-test').dataset.completed = 'true';`;
         'none',
         'execution: active node needs an animated throbber.',
     );
-    assert.equal(running.playDisabled, true, 'execution: a second playback must be disabled.');
     await session.screenshot(join(outputDirectory, 'execution-running.png'), true);
     await session.click('[data-testid="stop-preview-execution"]');
     await session.waitForElement(
@@ -1532,7 +1541,7 @@ document.querySelector('#execution-state-test').dataset.completed = 'true';`;
         editor.value = "await director.wait(200); throw new Error('Expected execution failure');";
         editor.dispatchEvent(new Event('input', { bubbles: true }));
     `);
-    await session.click('[data-testid="play-node"]');
+    await playGraphNode(session, 'layer-1');
     await session.waitForCount('[data-testid="stop-workflow"]', 1, 5_000);
     await session.waitForCount('[data-testid="play-workflow"]', 1, 5_000);
     await session.waitForElement('[model-id="layer-1"]', 5_000);
@@ -1554,10 +1563,10 @@ async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="add-javascript-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
-    await session.waitForElement('.source-editor--standalone textarea', 5_000);
+    await session.waitForElement('.source-editor textarea', 5_000);
     await session.fill('[data-testid="node-name"]', 'Prepare GTP');
     await session.fill(
-        '.source-editor--standalone textarea',
+        '.source-editor textarea',
         "document.body.dataset.prepared = 'true';",
     );
     await session.click('[data-testid="node-actions-trigger"]');
@@ -1659,6 +1668,7 @@ async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         /cardName/u,
         'nodes: a script wait must retain its result-producing source.',
     );
+    await session.setViewport(1440, 700);
     const propertiesScroll = await session.evaluate<{
         clientHeight: number;
         scrollHeight: number;
@@ -1822,7 +1832,7 @@ async function verifyCameraSessionConfiguration(session: RemoteSession): Promise
         target: 'website-root',
     });
     project.browserSession = {
-        target: { browser: 'chrome-android', deviceKind: 'emulator' },
+        target: { browser: null, deviceKind: null },
         localOrigins: 'reverse',
         permissions: [],
         language: 'de',
@@ -1841,9 +1851,7 @@ async function verifyCameraSessionConfiguration(session: RemoteSession): Promise
         ),
     ]);
     await session.upload('[data-testid="project-file-input"]', projectPath);
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="camera-image"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'camera-image');
     await session.waitForElement('[data-testid="project-input-camera-image"]', 5_000);
     await session.waitForValue(
         '[data-testid="project-input-camera-image-prepare-module-0"]',
@@ -1923,11 +1931,13 @@ async function verifyCameraSessionConfiguration(session: RemoteSession): Promise
         5_000,
     );
     await session.screenshot(join(outputDirectory, 'input-node.png'), true);
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="website-root"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'website-root');
     await session.click('[data-testid="viewport-device-trigger"]');
     await session.waitForElement('.device-flyout__menu', 5_000);
+    await session.waitForElement(
+        '.device-flyout__menu [data-testid^="remote-target-"]',
+        30_000,
+    );
     const targetState = await session.evaluate<{
         options: Array<{ value: string; disabled: boolean }>;
     }>(`
@@ -2002,11 +2012,12 @@ async function verifyEditableConnections(session: RemoteSession): Promise<void> 
 async function verifyJavaScriptNode(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
     await session.refresh();
-    const project = ProjectFormat.create();
+    const project = ProjectFormat.create('JavaScript node');
     const website = project.nodes.find((node) => node.type === 'website')!;
     website.url = '/example-site.html';
+    website.position = { x: 32, y: 8 };
     const layer = project.nodes.find((node) => node.type === 'layer')!;
-    layer.position = { x: 32, y: 144 };
+    layer.position = { x: 544, y: 8 };
     layer.source.html = '<div id="test-layer"></div>';
     project.nodes.splice(1, 0, {
         id: 'prepare-website',
@@ -2032,12 +2043,11 @@ root.dataset.speed = director.speed;`,
     const projectPath = join(outputDirectory, 'javascript-node.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
+    await session.waitForValue('.project-title input', 'JavaScript node', 10_000);
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="prepare-website"] [joint-selector="bodyText"] .v-line',
-    );
-    await session.waitForElement('.source-editor--standalone textarea', 5_000);
+    await selectGraphNode(session, 'prepare-website');
+    await session.waitForElement('.source-editor textarea', 5_000);
     await session.click('[data-testid="maximize-editor"]');
     const maximizedEditor = await session.evaluate<{
         panelWidth: number;
@@ -2046,7 +2056,7 @@ root.dataset.speed = director.speed;`,
         editorHeight: number;
     }>(`
         const panel = document.querySelector('.editor-panel').getBoundingClientRect();
-        const editor = document.querySelector('.source-editor--standalone textarea').getBoundingClientRect();
+        const editor = document.querySelector('.source-editor textarea').getBoundingClientRect();
         return {
             panelWidth: panel.width,
             panelHeight: panel.height,
@@ -2064,8 +2074,8 @@ root.dataset.speed = director.speed;`,
     );
     await session.screenshot(join(outputDirectory, 'javascript-editor-maximized.png'), true);
     await session.click('[data-testid="maximize-editor"]');
-    await session.waitForState('.preview-viewport iframe', 'absent', 5_000);
-    await session.click('[data-testid="play-node"]');
+    await session.waitForState('.preview-viewport iframe', 'present', 5_000);
+    await playGraphNode(session, 'prepare-website');
     await session.switchFrame('.preview-viewport iframe');
     await session.switchFrame('.director-website');
     await session.waitForState(
@@ -2089,10 +2099,8 @@ root.dataset.speed = director.speed;`,
     await session.waitForState('#example-website[data-runs="2"]', 'present', 5_000);
     await session.switchFrame();
 
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="layer-1"] [joint-selector="bodyText"] .v-line',
-    );
-    await session.click('[data-testid="play-node"]');
+    await selectGraphNode(session, 'layer-1');
+    await playGraphNode(session, 'layer-1');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement('.director-layer', 5_000);
     await session.switchFrame('.director-website');
@@ -2131,9 +2139,7 @@ async function verifyProjectRoundtrip(session: RemoteSession): Promise<void> {
         writeFile(inputPath, 'persistent input', 'utf8'),
     ]);
     await session.upload('[data-testid="project-file-input"]', projectPath);
-    await session.click(
-        '[data-testid="graph-canvas"] .joint-element[model-id="roundtrip-input"] [joint-selector="bodyText"] .v-line',
-    );
+    await selectGraphNode(session, 'roundtrip-input');
     await session.waitForElement('[data-testid="project-input-roundtrip-input"]', 5_000);
     await session.evaluate(`
         Object.defineProperty(window, 'showSaveFilePicker', {
@@ -2183,8 +2189,8 @@ async function verifyProjectRoundtrip(session: RemoteSession): Promise<void> {
         [],
         10_000,
     );
-    await session.waitForState('.preview-viewport iframe', 'absent', 5_000);
-    await session.click('[data-testid="play-node"]');
+    await session.waitForState('.preview-viewport iframe', 'present', 5_000);
+    await playGraphNode(session, 'layer-1');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement(
         '.director-layer__anchor[data-horizontal="center"][data-vertical="center"]',
@@ -2321,7 +2327,9 @@ async function verifyRecordingExport(session: RemoteSession): Promise<void> {
         return value;
     `);
     const start = recording.urls.findIndex((url) => url.endsWith('/recording/start'));
-    const execution = recording.urls.findIndex((url) => url.endsWith('/browser'));
+    const execution = recording.urls.findIndex(
+        (url, index) => index > start && url.endsWith('/browser'),
+    );
     const stop = recording.urls.findIndex((url) => url.endsWith('/recording/stop'));
     const artifact = recording.urls.findIndex((url) => url.includes('/recording/artifacts/'));
     assert.ok(
