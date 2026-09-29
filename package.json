@@ -1,16 +1,49 @@
 {
     "name": "browser-testbench-director",
-    "private": true,
+    "version": "0.1.0",
+    "description": "Visual workflow editor and video renderer for Browser Testbench",
+    "author": "Lars-Erich Kiefer",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/llakie/browser-testbench-director.git"
+    },
+    "bugs": {
+        "url": "https://github.com/llakie/browser-testbench-director/issues"
+    },
+    "homepage": "https://github.com/llakie/browser-testbench-director#readme",
+    "publishConfig": {
+        "access": "public"
+    },
+    "keywords": [
+        "browser-automation",
+        "browser-testbench",
+        "visual-workflow",
+        "video-rendering",
+        "mcp"
+    ],
     "type": "module",
     "bin": {
         "browser-testbench-director": "dist/server/server/cli.js"
     },
+    "files": [
+        "CHANGELOG.md",
+        "dist",
+        "docs/project-format.md",
+        "docs/releases",
+        "LICENSE.txt",
+        "THIRD_PARTY_LICENSES.txt"
+    ],
     "scripts": {
         "dev": "node --import tsx src/server/cli.ts start --dev",
         "dev:https": "node --import tsx src/server/cli.ts start --dev --https",
-        "build": "npm run build:ui && npm run build:server",
+        "build": "npm run licenses && npm run clean && npm run build:ui && npm run build:server && node scripts/prepare-cli.mjs",
         "build:ui": "vite build",
         "build:server": "tsc -p tsconfig.server.json",
+        "clean": "rimraf dist",
+        "format:check": "prettier --check .",
+        "licenses": "node scripts/generate-licenses.mjs",
+        "licenses:check": "node scripts/generate-licenses.mjs --check",
         "preview": "node dist/server/server/cli.js start",
         "start": "node dist/server/server/cli.js start",
         "test": "node --import tsx --test tests/**/*.spec.ts",
@@ -22,13 +55,21 @@
         "verify:core": "npm run typecheck && npm test && npm run build",
         "verify:browser": "npm run test:ui && npm run test:input-persistence && npm run test:remote && npm run test:recording",
         "verify": "npm run verify:core && npm run verify:browser",
+        "verify:package": "node scripts/verify-package.mjs",
+        "verify:release": "npm run verify && npm run verify:package",
+        "prepare": "npm run build",
         "testbench:start:no-open": "browser-testbench start --no-open"
+    },
+    "engines": {
+        "node": "^22.12.0 || >=24.0.0"
     },
     "devDependencies": {
         "@types/node": "^24.5.2",
         "@vitejs/plugin-vue": "^6.0.9",
         "onnxruntime-web": "1.29.0",
+        "generate-license-file": "4.2.3",
         "prettier": "^3.8.1",
+        "rimraf": "6.1.3",
         "sass": "^1.105.0",
         "sharp": "^0.35.4",
         "tsx": "^4.23.12",
@@ -41,7 +82,7 @@
         "acorn": "^8.15.0",
         "acorn-walk": "^8.3.4",
         "bootstrap-icons": "^1.13.1",
-        "browser-testbench": "^0.5.1",
+        "browser-testbench": "0.6.0",
         "elkjs": "^0.11.1",
         "es-module-lexer": "3.0.2",
         "selfsigned": "^5.5.0",

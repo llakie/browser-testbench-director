@@ -361,10 +361,7 @@ export class JointLayerGraph {
                 statusRing: JointLayerGraph.statusRing(execution),
                 statusText: JointLayerGraph.statusText(execution),
             });
-            const title = [
-                connected ? '' : disconnectedLabel,
-                JointLayerGraph.nodeDetail(node),
-            ]
+            const title = [connected ? '' : disconnectedLabel, JointLayerGraph.nodeDetail(node)]
                 .filter(Boolean)
                 .join(' · ');
             cell.attr('body/title', title);

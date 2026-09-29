@@ -1,6 +1,6 @@
-# Director-Projektformat
+# Director Project Format
 
-Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.json` gespeichert. `format` und `version` bilden die stabile Formatkennung. Version 7 enthält `input`- und `capability`-Nodes, genau eine `website`-Root-Node, ausführbare `layer`-, `javascript`-, `browser-action`- und `browser-wait`-Nodes sowie explizite Verbindungen. Version 5 und 6 werden beim Öffnen einmalig auf Version 7 migriert; ältere Versionen werden nicht unterstützt.
+Director projects are stored as UTF-8 encoded JSON files with the `.btd.json` extension. `format` and `version` form the stable format identifier. Version 7 contains `input` and `capability` nodes, exactly one `website` root node, executable `layer`, `javascript`, `browser-action`, and `browser-wait` nodes, and explicit connections. Versions 5 and 6 are migrated to version 7 once when opened; older versions are not supported.
 
 ```json
 {
@@ -29,7 +29,7 @@ Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.js
         {
             "id": "camera-image",
             "type": "input",
-            "name": "Kartenfoto",
+            "name": "Card image",
             "position": null,
             "accept": "image/jpeg,image/png,image/webp",
             "required": true,
@@ -43,7 +43,7 @@ Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.js
         {
             "id": "story-font",
             "type": "input",
-            "name": "Story-Schrift",
+            "name": "Story font",
             "position": null,
             "accept": ".ttf,font/ttf",
             "required": true
@@ -51,7 +51,7 @@ Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.js
         {
             "id": "camera-capability",
             "type": "capability",
-            "name": "Virtuelle Kamera",
+            "name": "Virtual camera",
             "position": null,
             "capability": "camera"
         },
@@ -72,7 +72,7 @@ Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.js
         {
             "id": "wait-for-camera-choice",
             "type": "browser-wait",
-            "name": "Auf Kameraauswahl warten",
+            "name": "Wait for camera choice",
             "position": null,
             "condition": "element",
             "selector": "[data-testid=\"select-camera-source\"]",
@@ -84,7 +84,7 @@ Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.js
         {
             "id": "open-camera",
             "type": "browser-action",
-            "name": "Kamera öffnen",
+            "name": "Open camera",
             "position": null,
             "action": "click",
             "selector": "[data-testid=\"select-camera-source\"]"
@@ -152,43 +152,43 @@ Director-Projekte werden als UTF-8-kodierte JSON-Dateien mit der Endung `.btd.js
 }
 ```
 
-Jede Node- und Verbindungs-ID muss innerhalb eines Projekts eindeutig sein. Eine Verbindung verweist mit `source` und `target` auf vorhandene Nodes. Der ausführbare Workflow ab der Website-Root bleibt linear. Beliebig viele Input-Nodes dürfen direkt in die Website-Root oder in eine Capability führen. Eine verbundene Capability besitzt genau einen Input und führt anschließend in die Website-Root. Die Reihenfolge im `nodes`-Array beeinflusst die Ausführung nicht.
+Every node and connection ID must be unique within a project. A connection references existing nodes through `source` and `target`. The executable workflow starting at the website root remains linear. Any number of input nodes may connect directly to the website root or to a capability. A connected capability has exactly one input and then connects to the website root. The order of the `nodes` array does not affect execution.
 
-`viewport` beschreibt ausschließlich den Layout-Viewport in CSS-Pixeln. Responsive Breakpoints, `vw`, `vh` und DOM-Messungen verwenden diese Größe. `output` beschreibt davon unabhängig die Pixelmaße des exportierten Videos. Beispielsweise bildet `360 × 640` CSS-Pixel mit einer Ausgabe von `1080 × 1920` ein 9:16-Smartphone bei effektiv dreifacher Pixeldichte ab. Die Vorschau wird mit `viewport` gerendert; die Aufnahme wird beim Export auf `output` normalisiert.
+`viewport` describes only the layout viewport in CSS pixels. Responsive breakpoints, `vw`, `vh`, and DOM measurements use this size. Independently, `output` describes the pixel dimensions of the exported video. For example, `360 × 640` CSS pixels with a `1080 × 1920` output represent a 9:16 phone at an effective three-times pixel density. The preview renders at `viewport`; the recording is normalized to `output` during export.
 
-`input`-Nodes beschreiben beliebig viele generische Laufzeit-Dateien, ohne deren lokale Inhalte in die Projektdatei einzubetten. Eine Auswahl wird content-addressiert unter `projects/.director-assets/` gespeichert; `file` enthält im JSON lediglich Asset-Pfad, Dateiname, MIME-Typ, Größe und SHA-256. Beim erneuten Öffnen stellt der Director die geprüfte Datei automatisch wieder her. Der Dateiselektor und die aktuelle Auswahl sind direkt in der Diagramm-Node sichtbar; MIME-Typen, Pflichtfeld und Prepare-Module liegen in den Node-Eigenschaften. Verbundene Input-Nodes werden vor der Website validiert und vorbereitet. `required: true` verhindert die Ausführung, solange keine Datei gewählt wurde. Optional enthält `prepare.modules` eine geordnete Pipeline aus `.mjs`-Modulen unter `projects/`. Jedes Modul exportiert `async prepare({ sourcePath, targetPath })`, schreibt die vorbereitete Datei nach `targetPath` und gibt `{ filename, contentType }` zurück; seine Ausgabe wird zur Eingabe des nächsten Moduls. Der Director selbst kennt keine projektspezifischen Transformationen.
+`input` nodes describe any number of generic runtime files without embedding their local contents in the project file. A selection is stored by content address under `projects/.director-assets/`; in the JSON, `file` contains only the asset path, filename, MIME type, size, and SHA-256 hash. When the project is opened again, Director restores the verified file automatically. The file picker and current selection are visible directly in the diagram node; MIME types, required state, and preparation modules are configured in the node properties. Connected input nodes are validated and prepared before the website starts. `required: true` prevents execution until a file has been selected. Optionally, `prepare.modules` contains an ordered pipeline of `.mjs` modules below `projects/`. Each module exports `async prepare({ sourcePath, targetPath })`, writes the prepared file to `targetPath`, and returns `{ filename, contentType }`; its output becomes the next module's input. Director itself has no knowledge of project-specific transformations.
 
-Eine `capability`-Node beschreibt, wie die Browserumgebung einen verbundenen Input bereitstellt. Die zunächst unterstützte Capability `camera` verbindet einen Bild-Input als virtuelle Kamera mit der Website. Daraus leitet der Director Kameraberechtigung, Medieninjektion und Target-Kompatibilität automatisch ab. Auf mobilen Targets kann Browser Testbench das Bild nativ injizieren; Desktop-Browser verwenden dafür die reloadfeste Director-Shell. Aufnahmeziele müssen zusätzlich Viewport-Recording unterstützen. Die Datei selbst bleibt Eigentum der vorgeschalteten Input-Node.
+A `capability` node describes how the browser environment provides a connected input. The initially supported `camera` capability connects an image input to the website as a virtual camera. Director automatically derives camera permission, media injection, and target compatibility from it. Browser Testbench can inject the image natively on mobile targets; desktop browsers use Director's reload-safe preview shell. Recording targets must additionally support viewport recording. The file itself remains owned by the preceding input node.
 
-`browserSession.target` filtert die Target-Auswahl optional nach Browser und Device-Art. `localOrigins`, zusätzliche `permissions`, `language` und `locale` werden in die Browser-Testbench-Session übernommen. Anforderungen aus Capability-Nodes müssen dort nicht doppelt konfiguriert werden.
+`browserSession.target` optionally filters target selection by browser and device kind. `localOrigins`, additional `permissions`, `language`, and `locale` are passed to the Browser Testbench session. Requirements derived from capability nodes do not need to be configured there again.
 
-Im Szenengraph wird eine Verbindung vom orangefarbenen Ausgang einer Node zum grauen Eingang der nächsten Node gezogen. Ein Klick auf den Mittelpunkt einer Verbindung wählt sie aus; anschließend kann sie mit dem Papierkorb im Graph-Header oder mit `Entf`/`Backspace` gelöscht werden. Nodes, die von der Website-Root aus nicht erreichbar sind, werden gestrichelt dargestellt und bei der Workflow-Wiedergabe übersprungen.
+In the scene graph, a connection is drawn from a node's orange output to the next node's gray input. Clicking the midpoint of a connection selects it; it can then be deleted with the trash button in the graph header or with `Delete`/`Backspace`. Nodes that cannot be reached from the website root are rendered with a dashed outline and skipped during workflow playback.
 
-`position: null` bedeutet, dass ELK die Node automatisch anordnet. Neue und duplizierte Nodes beginnen in diesem Zustand. Erst wenn eine Node tatsächlich verschoben wird, speichert der Director ihre feste `{ "x": …, "y": … }`-Position. Manuell platzierte Nodes bleiben bei späteren automatischen Neuberechnungen unangetastet. Der Auto-Layout-Button setzt alle Positionen wieder auf `null`. ELK Layered verteilt lange Workflows mit Graph-Wrapping kompakt auf mehrere Zeilen; JointJS routet Verbindungen orthogonal und weicht anderen Nodes aus. Die Workflow-Reihenfolge bleibt unverändert.
+`position: null` means that ELK arranges the node automatically. New and duplicated nodes start in this state. Director stores a fixed `{ "x": …, "y": … }` position only after a node has actually been moved. Manually positioned nodes remain untouched by later automatic recalculations. The auto-layout button resets every position to `null`. ELK Layered distributes long workflows compactly across multiple rows with graph wrapping; JointJS routes connections orthogonally around other nodes. The workflow order remains unchanged.
 
-Die `url` der Website-Root wird hinter den Layern geladen. Eine `javascript`-Node läuft im Dokument dieser Website; Layer-JavaScript läuft dagegen im Overlay-Dokument. `browser-wait` wartet mit einem positiven `timeoutMs` auf die konfigurierte Bedingung `element`, `url` oder `script`. Ein Script-Wait wird wiederholt, bis er einen wahrheitswertigen Rückgabewert liefert. `browser-action` führt anschließend die konfigurierte Interaktion aus; derzeit wird `click` unterstützt. Beide Node-Typen verwenden in der Remote-Vorschau die nativen Browser-Testbench-Endpunkte.
+The website root's `url` is loaded behind the layers. A `javascript` node runs in that website's document, while layer JavaScript runs in the overlay document. `browser-wait` waits for the configured `element`, `url`, or `script` condition with a positive `timeoutMs`. A script wait repeats until it returns a truthy value. `browser-action` performs the configured interaction; `click` is currently supported. Both node types use native Browser Testbench endpoints in a remote preview.
 
-`placement` richtet den Layer-Inhalt innerhalb einer Bezugsfläche aus. `horizontal` akzeptiert `left`, `center` oder `right`, `vertical` akzeptiert `top`, `center` oder `bottom`. Zusammen ergeben beide Angaben das 3×3-Ausrichtungsraster. `reference` wählt die Bezugsfläche:
+`placement` aligns layer content within a reference rectangle. `horizontal` accepts `left`, `center`, or `right`; `vertical` accepts `top`, `center`, or `bottom`. Together, the two values form the 3×3 alignment grid. `reference` selects the reference rectangle:
 
-- `{ "type": "viewport" }` verwendet den gesamten Viewport.
-- `{ "type": "layer", "nodeId": "…" }` verwendet den Content-Container einer vorherigen Layer-Node. Solange dieser sichtbar ist, folgt die Geometrie live; nach dem Entfernen wird das letzte gültige Rechteck des aktuellen Laufs verwendet.
-- `{ "type": "dom", "selector": "…" }` verwendet das erste passende Element im Website-DOM. Der Editor kann den Selector über Browser Testbench auswählen.
+- `{ "type": "viewport" }` uses the entire viewport.
+- `{ "type": "layer", "nodeId": "…" }` uses the content container of a preceding layer node. Its geometry is followed live while it remains visible; after removal, the last valid rectangle from the current run is used.
+- `{ "type": "dom", "selector": "…" }` uses the first matching element in the website DOM. The editor can select the element through Browser Testbench.
 
-Die Runtime positioniert dafür einen eigenen Anchor-Container. Sie verändert `transform` des eigentlichen Layer-Contents nicht, sodass es vollständig für Layer-Animationen verfügbar bleibt. Ein nicht messbares Ziel erzeugt einen Ausführungsfehler. Gemessene Rechtecke gehören nur zum aktuellen Lauf und werden nicht im Projekt gespeichert.
+The runtime positions a dedicated anchor container for this purpose. It does not modify the actual layer content's `transform`, leaving it fully available for layer animations. A target that cannot be measured causes an execution error. Measured rectangles belong only to the current run and are not stored in the project.
 
-Die Abmessungen des Inhalts bleiben Sache des Layer-CSS. HTML, CSS und JavaScript werden unverändert als Strings erhalten und für die Vorschau in einem isolierten `iframe` zusammengesetzt. Unbekannte Formate, Versionen, Positionierungen oder unvollständige Layer-Quellen werden beim Laden abgelehnt.
+Content dimensions remain the responsibility of the layer CSS. HTML, CSS, and JavaScript are preserved unchanged as strings and assembled in an isolated `iframe` for preview. Unknown formats, versions, placements, or incomplete layer sources are rejected during loading.
 
-`playback.durationMs` hält einen Layer nach seinem JavaScript für die angegebene Dauer sichtbar. Bei `removeAfter: true` entfernt die Runtime anschließend sowohl Overlay als auch zugehörigen Style. Im Catch-up wird die Haltedauer übersprungen, Mount, JavaScript, Rückgabewert und Cleanup werden aber weiterhin ausgeführt. Mit `durationMs: 0` und `removeAfter: false` bleibt ein Layer wie bisher bestehen.
+`playback.durationMs` keeps a layer visible for the specified duration after its JavaScript completes. With `removeAfter: true`, the runtime then removes both the overlay and its associated style. Catch-up skips the hold duration while still executing mount, JavaScript, return value handling, and cleanup. With `durationMs: 0` and `removeAfter: false`, a layer remains mounted.
 
-## Wiedergabe und Runtime
+## Playback and Runtime
 
-- **Node abspielen** lädt die Website neu, führt alle Vorgänger mit `director.speed === "catchup"` aus, spielt nur die gewählte Node live und hält anschließend an. Die Auswahl einer Node allein verändert den Browserzustand nicht.
-- **Auf aktuellem Zustand ausführen** führt als sekundäre Entwickleraktion nur die gewählte Node ohne Reset aus.
-- **Workflow abspielen** lädt die Website neu und führt alle Nodes live aus.
-- **Workflow aufnehmen** öffnet eine frische Browser-Testbench-Session, zeichnet den Viewport während der vollständigen Workflow-Wiedergabe auf und exportiert ein auf `output.width` × `output.height` normalisiertes MP4.
+- **Play node** reloads the website, executes every predecessor with `director.speed === "catchup"`, plays only the selected node live, and then stops. Selecting a node alone does not modify browser state.
+- **Run on current state** is a secondary development action that executes only the selected node without a reset.
+- **Play workflow** reloads the website and executes every node live.
+- **Record workflow** opens a fresh Browser Testbench session, records its viewport during complete workflow playback, and exports an MP4 normalized to `output.width` × `output.height`.
 
-Die Runtime stellt Layer- und JavaScript-Nodes `director.wait(milliseconds)`, `director.waitFor(selector, timeout?)`, `director.results` und `director.inputs` bereit. `director.inputs` ist eine unveränderliche Zuordnung der gewählten Nicht-Kamera-Dateien zu Data-URLs. `director.wait` wartet bei Live-Wiedergabe real und kehrt im Catch-up sofort zurück. `waitFor` und eigenständige `browser-wait`-Nodes bleiben auch im Catch-up echte Zustandsbedingungen. Bei `omitFromRecording: true` läuft eine `browser-wait`-Node real ab, ihr Zeitabschnitt wird aber nicht in den Videoexport übernommen. Mit `false` bleibt die Wartezeit Teil des Exports. Eigenständig verwendete globale Timer werden bewusst nicht manipuliert. Dadurch bleibt beliebiges JavaScript verständlich; nur explizit über die Runtime beschriebene Zeit kann sicher beschleunigt werden.
+The runtime provides layer and JavaScript nodes with `director.wait(milliseconds)`, `director.waitFor(selector, timeout?)`, `director.results`, and `director.inputs`. `director.inputs` is an immutable mapping from selected non-camera files to data URLs. `director.wait` waits for real time during live playback and returns immediately during catch-up. `waitFor` and standalone `browser-wait` nodes remain real state conditions during catch-up. With `omitFromRecording: true`, a `browser-wait` node still runs in real time, but its interval is excluded from the video export. With `false`, the wait remains part of the export. Independently used global timers are deliberately not modified. This keeps arbitrary JavaScript understandable; only time described explicitly through the runtime can be accelerated safely.
 
-Jede ausführbare Node darf einen JSON-kompatiblen Wert zurückgeben. Die Runtime speichert ihn unter ihrer Node-ID. Nachfolgende Layer- und JavaScript-Nodes greifen beispielsweise mit `director.results['recognized-card'].cardName` darauf zu. Ein Gesamtworkflow und die primäre Node-Wiedergabe beginnen mit einem leeren Ergebniskontext; Vorgänger bauen ihn beim Catch-up erneut auf. Nur die sekundäre Entwickleraktion läuft mit den Ergebnissen des aktuellen Seitenzustands. Beim Navigieren oder Neuladen der Website wird der Kontext verworfen.
+Every executable node may return a JSON-compatible value. The runtime stores it under the node ID. Subsequent layer and JavaScript nodes can access it, for example through `director.results['recognized-card'].cardName`. A complete workflow and primary node playback begin with an empty result context; predecessors rebuild it during catch-up. Only the secondary development action runs with results from the current page state. Navigating or reloading the website discards the context.
 
-`director.root` verweist in einer Layer-Node auf deren Inhaltswurzel, in einer JavaScript-Node ist es `null`. `director.document` verweist auf das jeweils gesteuerte Dokument. Websites wie Binderium, die eine Einbettung mit `frame-ancestors 'none'` beziehungsweise `X-Frame-Options: DENY` verhindern, können in der lokalen iframe-Vorschau nicht als Hintergrund erscheinen. Die Browser-Testbench-Vorschau öffnet solche Websites stattdessen als Hauptdokument und injiziert Layer und JavaScript über WebDriver direkt in die Seite.
+In a layer node, `director.root` references that layer's content root; in a JavaScript node, it is `null`. `director.document` references the document currently being controlled. Websites such as Binderium that prevent embedding through `frame-ancestors 'none'` or `X-Frame-Options: DENY` cannot appear as the background of the local iframe preview. Instead, the Browser Testbench preview opens such websites as the main document and injects layers and JavaScript directly into the page through WebDriver.

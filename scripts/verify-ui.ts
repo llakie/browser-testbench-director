@@ -94,16 +94,36 @@ async function verifyEmptyProjectPlayback(session: RemoteSession): Promise<void>
             notice: document.querySelector('.notice')?.textContent?.trim() ?? '',
         };
     `);
-    assert.equal(state.nestedWebsite, false, 'empty project: playback must not proxy the Director itself.');
-    assert.equal(state.previewBackground, 'rgb(255, 255, 255)', 'empty project: playback stays white.');
-    assert.equal(state.responsive, true, 'empty project: playback must leave the Director responsive.');
-    assert.equal(state.rootStatus, '!', 'empty project: the invalid website root must show an error.');
+    assert.equal(
+        state.nestedWebsite,
+        false,
+        'empty project: playback must not proxy the Director itself.',
+    );
+    assert.equal(
+        state.previewBackground,
+        'rgb(255, 255, 255)',
+        'empty project: playback stays white.',
+    );
+    assert.equal(
+        state.responsive,
+        true,
+        'empty project: playback must leave the Director responsive.',
+    );
+    assert.equal(
+        state.rootStatus,
+        '!',
+        'empty project: the invalid website root must show an error.',
+    );
     assert.equal(
         state.rootStroke,
         'var(--color-status-error)',
         'empty project: the root must use the standard node error outline.',
     );
-    assert.match(state.notice, /Website-URL|website URL/u, 'empty project: playback explains the missing URL.');
+    assert.match(
+        state.notice,
+        /Website-URL|website URL/u,
+        'empty project: playback explains the missing URL.',
+    );
 }
 
 async function verifyFlyoutCollision(session: RemoteSession): Promise<void> {

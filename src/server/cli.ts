@@ -54,7 +54,7 @@ async function startServer(
     const browserTestbench = await BrowserTestbenchInstallation.resolve();
     const https = options.https
         ? await LocalHttpsCertificate.resolve(
-              packageRoot,
+              projectDirectory,
               options.httpsCertificate,
               options.httpsKey,
           )

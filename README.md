@@ -2,9 +2,22 @@
 
 Browser Testbench Director ist ein JSON-basierter Editor und Player für Website-Automationen und darüberliegende Video-Layer. Produktionsprojekte liegen lokal unter `projects/`, werden nicht eingecheckt und bringen ihre projektspezifischen Assets, Prepare-Module und Prüfskripte selbst mit.
 
+Release-Dokumentation: [Browser Testbench Director 0.1.0](docs/releases/0.1.0.md).
+
+## Installation
+
+Browser Testbench Director benötigt Node.js 22.12 oder Node.js 24 und `ffmpeg` sowie `ffprobe` auf dem `PATH` für Videoexporte. Browser Testbench wird als Paketabhängigkeit mitinstalliert und muss nicht separat global eingerichtet werden.
+
+```bash
+npm install --global browser-testbench-director
+browser-testbench-director start
+```
+
+Die Oberfläche ist anschließend standardmäßig unter `http://127.0.0.1:5173` erreichbar. Mit `browser-testbench-director start --https` wird ein lokales Zertifikat im aktuellen Arbeitsverzeichnis erzeugt. Projektdateien und zugehörige Assets bleiben ebenfalls im gewählten Arbeitsverzeichnis.
+
 ## Director UI
 
-Der Director-Editor verarbeitet Input-Nodes, eine Website-Root sowie Layer-, JavaScript-, Browser-Aktions- und Warte-Nodes. Jeder Layer belegt eine transparente Vollbildfläche; sein Inhalt kann daran ausgerichtet oder an einer geerbten Position platziert werden und bestimmt seine Größe selbst per CSS. Browser-Aktionen und Wartebedingungen werden typisiert konfiguriert; Element-, URL- und Script-Waits sowie Klicks sind vollständig lokal und über Browser Testbench ausführbar. Rückgabewerte werden unter der Node-ID gespeichert und stehen späteren Layern und Scripts über `director.results` zur Verfügung. Die Reihenfolge im JointJS-Graphen ist der ausführbare Workflow. Ein Node-Klick wählt ausschließlich aus. Der Play-Button einer Node lädt die Website neu, rekonstruiert alle Vorgänger samt Datenfluss im Catch-up und spielt nur die gewählte Node live; ein Marker zeigt anschließend den vorbereiteten Stand. Die direkte Ausführung auf dem aktuellen Seitenzustand bleibt als Entwickleraktion im Node-Menü verfügbar. Der Play-Button im Graph-Header startet den gesamten Workflow neu.
+Der Director-Editor verarbeitet Input-Nodes, eine Website-Root sowie Layer-, JavaScript-, Browser-Aktions- und Warte-Nodes. Jeder Layer belegt eine transparente Vollbildfläche; sein Inhalt kann daran ausgerichtet oder an einer geerbten Position platziert werden und bestimmt seine Größe selbst per CSS. Browser-Aktionen und Wartebedingungen werden typisiert konfiguriert; Element-, URL- und Script-Waits sowie Klicks sind vollständig lokal und über Browser Testbench ausführbar. Rückgabewerte werden unter der Node-ID gespeichert und stehen späteren Layern und Scripts über `director.results` zur Verfügung. Die Reihenfolge im JointJS-Graphen ist der ausführbare Workflow. Ein Node-Klick wählt ausschließlich aus. Der Play-Button einer Node lädt die Website neu, rekonstruiert alle Vorgänger samt Datenfluss im Catch-up und spielt nur die gewählte Node live. Die direkte Ausführung auf dem aktuellen Seitenzustand bleibt als Entwickleraktion im Node-Menü verfügbar. Der Play-Button im Graph-Header startet den gesamten Workflow neu.
 
 Änderungen an ausführungsrelevanten Node-Eigenschaften starten niemals automatisch Code. Stattdessen erhält der Play-Button der geänderten Node eine Akzentumrahmung. Erst ein Klick rekonstruiert Website und Vorgänger im Catch-up und gibt die Node mit den aktuellen Eigenschaften wieder; nach erfolgreicher Wiedergabe verschwindet die Umrahmung. Der reine Anzeigename ist davon ausgenommen, weil er den Runtime-Zustand nicht beeinflusst. Damit bleiben Auswahl, Bearbeitung und Ausführung auch bei JavaScript mit beliebigen DOM-Seiteneffekten klar getrennt.
 
@@ -56,6 +69,8 @@ Der MCP-Server stellt Werkzeuge zum Auflisten, Lesen, Erstellen und vollständig
 Browser-Aktions-Nodes und elementbasierte Wait-Nodes besitzen neben dem CSS-Selektor einen Fadenkreuz-Button. Der Director öffnet dafür auf dem gewählten Browser-Testbench-Target eine frische Session, führt alle Vorgänger im Catch-up aus und aktiviert anschließend die Elementauswahl. Das Element wird beim Zeigen hervorgehoben; der Klick selbst wird unterdrückt und als stabiler Selektor übernommen. Bevorzugt werden `data-testid`, eindeutige IDs und semantische Attribute, danach eindeutige Klassen und erst zuletzt ein struktureller Pfad. `Escape` oder der aktive Picker-Button brechen die Auswahl ab.
 
 Das Projektformat ist unter [docs/project-format.md](docs/project-format.md) beschrieben.
+
+Projektlizenz und Hinweise zu Abhängigkeiten werden als `LICENSE.txt` und `THIRD_PARTY_LICENSES.txt` mit dem npm-Paket ausgeliefert.
 
 Der reproduzierbare Browser-Test erwartet die laufende Director-UI und eine lokale Browser-Testbench:
 

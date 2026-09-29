@@ -59,8 +59,7 @@ export class StageZoomGesture {
         const center = this.center();
         const update = {
             zoom:
-                this.#startZoom *
-                Math.pow(this.distance() / this.#startDistance, this.sensitivity),
+                this.#startZoom * Math.pow(this.distance() / this.#startDistance, this.sensitivity),
             previousCenter: this.#lastCenter,
             center,
         };

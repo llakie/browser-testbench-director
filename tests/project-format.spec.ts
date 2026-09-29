@@ -363,10 +363,7 @@ test('Layer-Skripte steuern in der lokalen Vorschau das Website-Dokument', () =>
     const preview = PreviewDocument.build(layer, 'https://example.com/');
 
     assert.match(preview, /await websiteReady;\s+const targetDocument = websiteDocument\(\);/u);
-    assert.match(
-        preview,
-        /createDirectorRuntime\([\s\S]*?inputs,\s+websiteDocument,\s+\);/u,
-    );
+    assert.match(preview, /createDirectorRuntime\([\s\S]*?inputs,\s+websiteDocument,\s+\);/u);
 });
 
 test('Lokale Vorschau verwendet den konfigurierten Datei-Input als virtuelle Kamera', () => {

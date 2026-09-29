@@ -416,9 +416,7 @@ export class BrowserTestbenchPreview {
                 continue;
             }
             const includeInterval =
-                markIntervals &&
-                step.type === 'browser-wait' &&
-                !step.omitFromRecording;
+                markIntervals && step.type === 'browser-wait' && !step.omitFromRecording;
             if (includeInterval) {
                 await this.mark(sessionId, 'director.wait.start', {
                     nodeId: step.id,
@@ -428,11 +426,7 @@ export class BrowserTestbenchPreview {
                 await this.executeRuntimeStep(sessionId, step);
             } finally {
                 if (includeInterval) {
-                    await this.mark(
-                        sessionId,
-                        'director.wait.end',
-                        { nodeId: step.id },
-                    );
+                    await this.mark(sessionId, 'director.wait.end', { nodeId: step.id });
                 }
             }
         }

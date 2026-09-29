@@ -107,9 +107,7 @@ test('Workflow-Graph verbindet einen Datei-Input über die Kamera-Capability mit
         },
     );
 
-    project.connections.unshift(
-        WorkflowGraph.createConnection(project, 'camera-image', 'camera'),
-    );
+    project.connections.unshift(WorkflowGraph.createConnection(project, 'camera-image', 'camera'));
     project.connections.unshift(WorkflowGraph.createConnection(project, 'camera', 'website-root'));
 
     assert.deepEqual(

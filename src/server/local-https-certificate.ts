@@ -62,10 +62,7 @@ export class LocalHttpsCertificate {
         keyFile: string,
     ): Promise<HttpsCertificate | null> {
         try {
-            const [cert, key] = await Promise.all([
-                readFile(certificateFile),
-                readFile(keyFile),
-            ]);
+            const [cert, key] = await Promise.all([readFile(certificateFile), readFile(keyFile)]);
             const certificate = new X509Certificate(cert);
             const minimumValidity = Date.now() + 7 * 24 * 60 * 60 * 1_000;
             return Date.parse(certificate.validTo) > minimumValidity ? { cert, key } : null;

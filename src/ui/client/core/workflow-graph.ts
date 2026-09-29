@@ -155,7 +155,9 @@ export class WorkflowGraph {
                 targetNode?.type === 'website' &&
                 !['input', 'capability'].includes(sourceNode?.type ?? '')
             ) {
-                throw new TypeError('Only input and capability nodes may connect to the website root.');
+                throw new TypeError(
+                    'Only input and capability nodes may connect to the website root.',
+                );
             }
             if (targetNode?.type === 'capability' && sourceNode?.type !== 'input') {
                 throw new TypeError('Capability nodes must receive an input node.');
@@ -195,7 +197,9 @@ export class WorkflowGraph {
                 throw new TypeError('A connected capability node must receive exactly one input.');
             }
             if (incoming.length && outgoing.length !== 1) {
-                throw new TypeError('A connected capability node must connect to the website root.');
+                throw new TypeError(
+                    'A connected capability node must connect to the website root.',
+                );
             }
         }
     }

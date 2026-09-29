@@ -216,10 +216,7 @@ export class ProjectFormat {
     }
 
     private static migrate(value: unknown): unknown {
-        if (
-            !ProjectFormat.isRecord(value) ||
-            ![5, 6].includes(value['version'] as number)
-        )
+        if (!ProjectFormat.isRecord(value) || ![5, 6].includes(value['version'] as number))
             return value;
         const viewport = value['viewport'];
         if (

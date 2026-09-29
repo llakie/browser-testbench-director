@@ -168,7 +168,10 @@ return button ? { cardName: 'Pikachu' } : false;`,
         return [...document.querySelectorAll('[data-testid="graph-canvas"] .joint-element')]
             .map(node => node.getAttribute('model-id'));
     `);
-    assert.ok(graphNodeIds.includes('layer-1'), `Layer node disappeared: ${graphNodeIds.join(', ')}`);
+    assert.ok(
+        graphNodeIds.includes('layer-1'),
+        `Layer node disappeared: ${graphNodeIds.join(', ')}`,
+    );
     await playGraphNode(controller, 'layer-1');
     await controller.waitForScript(
         `return /Ausführung abgeschlossen|Execution completed|Ausführung fehlgeschlagen|Execution failed/u.test(

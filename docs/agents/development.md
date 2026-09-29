@@ -1,10 +1,10 @@
-# Entwicklungsrichtlinien
+# Development Guidelines
 
-- Änderungen bleiben auf das aktuelle Ziel begrenzt und folgen KISS, YAGNI, DRY und Clean Code.
-- Vorhandene Projektmuster, Design-Tokens und generische Runtime-Abstraktionen werden wiederverwendet; projektspezifische Produktionslogik bleibt im jeweiligen Projekt.
-- Fehler werden an ihrer Ursache behoben. Neue Sonderfälle benötigen einen reproduzierbaren Test.
-- Auswahl, Bearbeitung, Ausführung, Remote-Vorschau und Aufnahme bleiben getrennte Zustände.
-- Das JSON-Projekt ist die einzige ausführbare Produktionsbeschreibung; es wird kein paralleler Timeline-Code erzeugt.
-- Vor dem Abschluss laufen `npm run verify:core` sowie die betroffenen Browser-Prüfungen. Ein Release-Kandidat läuft vollständig durch `npm run verify`.
-- Reale Videoexporte werden zusätzlich mit `ffprobe` und repräsentativen Frames geprüft.
-- Unabhängige Nutzeränderungen werden nicht überschrieben. Commits erfolgen nur auf ausdrücklichen Wunsch.
+- Keep changes scoped to the current objective and follow KISS, YAGNI, DRY, and Clean Code.
+- Reuse existing project patterns, design tokens, and generic runtime abstractions; project-specific production logic stays within its project.
+- Fix defects at their root cause. New edge cases require a reproducible test.
+- Keep selection, editing, execution, remote preview, and recording as separate states.
+- The JSON project is the only executable production description; do not generate parallel timeline code.
+- Before completion, run `npm run verify:core` and the affected browser checks. A release candidate must pass the complete `npm run verify` gate.
+- Additionally inspect real video exports with `ffprobe` and representative frames.
+- Do not overwrite unrelated user changes. Only create commits when explicitly requested.

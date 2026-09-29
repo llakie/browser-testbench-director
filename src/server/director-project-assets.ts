@@ -8,7 +8,11 @@ export class DirectorProjectAssets {
 
     constructor(private readonly directory: string) {}
 
-    async handle(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
+    async handle(
+        request: IncomingMessage,
+        response: ServerResponse,
+        pathname: string,
+    ): Promise<void> {
         if (pathname === DirectorProjectAssets.apiPath && request.method === 'POST') {
             await this.#store(request, response);
             return;
@@ -24,7 +28,8 @@ export class DirectorProjectAssets {
         const content = await this.#body(request);
         const sha256 = createHash('sha256').update(content).digest('hex');
         const suppliedDigest = String(request.headers['x-director-asset-sha256'] ?? '');
-        if (suppliedDigest && suppliedDigest !== sha256) throw new Error('Asset checksum mismatch.');
+        if (suppliedDigest && suppliedDigest !== sha256)
+            throw new Error('Asset checksum mismatch.');
         const encodedName = String(request.headers['x-director-asset-name'] ?? 'asset');
         const name = basename(decodeURIComponent(encodedName)) || 'asset';
         const targetDirectory = resolve(this.directory, sha256);
@@ -32,7 +37,8 @@ export class DirectorProjectAssets {
         await mkdir(targetDirectory, { recursive: true });
         await writeFile(target, content, { flag: 'wx' }).catch(async (error: unknown) => {
             if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-            if ((await stat(target)).size !== content.length) throw new Error('Stored asset is invalid.');
+            if ((await stat(target)).size !== content.length)
+                throw new Error('Stored asset is invalid.');
         });
         this.#json(response, 201, {
             asset: `${sha256}/${encodeURIComponent(name)}`,
