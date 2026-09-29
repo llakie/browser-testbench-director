@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
     ProjectFormat,
@@ -112,7 +112,7 @@ export class DirectorProjectService {
             const path = resolve(directory, entry.name);
             if (entry.isDirectory()) await this.#collectProjects(path, output);
             else if (entry.isFile() && entry.name.endsWith('.btd.json')) {
-                output.push(relative(this.#workspace, path));
+                output.push(relative(this.#workspace, path).split(sep).join('/'));
             }
         }
     }
