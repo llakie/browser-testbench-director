@@ -102,17 +102,6 @@
                             <span>{{ t('node.addAudio') }}</span>
                         </button>
                         <button
-                            v-if="activeNode && !activeWebsite && !activeInput && !activeCapability"
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="play-node-current"
-                            @click="playActiveNodeOnCurrentState"
-                        >
-                            <span class="bi bi-lightning-fill" aria-hidden="true"></span>
-                            <span>{{ t('playback.currentNode') }}</span>
-                        </button>
-                        <button
                             v-if="activeNode && !activeWebsite"
                             class="action-option"
                             type="button"
@@ -122,17 +111,6 @@
                         >
                             <span class="bi bi-copy" aria-hidden="true"></span>
                             <span>{{ t('node.duplicate') }}</span>
-                        </button>
-                        <button
-                            v-if="activeNode && !activeWebsite"
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="delete-node"
-                            @click="deleteActiveNode"
-                        >
-                            <span class="bi bi-trash3" aria-hidden="true"></span>
-                            <span>{{ t('node.delete') }}</span>
                         </button>
                     </div>
                 </div>

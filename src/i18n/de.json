@@ -62,7 +62,7 @@
     "graph.connectionError.cycle": "Diese Verbindung würde einen Zyklus erzeugen.",
     "graph.connectionError.invalid": "Die Nodes konnten nicht verbunden werden.",
     "playback.workflow": "Gesamten Workflow abspielen",
-    "playback.currentNode": "Nur auf dem aktuellen Seitenzustand ausführen",
+    "playback.currentNode": "Node ohne Vorbereitung ausführen",
     "playback.stop": "Ausführung stoppen",
     "playback.completed": "Ausführung abgeschlossen",
     "playback.failed": "Ausführung fehlgeschlagen.",

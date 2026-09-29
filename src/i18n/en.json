@@ -62,7 +62,7 @@
     "graph.connectionError.cycle": "This connection would create a cycle.",
     "graph.connectionError.invalid": "The nodes could not be connected.",
     "playback.workflow": "Play complete workflow",
-    "playback.currentNode": "Run only on the current page state",
+    "playback.currentNode": "Run node without preparation",
     "playback.stop": "Stop execution",
     "playback.completed": "Execution completed",
     "playback.failed": "Execution failed.",

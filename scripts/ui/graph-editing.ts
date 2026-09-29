@@ -139,7 +139,6 @@ root.dataset.speed = director.speed;`,
         5_000,
     );
 
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="play-node-current"]');
     await session.waitForScript(
         `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;

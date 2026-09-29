@@ -201,6 +201,43 @@
     background: var(--color-accent-soft);
 }
 
+.icon-button--danger {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+    background: transparent;
+}
+
+.icon-button--danger:hover:not(:disabled) {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+    background: var(--color-danger-soft);
+}
+
+.direct-run-icon {
+    width: 18px;
+    height: 18px;
+}
+
+.icon-button.direct-run-control {
+    border-color: var(--color-play);
+    color: var(--color-play);
+    background: transparent;
+}
+
+.icon-button.direct-run-control:hover:not(:disabled) {
+    border-color: var(--color-play);
+    color: var(--color-play);
+    background: var(--color-play-surface);
+}
+
+.direct-run-icon__play {
+    fill: currentColor;
+}
+
+.direct-run-icon__bolt {
+    fill: currentColor;
+}
+
 .fullscreen-icon {
     position: relative;
     display: block;

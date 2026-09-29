@@ -75,7 +75,6 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         /Prepare GTP – (Kopie|copy)/u,
         'nodes: a duplicate needs a localized copy name.',
     );
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="delete-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
@@ -88,7 +87,6 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         'any',
         'nodes: a merge can continue after any incoming branch.',
     );
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="delete-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
@@ -127,7 +125,6 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         'nodes: the source editor must retain usable space.',
     );
     await session.screenshot(join(outputDirectory, 'node-editing.png'), true);
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="delete-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
@@ -140,7 +137,6 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         '#open-camera',
         'nodes: a browser action selector must be editable.',
     );
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="delete-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
@@ -243,7 +239,6 @@ return document.body ? { cardName: 'Pikachu' } : false;`;
         [],
         5_000,
     );
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="delete-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 

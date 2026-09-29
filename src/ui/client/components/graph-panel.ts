@@ -28,7 +28,6 @@ export const GraphPanel = defineWorkspaceSection({
         'maximizedPanel',
         'moveStageGesture',
         'nodeMenuOpen',
-        'playActiveNodeOnCurrentState',
         'playWorkflow',
         'recordingActive',
         'recordingMenuOpen',

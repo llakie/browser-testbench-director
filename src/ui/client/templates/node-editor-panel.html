@@ -17,6 +17,44 @@
                     <span>{{ activeNodeError }}</span>
                 </p>
                 <button
+                    v-if="activeLayer || activeJavaScript || activeBrowserAction || activeAudio"
+                    class="icon-button direct-run-control"
+                    type="button"
+                    data-testid="play-node-current"
+                    :disabled="executionRunning || browserTargetOpening"
+                    :aria-label="t('playback.currentNode')"
+                    :title="t('playback.currentNode')"
+                    @click="playActiveNodeOnCurrentState"
+                >
+                    <svg
+                        class="direct-run-icon"
+                        viewBox="0 0 20 20"
+                        aria-hidden="true"
+                        focusable="false"
+                    >
+                        <path
+                            class="direct-run-icon__play"
+                            d="M3.25 4.25v11.5L11 10 3.25 4.25Z"
+                        />
+                        <path
+                            class="direct-run-icon__bolt"
+                            d="m15.35 1.5-4.1 6.65h3.05l-1.15 5.65 4.6-7.45h-3.1l2.05-4.85h-1.35Z"
+                        />
+                    </svg>
+                </button>
+                <button
+                    v-if="!activeWebsite"
+                    class="icon-button icon-button--danger"
+                    type="button"
+                    data-testid="delete-node"
+                    :disabled="executionRunning"
+                    :aria-label="t('node.delete')"
+                    :title="t('node.delete')"
+                    @click="deleteActiveNode"
+                >
+                    <span class="bi bi-trash3" aria-hidden="true"></span>
+                </button>
+                <button
                     class="icon-button"
                     type="button"
                     data-testid="maximize-editor"
