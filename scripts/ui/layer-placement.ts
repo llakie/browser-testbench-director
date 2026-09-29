@@ -6,14 +6,14 @@ import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
 import { playGraphNode, selectGraphNode } from '../support/director-ui.js';
-import { applicationUrl, outputDirectory, testbench } from '../support/ui-verification-context.js';
+import { exampleSiteUrl, outputDirectory, testbench } from '../support/ui-verification-context.js';
 
 export async function verifyPlacement(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
     const project = ProjectFormat.create('Anchoring');
     const website = project.nodes.find((node) => node.type === 'website')!;
     const parent = project.nodes.find((node) => node.type === 'layer')!;
-    website.url = `${applicationUrl}example-site.html`;
+    website.url = exampleSiteUrl;
     parent.name = 'Parent layer';
     parent.playback.removeAfter = true;
     parent.source = {

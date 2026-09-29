@@ -6,13 +6,13 @@ import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
 import { selectGraphNode } from '../support/director-ui.js';
-import { applicationUrl, outputDirectory } from '../support/ui-verification-context.js';
+import { exampleSiteUrl, outputDirectory } from '../support/ui-verification-context.js';
 
 export async function verifyRuntimeDataFlow(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create();
     const website = project.nodes.find((node) => node.type === 'website')!;
     const layer = project.nodes.find((node) => node.type === 'layer')!;
-    website.url = `${applicationUrl}example-site.html`;
+    website.url = exampleSiteUrl;
     layer.position = { x: 1056, y: 8 };
     layer.source = {
         html: '<output id="data-flow-output"></output>',

@@ -6,12 +6,12 @@ import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
 import { playGraphNode, selectGraphNode } from '../support/director-ui.js';
-import { applicationUrl, outputDirectory } from '../support/ui-verification-context.js';
+import { exampleSiteUrl, outputDirectory } from '../support/ui-verification-context.js';
 
 export async function verifyPlayback(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create('Playback');
     const website = project.nodes.find((node) => node.type === 'website')!;
-    website.url = `${applicationUrl}example-site.html`;
+    website.url = exampleSiteUrl;
     const projectPath = join(outputDirectory, 'playback.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
@@ -40,7 +40,7 @@ export async function verifyExecutionControls(session: RemoteSession): Promise<v
     await session.setViewport(1440, 1000);
     const project = ProjectFormat.create('Execution controls');
     const website = project.nodes.find((node) => node.type === 'website')!;
-    website.url = `${applicationUrl}example-site.html`;
+    website.url = exampleSiteUrl;
     const layer = project.nodes.find((node) => node.type === 'layer')!;
     layer.name = 'Execution state test';
     layer.source.html = '<div id="execution-state-test">Running</div>';

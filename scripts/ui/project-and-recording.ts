@@ -6,13 +6,13 @@ import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
 import { playGraphNode, selectGraphNode } from '../support/director-ui.js';
-import { applicationUrl, outputDirectory } from '../support/ui-verification-context.js';
+import { exampleSiteUrl, outputDirectory } from '../support/ui-verification-context.js';
 import type { DOMRectSnapshot } from './responsive-layout.js';
 
 export async function verifyProjectRoundtrip(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create('Roundtrip project');
     const website = project.nodes.find((node) => node.type === 'website')!;
-    website.url = `${applicationUrl}example-site.html`;
+    website.url = exampleSiteUrl;
     project.nodes.unshift({
         id: 'roundtrip-input',
         type: 'input',
@@ -133,7 +133,7 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
     const project = ProjectFormat.create();
     project.name = 'Recording UI';
     const website = project.nodes.find((node) => node.type === 'website')!;
-    website.url = `${applicationUrl}example-site.html`;
+    website.url = exampleSiteUrl;
     const layer = project.nodes.find((node) => node.type === 'layer')!;
     layer.playback = { durationMs: 1_200, removeAfter: true };
     layer.source = {
