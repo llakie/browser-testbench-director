@@ -113,6 +113,7 @@ try {
     `);
     await controller.click(targetSelector);
     let download: Awaited<ReturnType<typeof controller.waitForDownload>>;
+
     try {
         download = await controller.waitForDownload(filename, 60_000);
     } catch (error) {
@@ -124,6 +125,7 @@ try {
             cause: error,
         });
     }
+
     await controller.waitForText(filename, 10_000);
 
     const bytes = await readFile(download.path);
@@ -148,6 +150,7 @@ try {
     };
     const stream = probe.streams?.[0];
     assert.ok(stream?.width && stream.height, 'Recording must have video dimensions.');
+
     if (recordingTargetKind === 'desktop') {
         assert.deepEqual(
             { width: stream.width, height: stream.height },
@@ -155,6 +158,7 @@ try {
             'Desktop recording must derive its output from the preview preset DPR.',
         );
     }
+
     assert.ok(Number(probe.format?.duration) > 0, 'Recording must have a positive duration.');
     process.stdout.write(
         `Recording verification passed (${controllerTarget} → ${recordingTarget}, ${stream.width} × ${stream.height}, ${probe.format?.duration}s).\nMP4: ${download.path}\n`,

@@ -18,6 +18,7 @@ export class LocalHttpsCertificate {
         if (Boolean(certificatePath) !== Boolean(keyPath)) {
             throw new Error('--https-cert and --https-key must be provided together.');
         }
+
         if (certificatePath && keyPath) {
             return {
                 cert: await readFile(resolve(certificatePath)),
@@ -29,7 +30,10 @@ export class LocalHttpsCertificate {
         const certificateFile = resolve(directory, 'director-local.crt');
         const keyFile = resolve(directory, 'director-local.key');
         const existing = await this.readValid(certificateFile, keyFile);
-        if (existing) return existing;
+
+        if (existing) {
+            return existing;
+        }
 
         const generated = await generate([{ name: 'commonName', value: 'localhost' }], {
             algorithm: 'sha256',

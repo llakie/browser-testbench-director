@@ -64,7 +64,7 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         buttonSizes: Array<{ width: number; height: number }>;
         groupsAdjacent: boolean;
         label: string;
-        maximizeEndsRow: boolean;
+        maximizeRightGap: number;
     }>(`
         const field = document.querySelector('.layer-alignment-field');
         const controls = field.querySelector('.layer-alignment-controls');
@@ -92,7 +92,7 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
                 verticalBounds.left > horizontalBounds.right &&
                 verticalBounds.left - horizontalBounds.right <= 10,
             label: field.firstElementChild.textContent.trim(),
-            maximizeEndsRow: Math.abs(maximizeBounds.right - headerBounds.right) < 20,
+            maximizeRightGap: headerBounds.right - maximizeBounds.right,
         };
     `);
     assert.deepEqual(
@@ -115,10 +115,9 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         /Ausrichtung|Alignment/u,
         'placement: the positioning options need one shared group label.',
     );
-    assert.equal(
-        alignmentGeometry.maximizeEndsRow,
-        true,
-        'placement: maximize must be the only control aligned to the right edge.',
+    assert.ok(
+        alignmentGeometry.maximizeRightGap >= 8 && alignmentGeometry.maximizeRightGap <= 12,
+        `placement: maximize needs the standard right inset (${alignmentGeometry.maximizeRightGap}px).`,
     );
     await session.setViewport(1440, 650);
     const alignmentScroll = await session.evaluate<{
@@ -295,12 +294,14 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
     const existingSessions = new Set((await testbench.sessions()).map((candidate) => candidate.id));
     await session.click('[data-testid="pick-placement-dom-selector"]');
     let pickerSession: RemoteSession | undefined;
+
     for (let attempt = 0; attempt < 80 && !pickerSession; attempt += 1) {
         await new Promise((resolveWait) => setTimeout(resolveWait, 250));
         pickerSession = (await testbench.sessions()).find(
             (candidate) => !existingSessions.has(candidate.id),
         );
     }
+
     assert.ok(pickerSession, 'placement: the DOM picker must open a remote website session.');
     await pickerSession.waitForScript(
         `return window.__directorSelectorPicker?.status === 'picking';`,

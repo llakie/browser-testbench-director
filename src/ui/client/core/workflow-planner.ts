@@ -7,6 +7,7 @@ export type PlaybackSpeed = 'catchup' | 'live';
 export interface WorkflowStep {
     readonly node: ExecutableNode;
     readonly speed: PlaybackSpeed;
+    readonly after: readonly string[];
 }
 
 export interface WorkflowPlan {
@@ -46,7 +47,7 @@ export class WorkflowPlanner {
         const orderedIds = WorkflowGraph.orderedNodeIds(project);
         const executable = orderedIds
             .map((id) => nodes.get(id))
-            .filter((node): node is ExecutableNode => Boolean(node && node.type !== 'website'));
+            .filter(WorkflowPlanner.isExecutableNode);
 
         if (mode === 'root') {
             return {
@@ -60,20 +61,32 @@ export class WorkflowPlanner {
         }
 
         if (mode === 'workflow') {
+            const executableIds = new Set(executable.map((node) => node.id));
             return {
                 mode,
                 website,
                 inputs,
                 cameraInputId,
                 resetWebsite: true,
-                steps: executable.map((node) => ({ node, speed: 'live' })),
+                steps: executable.map((node) => ({
+                    node,
+                    speed: 'live',
+                    after: WorkflowGraph.predecessorIds(project, node.id).filter((id) =>
+                        executableIds.has(id),
+                    ),
+                })),
             };
         }
 
         const selected = project.nodes.find(
-            (node): node is ExecutableNode => node.id === nodeId && node.type !== 'website',
+            (node): node is ExecutableNode =>
+                node.id === nodeId && WorkflowPlanner.isExecutableNode(node),
         );
-        if (!selected) throw new TypeError(`Executable node not found: ${String(nodeId)}`);
+
+        if (!selected) {
+            throw new TypeError(`Executable node not found: ${String(nodeId)}`);
+        }
+
         if (mode === 'current') {
             return {
                 mode,
@@ -81,14 +94,15 @@ export class WorkflowPlanner {
                 inputs: [],
                 cameraInputId: null,
                 resetWebsite: false,
-                steps: [{ node: selected, speed: 'live' }],
+                steps: [{ node: selected, speed: 'live', after: [] }],
             };
         }
 
         const component = WorkflowGraph.componentNodeIds(project, selected.id)
             .map((id) => nodes.get(id))
-            .filter((node): node is ExecutableNode => Boolean(node && node.type !== 'website'));
+            .filter(WorkflowPlanner.isExecutableNode);
         const selectedIndex = component.findIndex((node) => node.id === selected.id);
+        const included = new Set(component.slice(0, selectedIndex + 1).map((node) => node.id));
 
         return {
             mode,
@@ -99,7 +113,21 @@ export class WorkflowPlanner {
             steps: component.slice(0, selectedIndex + 1).map((node, index) => ({
                 node,
                 speed: index < selectedIndex ? 'catchup' : 'live',
+                after: WorkflowGraph.predecessorIds(project, node.id).filter((id) =>
+                    included.has(id),
+                ),
             })),
         };
+    }
+
+    private static isExecutableNode(node: unknown): node is ExecutableNode {
+        return Boolean(
+            node &&
+            typeof node === 'object' &&
+            'type' in node &&
+            ['layer', 'javascript', 'browser-action', 'browser-wait', 'merge'].includes(
+                String(node.type),
+            ),
+        );
     }
 }

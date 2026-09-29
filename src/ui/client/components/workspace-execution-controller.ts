@@ -7,6 +7,7 @@ import {
 import type { NodeExecutionStatus } from '../core/execution-controller.js';
 import { PreviewDocument } from '../core/preview-document.js';
 import type { DirectorNode, InputNode } from '../core/project-format.js';
+import { executeRuntimeGraph } from '../core/runtime-protocol.js';
 import { WorkflowPlanner, type PlaybackMode, type WorkflowPlan } from '../core/workflow-planner.js';
 import {
     cloneWorkflowPlan,
@@ -16,32 +17,24 @@ import {
 } from './workspace-model.js';
 
 export const workspaceExecutionMethods: WorkspaceMethodMap = {
-    handleEditorKeydown(event: KeyboardEvent): void {
-        if (event.key !== 'Tab') return;
-        event.preventDefault();
-        const input = event.target;
-        if (
-            !(input instanceof HTMLTextAreaElement) ||
-            (!this.activeLayer && !this.activeJavaScript)
-        )
-            return;
-        const start = input.selectionStart;
-        const end = input.selectionEnd;
-        const value = input.value;
-        input.value = `${value.slice(0, start)}    ${value.slice(end)}`;
-        input.selectionStart = input.selectionEnd = start + 4;
-        if (this.activeLayer) this.activeLayer.source[this.activeSource] = input.value;
-        else if (this.activeJavaScript) this.activeJavaScript.source = input.value;
-        this.markActiveNodeStale();
-    },
     play(): void {
-        if (!this.activeNode || ['input', 'capability'].includes(this.activeNode.type)) return;
+        if (!this.activeNode || ['input', 'capability'].includes(this.activeNode.type)) {
+            return;
+        }
+
         this.playNode(this.activeNode.id);
     },
     playNode(id: string): void {
-        if (this.executionRunning || this.browserTargetOpening) return;
+        if (this.executionRunning || this.browserTargetOpening) {
+            return;
+        }
+
         const node = this.project.nodes.find((candidate: DirectorNode) => candidate.id === id);
-        if (!node || ['input', 'capability'].includes(node.type)) return;
+
+        if (!node || ['input', 'capability'].includes(node.type)) {
+            return;
+        }
+
         this.activeNodeId = id;
         void this.runPlayback(node.type === 'website' ? 'root' : 'node', id);
         this.renderGraph();
@@ -55,13 +48,18 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             this.activeNode.type === 'capability' ||
             this.executionRunning ||
             this.browserTargetOpening
-        )
+        ) {
             return;
+        }
+
         this.nodeMenuOpen = false;
         void this.runPlayback('current', this.activeNode.id);
     },
     playWorkflow(): void {
-        if (this.executionRunning || this.browserTargetOpening) return;
+        if (this.executionRunning || this.browserTargetOpening) {
+            return;
+        }
+
         void this.runPlayback('workflow');
     },
     startPreviewInitialization(): void {
@@ -82,10 +80,18 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             ...plan.steps.map((step) => step.node.id),
         ];
         const runId = this.executionController.begin(nodeIds);
-        if (runId === null) return false;
-        if (this.remotePreviewSessionId) this.remotePreviewError = '';
+
+        if (runId === null) {
+            return false;
+        }
+
+        if (this.remotePreviewSessionId) {
+            this.remotePreviewError = '';
+        }
+
         this.publishExecutionState();
         const remoteIsAuthoritative = Boolean(this.remotePreviewSessionId);
+
         try {
             await this.preparePlanInputs(plan, runId);
             await Promise.all([
@@ -93,16 +99,24 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 this.syncRemotePreview(nodeId, plan, runId, recording),
             ]);
             this.executionController.complete(runId);
+
             if (mode !== 'current') {
-                for (const step of plan.steps) this.staleNodeIds.delete(step.node.id);
+                for (const step of plan.steps) {
+                    this.staleNodeIds.delete(step.node.id);
+                }
             }
+
             this.capturePreviewState(plan);
             this.publishExecutionState();
             this.showNotice(this.t('playback.completed'));
             return true;
         } catch (error) {
-            if (!this.executionState.running) return false;
+            if (!this.executionState.running) {
+                return false;
+            }
+
             const activeNodeId = this.executionController.snapshot().activeNodeId;
+
             if (activeNodeId) {
                 this.executionController.update(
                     runId,
@@ -111,24 +125,30 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                     this.errorMessage(error),
                 );
             }
+
             this.executionController.complete(runId);
             this.publishExecutionState();
             const sessionId = this.remotePreviewSessionId;
             const keepRemotePreview = Boolean(
                 !recording && sessionId && this.selectedBrowserTargetId,
             );
+
             if (keepRemotePreview) {
                 this.remotePreviewError = this.errorMessage(error);
             } else {
                 this.remotePreviewSessionId = null;
-                if (sessionId)
+
+                if (sessionId) {
                     await BrowserTestbenchPreview.close(sessionId).catch(() => undefined);
+                }
             }
+
             if (!recording && !keepRemotePreview && !this.selectedBrowserTargetId) {
                 this.selectedBrowserTargetId = '';
                 this.remotePreviewDirect = false;
                 await this.restoreLocalPreview().catch(() => undefined);
             }
+
             this.showNotice(`${this.t('playback.failed')} ${this.errorMessage(error)}`);
             return false;
         }
@@ -138,30 +158,43 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         runId: number,
     ): Promise<void> {
         const selectedFiles: Record<string, File> = {};
+
         for (const input of plan.inputs) {
             this.updateExecution(runId, input.id, 'running');
             const file = this.inputFiles[input.id];
+
             if (!file && input.required) {
                 throw new Error(this.t('input.missing', { name: input.name }));
             }
+
             if (file && !this.inputAcceptsFile(input, file)) {
                 throw new Error(this.t('input.invalidType', { name: input.name }));
             }
-            if (file) selectedFiles[input.id] = file;
+
+            if (file) {
+                selectedFiles[input.id] = file;
+            }
+
             this.updateExecution(runId, input.id, 'success');
         }
+
         const prepared = await BrowserTestbenchPreview.prepareRuntimeInputs(
             selectedFiles,
             plan.inputs,
         );
-        if (plan.resetWebsite) this.inputData = { ...prepared };
+
+        if (plan.resetWebsite) {
+            this.inputData = { ...prepared };
+        }
     },
     assertPlanInputs(plan: ReturnType<typeof WorkflowPlanner.plan>): void {
         for (const input of plan.inputs) {
             const file = this.inputFiles[input.id];
+
             if (!file && input.required) {
                 throw new Error(this.t('input.missing', { name: input.name }));
             }
+
             if (file && !this.inputAcceptsFile(input, file)) {
                 throw new Error(this.t('input.invalidType', { name: input.name }));
             }
@@ -169,15 +202,24 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
     },
     inputAcceptsFile(input: InputNode, file: File): boolean {
         const accepted = this.inputAcceptValues(input);
-        if (accepted.length === 0) return true;
+
+        if (accepted.length === 0) {
+            return true;
+        }
+
         const filename = file.name.toLowerCase();
         const mime = file.type.toLowerCase();
         return accepted.some((value: string) => {
             const normalized = value.toLowerCase();
-            if (normalized.startsWith('.')) return filename.endsWith(normalized);
+
+            if (normalized.startsWith('.')) {
+                return filename.endsWith(normalized);
+            }
+
             if (normalized.endsWith('/*')) {
                 return mime.startsWith(normalized.slice(0, -1));
             }
+
             return mime === normalized;
         });
     },
@@ -186,11 +228,16 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         runId: number,
     ): Promise<void> {
         let runtime = this.previewRuntime();
+
         if (plan.resetWebsite || !runtime) {
             if (plan.website) {
                 this.updateExecution(runId, plan.website.id, 'running');
-                if (!plan.website.url.trim()) throw new Error(this.t('website.urlRequired'));
+
+                if (!plan.website.url.trim()) {
+                    throw new Error(this.t('website.urlRequired'));
+                }
             }
+
             const localPlan = plan.website
                 ? {
                       ...plan,
@@ -202,11 +249,16 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 : plan;
             this.loadPreview(PreviewDocument.buildPlan(localPlan, runId, this.inputData));
             runtime = await this.waitForPreviewRuntime();
-            if (plan.website) this.updateExecution(runId, plan.website.id, 'success');
+
+            if (plan.website) {
+                this.updateExecution(runId, plan.website.id, 'success');
+            }
+
             await runtime.ready;
         } else {
             await runtime.run(PreviewDocument.runtimeSteps(plan), runId);
         }
+
         this.hasPlayed = true;
     },
     capturePreviewState(plan: WorkflowPlan): void {
@@ -218,6 +270,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 speed: 'catchup',
             })),
         };
+
         if (plan.mode === 'current' && this.lastPreviewPlan) {
             const previous = cloneWorkflowPlan(this.lastPreviewPlan);
             snapshot = {
@@ -229,6 +282,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 steps: [...previous.steps, ...snapshot.steps],
             };
         }
+
         this.lastPreviewPlan = snapshot;
         this.lastPreviewInputs = { ...this.inputData };
     },
@@ -236,6 +290,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const plan = WorkflowPlanner.plan(this.project, 'root');
         this.lastPreviewPlan = cloneWorkflowPlan(plan);
         this.lastPreviewInputs = {};
+
         try {
             await this.restoreLocalPreview();
         } catch (error) {
@@ -265,7 +320,11 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
     },
     previewRuntime(): PreviewRuntime | null {
         const frame = this.workspaceElement('previewFrame');
-        if (!(frame instanceof HTMLIFrameElement)) return null;
+
+        if (!(frame instanceof HTMLIFrameElement)) {
+            return null;
+        }
+
         return (
             (frame.contentWindow as (Window & { __director?: PreviewRuntime }) | null)
                 ?.__director ?? null
@@ -274,9 +333,17 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
     async waitForPreviewRuntime(): Promise<PreviewRuntime> {
         await nextTick();
         const existing = this.previewRuntime();
-        if (existing) return existing;
+
+        if (existing) {
+            return existing;
+        }
+
         const frame = this.workspaceElement('previewFrame');
-        if (!(frame instanceof HTMLIFrameElement)) throw new Error('Preview frame is missing.');
+
+        if (!(frame instanceof HTMLIFrameElement)) {
+            throw new Error('Preview frame is missing.');
+        }
+
         await new Promise<void>((resolve, reject) => {
             const timeout = window.setTimeout(
                 () => reject(new Error('Preview runtime did not become ready.')),
@@ -287,13 +354,18 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 resolve();
             };
             frame.addEventListener('load', loaded, { once: true });
+
             if (this.previewRuntime()) {
                 frame.removeEventListener('load', loaded);
                 loaded();
             }
         });
         const runtime = this.previewRuntime();
-        if (!runtime) throw new Error('Preview runtime is unavailable.');
+
+        if (!runtime) {
+            throw new Error('Preview runtime is unavailable.');
+        }
+
         return runtime;
     },
     async syncRemotePreview(
@@ -303,13 +375,21 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         recording = false,
     ): Promise<void> {
         const sessionId = this.remotePreviewSessionId;
-        if (!sessionId) return;
+
+        if (!sessionId) {
+            return;
+        }
+
         const websiteUrl = plan.website?.url.trim();
         const target = recording ? this.selectedRecordingTarget : this.selectedBrowserTarget;
         const direct = Boolean(target && this.usesDirectRemoteWebsite(plan, target));
         const steps = PreviewDocument.runtimeSteps(plan);
+
         if ((!recording && plan.resetWebsite) || direct !== this.remotePreviewDirect) {
-            if (plan.website) this.updateExecution(runId, plan.website.id, 'running');
+            if (plan.website) {
+                this.updateExecution(runId, plan.website.id, 'running');
+            }
+
             if (direct) {
                 await BrowserTestbenchPreview.navigateWebsite(sessionId, websiteUrl!);
             } else {
@@ -319,47 +399,82 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                     await this.remoteShellDocument(plan),
                 );
             }
-            if (plan.website) this.updateExecution(runId, plan.website.id, 'success');
+
+            if (plan.website) {
+                this.updateExecution(runId, plan.website.id, 'success');
+            }
+
             this.remotePreviewDirect = direct;
         }
-        for (const step of steps) {
+
+        await executeRuntimeGraph(steps, async (step) => {
             this.updateExecution(runId, step.id, 'running');
-            if (direct) {
-                await BrowserTestbenchPreview.executeOnWebsite(
-                    sessionId,
-                    [step],
-                    recording,
-                    this.inputData,
-                    plan.cameraInputId,
-                );
-            } else {
-                await BrowserTestbenchPreview.execute(sessionId, [step], recording);
+            const executableStep = { ...step, after: [] };
+
+            try {
+                if (direct) {
+                    await BrowserTestbenchPreview.executeOnWebsite(
+                        sessionId,
+                        [executableStep],
+                        recording,
+                        this.inputData,
+                        plan.cameraInputId,
+                    );
+                } else {
+                    await BrowserTestbenchPreview.execute(sessionId, [executableStep], recording);
+                }
+
+                this.updateExecution(runId, step.id, 'success');
+            } catch (error) {
+                this.updateExecution(runId, step.id, 'error', this.errorMessage(error));
+                throw error;
             }
-            this.updateExecution(runId, step.id, 'success');
-        }
+        });
     },
     async stopPlayback(): Promise<void> {
-        if (!this.executionController.stop()) return;
+        if (!this.executionController.stop()) {
+            return;
+        }
+
         this.previewRuntime()?.cancel();
         this.publishExecutionState();
         const sessionId = this.remotePreviewSessionId;
         this.remotePreviewSessionId = null;
-        if (sessionId) await BrowserTestbenchPreview.close(sessionId).catch(() => undefined);
+
+        if (sessionId) {
+            await BrowserTestbenchPreview.close(sessionId).catch(() => undefined);
+        }
+
         if (this.selectedBrowserTargetId) {
             this.selectedBrowserTargetId = '';
             this.remotePreviewDirect = false;
             this.remotePreviewError = '';
             await this.restoreLocalPreview().catch(() => undefined);
         }
+
         this.showNotice(this.t('playback.stopped'));
-        if (this.browserTestbenchRunning) void this.loadBrowserTargets();
+
+        if (this.browserTestbenchRunning) {
+            void this.loadBrowserTargets();
+        }
     },
     handleRuntimeMessage(event: MessageEvent<RuntimeMessage>): void {
         const frame = this.workspaceElement('previewFrame');
-        if (!(frame instanceof HTMLIFrameElement) || event.source !== frame.contentWindow) return;
-        if (event.data?.type !== 'director:execution' || this.remotePreviewSessionId) return;
+
+        if (!(frame instanceof HTMLIFrameElement) || event.source !== frame.contentWindow) {
+            return;
+        }
+
+        if (event.data?.type !== 'director:execution' || this.remotePreviewSessionId) {
+            return;
+        }
+
         const runId = this.executionController.snapshot().runId;
-        if (event.data.executionId !== runId) return;
+
+        if (event.data.executionId !== runId) {
+            return;
+        }
+
         this.updateExecution(runId, event.data.nodeId, event.data.status, event.data.error);
     },
     updateExecution(
@@ -368,7 +483,10 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         status: NodeExecutionStatus,
         error?: string,
     ): void {
-        if (!this.executionController.update(runId, nodeId, status, error)) return;
+        if (!this.executionController.update(runId, nodeId, status, error)) {
+            return;
+        }
+
         this.publishExecutionState();
     },
     publishExecutionState(): void {
@@ -392,6 +510,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
     ): Promise<string> {
         this.remotePreviewDirect = this.usesDirectRemoteWebsite(plan, target);
         let sessionId: string;
+
         if (this.remotePreviewDirect) {
             sessionId = await BrowserTestbenchPreview.openWebsite(
                 target,
@@ -417,9 +536,11 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 this.project.browserSession,
             );
         }
+
         if (target.kind === 'desktop') {
             await BrowserTestbenchPreview.setViewport(sessionId, this.previewViewport);
         }
+
         return sessionId;
     },
     async remoteShellDocument(

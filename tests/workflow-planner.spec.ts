@@ -53,6 +53,47 @@ test('Workflow-Wiedergabe startet an der Website und spielt alle Nodes live', ()
     );
 });
 
+test('Workflow-Plan bewahrt parallele Abhängigkeiten und den Merge', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push(
+        {
+            id: 'parallel-layer',
+            type: 'layer',
+            name: 'Parallel layer',
+            position: null,
+            placement: {
+                reference: { type: 'viewport' },
+                horizontal: 'center',
+                vertical: 'center',
+            },
+            playback: { durationMs: 10, removeAfter: true },
+            source: { html: '', css: '', javascript: '' },
+        },
+        { id: 'merge', type: 'merge', name: 'Merge', position: null, waitFor: 'all' },
+    );
+    project.connections = [
+        { id: 'website-root--layer-1', source: 'website-root', target: 'layer-1' },
+        {
+            id: 'website-root--parallel-layer',
+            source: 'website-root',
+            target: 'parallel-layer',
+        },
+        { id: 'layer-1--merge', source: 'layer-1', target: 'merge' },
+        { id: 'parallel-layer--merge', source: 'parallel-layer', target: 'merge' },
+    ];
+
+    const plan = WorkflowPlanner.plan(project, 'workflow');
+
+    assert.deepEqual(
+        plan.steps.map((entry) => [entry.node.id, entry.after]),
+        [
+            ['layer-1', []],
+            ['parallel-layer', []],
+            ['merge', ['layer-1', 'parallel-layer']],
+        ],
+    );
+});
+
 test('Root-Wiedergabe lädt nur die Website und verlangt noch keine Eingabedateien', () => {
     const project = projectWithScript();
     project.nodes.unshift({

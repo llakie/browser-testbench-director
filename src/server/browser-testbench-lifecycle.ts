@@ -30,14 +30,17 @@ export class BrowserTestbenchLifecycle {
                 this.json(response, 200, await this.status());
                 return;
             }
+
             if (request.method === 'POST') {
                 this.json(response, 200, await this.start());
                 return;
             }
+
             if (request.method === 'DELETE') {
                 this.json(response, 200, await this.stop());
                 return;
             }
+
             this.json(response, 405, { error: 'Method not allowed.' });
         } catch (error) {
             this.json(response, 500, {
@@ -54,7 +57,9 @@ export class BrowserTestbenchLifecycle {
     }
 
     private async start(): Promise<BrowserTestbenchStatus> {
-        if (await this.isReachable()) return this.status();
+        if (await this.isReachable()) {
+            return this.status();
+        }
 
         const url = new URL(this.serverUrl);
         this.state.process = spawn(
@@ -67,9 +72,13 @@ export class BrowserTestbenchLifecycle {
         });
 
         for (let attempt = 0; attempt < 60; attempt += 1) {
-            if (await this.isReachable()) return this.status();
+            if (await this.isReachable()) {
+                return this.status();
+            }
+
             await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
         }
+
         await this.stopManagedProcess();
         throw new Error('Browser Testbench did not become ready in time.');
     }
@@ -78,15 +87,23 @@ export class BrowserTestbenchLifecycle {
         if (!this.state.process && (await this.isReachable())) {
             throw new Error('Browser Testbench was started outside Director and remains running.');
         }
+
         await this.stopManagedProcess();
         return this.status();
     }
 
     private async stopManagedProcess(): Promise<void> {
         const child = this.state.process;
-        if (!child) return;
+
+        if (!child) {
+            return;
+        }
+
         this.state.process = undefined;
-        if (child.exitCode !== null || child.signalCode !== null) return;
+
+        if (child.exitCode !== null || child.signalCode !== null) {
+            return;
+        }
 
         await new Promise<void>((resolveStopped) => {
             const forceTimer = setTimeout(() => child.kill('SIGKILL'), 3_000);

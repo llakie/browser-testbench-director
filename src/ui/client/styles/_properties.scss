@@ -1,9 +1,36 @@
-.source-tabs {
+.source-toolbar {
     display: flex;
-    gap: var(--space-1);
-    padding: 8px var(--properties-inline-padding) 0;
+    align-items: center;
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface-header);
+}
+
+.source-tabs {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: var(--space-1);
+    padding: 8px 0 0 var(--properties-inline-padding);
+}
+
+.source-toolbar--actions {
+    min-height: 45px;
+    justify-content: flex-end;
+}
+
+.source-format-button {
+    flex: 0 0 auto;
+    margin: 8px var(--properties-inline-padding) 8px var(--space-2);
+}
+
+.source-format-spinner {
+    animation: source-format-spin 0.8s linear infinite;
+}
+
+@keyframes source-format-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .layer-playback-properties {

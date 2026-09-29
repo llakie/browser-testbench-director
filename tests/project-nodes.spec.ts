@@ -17,6 +17,7 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     const action = ProjectNodes.createBrowserAction(project, 'Klick');
     project.nodes.push(action);
     const wait = ProjectNodes.createBrowserWait(project, 'Warten');
+    const merge = ProjectNodes.createMerge(project, 'Zusammenführen');
 
     assert.equal(layer.id, 'layer-2');
     assert.equal(input.id, 'input-1');
@@ -30,6 +31,8 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     assert.equal(wait.condition, 'element');
     assert.equal(wait.timeoutMs, 30_000);
     assert.equal(wait.omitFromRecording, true);
+    assert.equal(merge.id, 'merge-1');
+    assert.equal(merge.waitFor, 'all');
 });
 
 test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
@@ -38,7 +41,11 @@ test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
     const duplicate = ProjectNodes.duplicate(project, original, 'Kopie')!;
 
     assert.equal(duplicate.type, 'layer');
-    if (duplicate.type !== 'layer') throw new Error('Expected a layer duplicate.');
+
+    if (duplicate.type !== 'layer') {
+        throw new Error('Expected a layer duplicate.');
+    }
+
     assert.equal(duplicate.position, null);
     duplicate.source.html = 'changed';
     duplicate.playback.removeAfter = true;

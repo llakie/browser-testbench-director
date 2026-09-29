@@ -18,20 +18,30 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
     setMobilePanel(panel: WorkspacePanel): void {
         this.mobileActivePanel = panel;
         void nextTick(() => {
-            if (panel === 'graph') this.renderGraph();
-            if (panel === 'preview') this.updatePreviewFitScale();
+            if (panel === 'graph') {
+                this.renderGraph();
+            }
+
+            if (panel === 'preview') {
+                this.updatePreviewFitScale();
+            }
         });
     },
     selectNode(id: string | null): void {
         this.activeConnectionId = null;
         this.activeNodeId = id;
-        if (!id) this.mobileActivePanel = 'graph';
+
+        if (!id) {
+            this.mobileActivePanel = 'graph';
+        }
+
         this.observePreviewStage();
     },
     observePreviewStage(): void {
         void nextTick(() => {
             this.previewResizeObserver?.disconnect();
             const stage = this.workspaceElement('previewStage');
+
             if (stage instanceof HTMLElement) {
                 this.previewResizeObserver?.observe(stage);
                 this.updatePreviewFitScale();
@@ -40,13 +50,21 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
     },
     updatePreviewFitScale(): void {
         const stage = this.workspaceElement('previewStage');
-        if (!(stage instanceof HTMLElement)) return;
+
+        if (!(stage instanceof HTMLElement)) {
+            return;
+        }
+
         const style = getComputedStyle(stage);
         const availableWidth =
             stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
         const availableHeight =
             stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-        if (availableWidth <= 0 || availableHeight <= 0) return;
+
+        if (availableWidth <= 0 || availableHeight <= 0) {
+            return;
+        }
+
         this.previewFitScale = Math.min(
             availableWidth / this.previewViewport.width,
             availableHeight / this.previewViewport.height,
@@ -65,7 +83,11 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         to: { x: number; y: number } = from,
     ): void {
         const stage = this.workspaceElement('graph');
-        if (!(stage instanceof HTMLElement)) return;
+
+        if (!(stage instanceof HTMLElement)) {
+            return;
+        }
+
         const bounds = stage.getBoundingClientRect();
         this.graphZoom = Math.min(2, Math.max(0.25, zoom));
         this.graph?.setZoomAt(
@@ -81,10 +103,17 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         this.graph?.setZoom(this.graphZoom);
     },
     async autoLayoutGraph(): Promise<void> {
-        if (this.executionRunning || this.graphLayoutRunning) return;
+        if (this.executionRunning || this.graphLayoutRunning) {
+            return;
+        }
+
         this.graphLayoutRunning = true;
+
         try {
-            for (const node of this.project.nodes) node.position = null;
+            for (const node of this.project.nodes) {
+                node.position = null;
+            }
+
             this.markDirty();
             this.renderGraph();
             this.graphZoom =
@@ -103,8 +132,13 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
     startStageGesture(stage: 'graph', event: PointerEvent): void {
         const isTouch = event.pointerType === 'touch';
         const isRightMouseButton = event.pointerType === 'mouse' && event.button === 2;
-        if (!isTouch && !isRightMouseButton) return;
+
+        if (!isTouch && !isRightMouseButton) {
+            return;
+        }
+
         const element = event.currentTarget;
+
         if (element instanceof HTMLElement) {
             try {
                 element.setPointerCapture(event.pointerId);
@@ -112,6 +146,7 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
                 // Synthetic browser checks cannot establish native pointer capture.
             }
         }
+
         if (isTouch) {
             this.graphZoomGesture.begin(
                 event.pointerId,
@@ -120,7 +155,9 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
                 this.graphZoom,
             );
         }
+
         this.graphPanGesture.begin(event.pointerId, event.clientX, event.clientY);
+
         if (isRightMouseButton) {
             event.preventDefault();
             event.stopPropagation();
@@ -138,9 +175,14 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             event.clientY,
             zoomUpdate === null,
         );
-        if (zoomUpdate === null && pan === null) return;
+
+        if (zoomUpdate === null && pan === null) {
+            return;
+        }
+
         event.preventDefault();
         event.stopPropagation();
+
         if (zoomUpdate !== null) {
             this.setGraphZoomAt(zoomUpdate.zoom, zoomUpdate.previousCenter, zoomUpdate.center);
         } else if (pan) {
@@ -150,27 +192,37 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
     endStageGesture(stage: 'graph', event: PointerEvent): void {
         this.graphZoomGesture.end(event.pointerId);
         this.graphPanGesture.end(event.pointerId);
-        if (event.pointerType === 'mouse' && event.button === 2) event.stopPropagation();
+
+        if (event.pointerType === 'mouse' && event.button === 2) {
+            event.stopPropagation();
+        }
     },
     panStage(stage: 'graph', x: number, y: number): void {
         this.graph?.panBy(x, y);
     },
     zoomFromWheel(stage: 'graph', event: WheelEvent): void {
         event.preventDefault();
+
         if (!event.ctrlKey && !event.metaKey) {
             this.panStage(stage, -event.deltaX, -event.deltaY);
             return;
         }
+
         const zoom = this.graphZoom * Math.exp(-event.deltaY * 0.003);
         const center = { x: event.clientX, y: event.clientY };
         this.setGraphZoomAt(zoom, center);
     },
     startResize(splitter: Splitter, event: PointerEvent): void {
-        if (window.matchMedia('(max-width: 760px)').matches) return;
+        if (window.matchMedia('(max-width: 760px)').matches) {
+            return;
+        }
+
         event.preventDefault();
+
         if (event.currentTarget instanceof HTMLElement) {
             event.currentTarget.setPointerCapture(event.pointerId);
         }
+
         this.activeSplitter = splitter;
         document.body.classList.add('is-resizing-workspace');
         window.addEventListener('pointermove', this.resizeFromPointer);
@@ -178,9 +230,16 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         window.addEventListener('pointercancel', this.stopResize);
     },
     resizeFromPointer(event: PointerEvent): void {
-        if (!this.activeSplitter) return;
+        if (!this.activeSplitter) {
+            return;
+        }
+
         const workspace = this.$refs['workspace'];
-        if (!(workspace instanceof HTMLElement)) return;
+
+        if (!(workspace instanceof HTMLElement)) {
+            return;
+        }
+
         const bounds = workspace.getBoundingClientRect();
         const portrait = this.previewOrientation === 'portrait';
         const coordinate =
@@ -202,7 +261,10 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         this.setSplitterPosition(this.activeSplitter, (coordinate / extent) * 100);
     },
     stopResize(): void {
-        if (!this.activeSplitter) return;
+        if (!this.activeSplitter) {
+            return;
+        }
+
         this.activeSplitter = null;
         document.body.classList.remove('is-resizing-workspace');
         window.removeEventListener('pointermove', this.resizeFromPointer);
@@ -217,7 +279,11 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             (splitter === 'outer' && portrait) || (splitter === 'inner' && !portrait)
                 ? ['ArrowLeft', 'ArrowRight']
                 : ['ArrowUp', 'ArrowDown'];
-        if (!relevantKeys.includes(event.key)) return;
+
+        if (!relevantKeys.includes(event.key)) {
+            return;
+        }
+
         event.preventDefault();
         const direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
         const current =
@@ -234,8 +300,13 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         const minimum = splitter === 'outer' ? 24 : 22;
         const maximum = splitter === 'outer' ? 72 : 78;
         const value = Math.min(maximum, Math.max(minimum, percentage));
-        if (splitter === 'inner') this.layout.toolsSplit = value;
-        else if (this.previewOrientation === 'portrait') this.layout.portraitTools = value;
-        else this.layout.landscapePreview = value;
+
+        if (splitter === 'inner') {
+            this.layout.toolsSplit = value;
+        } else if (this.previewOrientation === 'portrait') {
+            this.layout.portraitTools = value;
+        } else {
+            this.layout.landscapePreview = value;
+        }
     },
 };

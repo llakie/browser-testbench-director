@@ -9,7 +9,13 @@ export type Splitter = 'outer' | 'inner';
 export type WorkspacePanel = 'preview' | 'graph' | 'editor';
 export type BrowserTestbenchState = 'checking' | 'running' | 'stopped' | 'starting' | 'stopping';
 export type CreatableNodeType =
-    'input' | 'camera-capability' | 'layer' | 'javascript' | 'browser-action' | 'browser-wait';
+    | 'input'
+    | 'camera-capability'
+    | 'layer'
+    | 'javascript'
+    | 'browser-action'
+    | 'browser-wait'
+    | 'merge';
 
 export interface ViewportPreset {
     readonly id: PreviewPresetId;
@@ -107,7 +113,10 @@ const defaultLayoutPreferences: LayoutPreferences = {
 
 export class WorkspaceLayoutPreferences {
     static read(): LayoutPreferences {
-        if (typeof localStorage === 'undefined') return { ...defaultLayoutPreferences };
+        if (typeof localStorage === 'undefined') {
+            return { ...defaultLayoutPreferences };
+        }
+
         try {
             const stored = JSON.parse(
                 localStorage.getItem(layoutStorageKey) ?? '{}',
@@ -149,8 +158,6 @@ export class WorkspaceLayoutPreferences {
 export type WorkspaceMethodMap = Record<
     string,
     // Controller modules deliberately share the Vue workspace instance as their context.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (...args: any[]) => any
 > &
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ThisType<any>;

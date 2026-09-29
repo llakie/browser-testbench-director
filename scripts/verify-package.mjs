@@ -40,6 +40,7 @@ try {
         { cwd: temporaryDirectory },
     );
     const parsed = JSON.parse(configuration.stdout);
+
     if (!parsed.mcpServers?.['browser-testbench-director']) {
         throw new Error('The installed CLI did not produce a Director MCP configuration.');
     }
@@ -49,6 +50,7 @@ try {
         cwd: temporaryDirectory,
         stdio: ['ignore', 'pipe', 'pipe'],
     });
+
     try {
         await waitForServer(server, `http://127.0.0.1:${port}`);
     } finally {
@@ -57,9 +59,13 @@ try {
             await new Promise((resolveExit) => server.once('exit', resolveExit));
         }
     }
+
     process.stdout.write('Packed Director CLI, MCP configuration, and production UI passed.\n');
 } finally {
-    if (archive) await unlink(archive).catch(() => undefined);
+    if (archive) {
+        await unlink(archive).catch(() => undefined);
+    }
+
     await rm(temporaryDirectory, { recursive: true, force: true });
 }
 
@@ -70,7 +76,11 @@ async function availablePort() {
         server.listen(0, '127.0.0.1', resolveListen);
     });
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Could not reserve a port.');
+
+    if (!address || typeof address === 'string') {
+        throw new Error('Could not reserve a port.');
+    }
+
     await new Promise((resolveClose, reject) =>
         server.close((error) => (error ? reject(error) : resolveClose())),
     );
@@ -83,18 +93,25 @@ async function waitForServer(server, origin) {
     server.stderr?.on('data', (chunk) => {
         stderr += chunk.toString();
     });
+
     while (Date.now() < deadline) {
         if (server.exitCode !== null) {
             throw new Error(`The installed Director exited during startup.\n${stderr}`);
         }
+
         try {
             const response = await fetch(origin);
             const html = await response.text();
-            if (response.ok && html.includes('Browser Testbench Director')) return;
+
+            if (response.ok && html.includes('Browser Testbench Director')) {
+                return;
+            }
         } catch {
             // The server is still starting.
         }
+
         await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
+
     throw new Error(`The installed Director did not become ready.\n${stderr}`);
 }

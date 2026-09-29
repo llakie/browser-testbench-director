@@ -33,6 +33,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         { id: 'input-b--website-root', source: 'input-b', target: 'website-root' },
     );
     let previousId = 'layer-1';
+
     for (let index = 2; index <= 14; index += 1) {
         const id = `auto-node-${index}`;
         project.nodes.push({
@@ -49,6 +50,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         });
         previousId = id;
     }
+
     const projectPath = join(outputDirectory, 'auto-layout.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);

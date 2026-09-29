@@ -6,6 +6,7 @@ import type {
     InputNode,
     JavaScriptNode,
     LayerNode,
+    MergeNode,
     CapabilityNode,
 } from './project-format.js';
 
@@ -51,6 +52,16 @@ export class ProjectNodes {
         };
     }
 
+    static createMerge(project: DirectorProject, name: string): MergeNode {
+        return {
+            id: ProjectNodes.uniqueId(project, 'merge'),
+            type: 'merge',
+            name,
+            position: null,
+            waitFor: 'all',
+        };
+    }
+
     static createJavaScript(project: DirectorProject, name: string): JavaScriptNode {
         return {
             id: ProjectNodes.uniqueId(project, 'javascript'),
@@ -89,11 +100,25 @@ export class ProjectNodes {
         node: DirectorNode,
         name: string,
     ): DirectorNode | null {
-        if (node.type === 'website') return null;
+        if (node.type === 'website') {
+            return null;
+        }
+
         const id = ProjectNodes.uniqueId(project, node.type);
         const position = null;
-        if (node.type === 'javascript') return { ...node, id, name, position };
-        if (node.type === 'capability') return { ...node, id, name, position };
+
+        if (node.type === 'javascript') {
+            return { ...node, id, name, position };
+        }
+
+        if (node.type === 'capability') {
+            return { ...node, id, name, position };
+        }
+
+        if (node.type === 'merge') {
+            return { ...node, id, name, position };
+        }
+
         if (node.type === 'input') {
             return {
                 ...node,
@@ -104,6 +129,7 @@ export class ProjectNodes {
                 ...(node.prepare ? { prepare: { modules: [...node.prepare.modules] } } : {}),
             };
         }
+
         if (node.type === 'layer') {
             return {
                 ...node,
@@ -115,28 +141,45 @@ export class ProjectNodes {
                 source: { ...node.source },
             };
         }
+
         return { ...node, id, name, position };
     }
 
     static remove(project: DirectorProject, nodeId: string): boolean {
         const index = project.nodes.findIndex((node) => node.id === nodeId);
-        if (index < 0 || project.nodes[index]?.type === 'website') return false;
+
+        if (index < 0 || project.nodes[index]?.type === 'website') {
+            return false;
+        }
+
         project.nodes.splice(index, 1);
         project.connections = project.connections.filter(
             (connection) => connection.source !== nodeId && connection.target !== nodeId,
         );
+
         for (const node of project.nodes) {
-            if (node.type !== 'layer' || node.placement.reference.type !== 'layer') continue;
-            if (node.placement.reference.nodeId !== nodeId) continue;
+            if (node.type !== 'layer' || node.placement.reference.type !== 'layer') {
+                continue;
+            }
+
+            if (node.placement.reference.nodeId !== nodeId) {
+                continue;
+            }
+
             node.placement.reference = { type: 'viewport' };
         }
+
         return true;
     }
 
     private static uniqueId(project: DirectorProject, prefix: string): string {
         const ids = new Set(project.nodes.map((node) => node.id));
         let suffix = 1;
-        while (ids.has(`${prefix}-${suffix}`)) suffix += 1;
+
+        while (ids.has(`${prefix}-${suffix}`)) {
+            suffix += 1;
+        }
+
         return `${prefix}-${suffix}`;
     }
 }

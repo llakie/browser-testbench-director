@@ -82,6 +82,16 @@
                             <span>{{ t('node.addBrowserWait') }}</span>
                         </button>
                         <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-merge-node"
+                            @click="addNode('merge')"
+                        >
+                            <span class="bi bi-sign-merge-right" aria-hidden="true"></span>
+                            <span>{{ t('node.addMerge') }}</span>
+                        </button>
+                        <button
                             v-if="activeNode && !activeWebsite && !activeInput && !activeCapability"
                             class="action-option"
                             type="button"

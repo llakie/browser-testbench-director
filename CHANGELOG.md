@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Parallel workflow branches and explicit merge nodes with `Wait all` and `Wait any` strategies.
+
+### Changed
+
+- Project format 11 permits multiple outgoing workflow connections and reserves multiple incoming connections for merge nodes.
+
 ## [0.1.0] - 2026-09-29
 
 ### Added

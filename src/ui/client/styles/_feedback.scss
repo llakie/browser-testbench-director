@@ -151,8 +151,8 @@
 .permission-select__menu {
     position: absolute;
     z-index: 1;
-    top: calc(100% + var(--space-2));
     right: 0;
+    bottom: calc(100% + var(--space-2));
     left: 0;
     display: grid;
     padding: var(--space-2);

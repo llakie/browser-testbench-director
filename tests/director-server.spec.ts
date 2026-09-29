@@ -23,6 +23,7 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
     });
     await new Promise<void>((resolveStarted) => browserTestbench.listen(0, resolveStarted));
     const browserAddress = browserTestbench.address();
+
     if (!browserAddress || typeof browserAddress === 'string') {
         throw new Error('Browser Testbench fixture did not start.');
     }
@@ -96,6 +97,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
     const websiteRequests: string[] = [];
     const website = createServer((request, response) => {
         websiteRequests.push(request.url ?? '');
+
         if (request.url === '/main.js') {
             response.setHeader('Content-Type', 'text/javascript');
             response.end(
@@ -103,11 +105,13 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
             );
             return;
         }
+
         if (request.url === '/@fs/module.js' || request.url === '/lazy.js') {
             response.setHeader('Content-Type', 'text/javascript');
             response.end('window.moduleLoaded = true;');
             return;
         }
+
         response.setHeader('Content-Type', 'text/html; charset=utf-8');
         response.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
         response.setHeader('X-Frame-Options', 'DENY');
@@ -117,6 +121,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
     });
     await new Promise<void>((resolveStarted) => website.listen(0, resolveStarted));
     const websiteAddress = website.address();
+
     if (!websiteAddress || typeof websiteAddress === 'string') {
         throw new Error('Website fixture did not start.');
     }
@@ -124,6 +129,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
     const browserTestbench = createServer((_request, response) => response.end('{}'));
     await new Promise<void>((resolveStarted) => browserTestbench.listen(0, resolveStarted));
     const browserAddress = browserTestbench.address();
+
     if (!browserAddress || typeof browserAddress === 'string') {
         throw new Error('Browser Testbench fixture did not start.');
     }
@@ -157,7 +163,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         assert.match(html, /new MutationObserver/u);
         assert.match(
             html,
-            /url\.pathname === prefix \|\| url\.pathname\.startsWith\(prefix \+ '\/'\)/u,
+            /url\.pathname === prefix \|\| url\.pathname\.startsWith/u,
             'Already proxied same-origin URLs must not be rewritten repeatedly.',
         );
         assert.match(

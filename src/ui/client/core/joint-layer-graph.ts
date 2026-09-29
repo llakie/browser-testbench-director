@@ -151,9 +151,17 @@ export class JointLayerGraph {
     #automaticLayoutRun = 0;
     #dragStart: { readonly id: string; readonly x: number; readonly y: number } | null = null;
     readonly #deleteSelectedConnection = (event: KeyboardEvent): void => {
-        if (!['Backspace', 'Delete'].includes(event.key) || !this.#selectedConnectionId) return;
-        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+        if (!['Backspace', 'Delete'].includes(event.key) || !this.#selectedConnectionId) {
             return;
+        }
+
+        if (
+            event.target instanceof HTMLInputElement ||
+            event.target instanceof HTMLTextAreaElement
+        ) {
+            return;
+        }
+
         event.preventDefault();
         this.#callbacks.deleteConnection(this.#selectedConnectionId);
     };
@@ -209,12 +217,15 @@ export class JointLayerGraph {
             const position = view.model.position();
             const start = this.#dragStart;
             this.#dragStart = null;
+
             if (
                 !start ||
                 start.id !== String(view.model.id) ||
                 (start.x === position.x && start.y === position.y)
-            )
+            ) {
                 return;
+            }
+
             this.#callbacks.positionNode(String(view.model.id), position.x, position.y);
         });
         this.#paper.on('node:play', (view: dia.ElementView, event: Event) => {
@@ -232,6 +243,7 @@ export class JointLayerGraph {
         this.#paper.on('link:connect', (view: dia.LinkView) => {
             const source = String(view.model.source().id ?? '');
             const target = String(view.model.target().id ?? '');
+
             if (!source || !target || !this.#callbacks.connectNodes(source, target)) {
                 view.model.remove();
             }
@@ -257,6 +269,7 @@ export class JointLayerGraph {
         this.#graph.clear();
         const incomingConnections = JointLayerGraph.incomingConnections(connections);
         const targetPorts = new Map<string, string>();
+
         for (const [index, node] of nodes.entries()) {
             const execution = states[node.id];
             const connected = connectedNodeIds.has(node.id);
@@ -311,12 +324,14 @@ export class JointLayerGraph {
                                 ? 'CAPABILITY'
                                 : node.type === 'layer'
                                   ? 'LAYER'
-                                  : node.type === 'javascript'
-                                    ? 'JS'
-                                    : node.type === 'browser-action'
-                                      ? 'ACTION'
-                                      : 'WAIT',
-                    fill: 'var(--color-text)',
+                                  : node.type === 'merge'
+                                    ? 'MERGE'
+                                    : node.type === 'javascript'
+                                      ? 'JS'
+                                      : node.type === 'browser-action'
+                                        ? 'ACTION'
+                                        : 'WAIT',
+                    fill: 'var(--color-node-header-text)',
                     fontFamily: 'ui-monospace, monospace',
                     fontSize: 10,
                     fontWeight: 800,
@@ -367,6 +382,7 @@ export class JointLayerGraph {
             cell.attr('body/title', title);
             cell.addTo(this.#graph);
         }
+
         for (const connection of connections) {
             const link = JointLayerGraph.createLink(connection.id);
             link.source({ id: connection.source, port: 'out' });
@@ -374,6 +390,7 @@ export class JointLayerGraph {
             link.addTo(this.#graph);
             link.toBack();
         }
+
         this.#paper.scale(this.#zoom);
         this.#paper.translate(this.#panX, this.#panY);
         this.#paper.unfreeze();
@@ -382,8 +399,10 @@ export class JointLayerGraph {
                 ? this.#selectedConnectionId
                 : null,
         );
+
         if (nodes.some((node) => node.position === null)) {
             const key = this.#layoutKey(nodes, connections);
+
             if (key !== this.#automaticLayoutKey) {
                 this.#automaticLayoutKey = key;
                 void this.arrangeAutomatically(nodes, connections, true)
@@ -394,8 +413,14 @@ export class JointLayerGraph {
     }
 
     private static nodeDetail(node: DirectorNode): string {
-        if (node.type === 'browser-action') return node.selector;
-        if (node.type === 'browser-wait' && node.condition === 'element') return node.selector;
+        if (node.type === 'browser-action') {
+            return node.selector;
+        }
+
+        if (node.type === 'browser-wait' && node.condition === 'element') {
+            return node.selector;
+        }
+
         return '';
     }
 
@@ -409,21 +434,27 @@ export class JointLayerGraph {
                     ? 'Virtual camera'
                     : node.type === 'layer'
                       ? 'HTML  ·  CSS  ·  JS'
-                      : node.type === 'javascript'
-                        ? 'JavaScript'
-                        : node.type === 'browser-action'
-                          ? `Click · ${node.selector}`
-                          : node.condition === 'element'
-                            ? `Element · ${node.selector}`
-                            : node.condition === 'url'
-                              ? `URL · ${node.value}`
-                              : 'Script';
+                      : node.type === 'merge'
+                        ? `Wait ${node.waitFor}`
+                        : node.type === 'javascript'
+                          ? 'JavaScript'
+                          : node.type === 'browser-action'
+                            ? `Click · ${node.selector}`
+                            : node.condition === 'element'
+                              ? `Element · ${node.selector}`
+                              : node.condition === 'url'
+                                ? `URL · ${node.value}`
+                                : 'Script';
         return `${JointLayerGraph.ellipsize(node.name, 27)}\n${JointLayerGraph.ellipsize(detail, 27)}`;
     }
 
     private static ellipsize(value: string, maximumLength: number): string {
         const characters = Array.from(value);
-        if (characters.length <= maximumLength) return value;
+
+        if (characters.length <= maximumLength) {
+            return value;
+        }
+
         return `${characters.slice(0, maximumLength - 1).join('')}…`;
     }
 
@@ -431,10 +462,10 @@ export class JointLayerGraph {
         for (const element of this.#graph.getElements()) {
             const selected = String(element.id) === id;
             element.attr(
-                'body/stroke',
+                'outline/stroke',
                 JointLayerGraph.borderColor(selected, this.#states[String(element.id)]),
             );
-            element.attr('body/strokeWidth', selected ? 2 : 1);
+            element.attr('outline/strokeWidth', selected ? 2 : 1);
         }
     }
 
@@ -457,7 +488,11 @@ export class JointLayerGraph {
         const bounds = this.#graph.getBBox();
         const width = this.#paper.el.clientWidth;
         const height = this.#paper.el.clientHeight;
-        if (!bounds || width <= 0 || height <= 0) return this.#zoom;
+
+        if (!bounds || width <= 0 || height <= 0) {
+            return this.#zoom;
+        }
+
         const padding = 24;
         const zoom = Math.min(
             1,
@@ -486,15 +521,27 @@ export class JointLayerGraph {
         const height = this.#paper.el.clientHeight;
         const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
         const positions = await GraphAutoLayout.positions(nodes, connections, aspectRatio);
-        if (run !== this.#automaticLayoutRun) return this.#zoom;
+
+        if (run !== this.#automaticLayoutRun) {
+            return this.#zoom;
+        }
+
         this.#automaticPositions = positions;
         this.#automaticLayoutKey = this.#layoutKey(nodes, connections);
+
         for (const node of nodes) {
-            if (node.position !== null) continue;
+            if (node.position !== null) {
+                continue;
+            }
+
             const position = positions.get(node.id);
             const cell = this.#graph.getCell(node.id);
-            if (position && cell?.isElement()) cell.position(position.x, position.y);
+
+            if (position && cell?.isElement()) {
+                cell.position(position.x, position.y);
+            }
         }
+
         return fit ? this.fitToContent() : this.#zoom;
     }
 
@@ -511,6 +558,7 @@ export class JointLayerGraph {
 
     selectConnection(id: string | null): void {
         this.#selectedConnectionId = id;
+
         for (const link of this.#graph.getLinks()) {
             const selected = String(link.id) === id;
             link.attr('line/stroke', selected ? 'var(--color-accent)' : 'var(--color-text-muted)');
@@ -523,6 +571,7 @@ export class JointLayerGraph {
                 },
             });
         }
+
         this.#callbacks.selectConnection(id);
     }
 
@@ -567,11 +616,13 @@ export class JointLayerGraph {
         connections: readonly WorkflowConnection[],
     ): ReadonlyMap<string, readonly WorkflowConnection[]> {
         const incoming = new Map<string, WorkflowConnection[]>();
+
         for (const connection of connections) {
             const entries = incoming.get(connection.target) ?? [];
             entries.push(connection);
             incoming.set(connection.target, entries);
         }
+
         return incoming;
     }
 
@@ -613,7 +664,10 @@ export class JointLayerGraph {
     }
 
     private static compactUrl(url: string): string {
-        if (!url) return 'URL';
+        if (!url) {
+            return 'URL';
+        }
+
         return url.length > 28 ? `${url.slice(0, 25)}…` : url;
     }
 
@@ -630,23 +684,54 @@ export class JointLayerGraph {
     }
 
     private static color(node: DirectorNode): string {
-        if (node.type === 'website') return 'var(--color-node-website)';
-        if (node.type === 'input') return 'var(--color-node-input)';
-        if (node.type === 'capability') return 'var(--color-node-capability)';
-        if (node.type === 'javascript') return 'var(--color-node-javascript)';
-        if (node.type === 'browser-action') return 'var(--color-node-action)';
-        if (node.type === 'browser-wait') return 'var(--color-node-wait)';
+        if (node.type === 'website') {
+            return 'var(--color-node-website)';
+        }
+
+        if (node.type === 'input') {
+            return 'var(--color-node-input)';
+        }
+
+        if (node.type === 'capability') {
+            return 'var(--color-node-capability)';
+        }
+
+        if (node.type === 'merge') {
+            return 'var(--color-node-merge)';
+        }
+
+        if (node.type === 'javascript') {
+            return 'var(--color-node-javascript)';
+        }
+
+        if (node.type === 'browser-action') {
+            return 'var(--color-node-action)';
+        }
+
+        if (node.type === 'browser-wait') {
+            return 'var(--color-node-wait)';
+        }
+
         return 'var(--color-node-layer)';
     }
 
     private static borderColor(selected: boolean, state?: NodeExecutionState): string {
-        if (state?.status === 'error') return 'var(--color-status-error)';
-        if (state?.status === 'running') return 'var(--color-status-running)';
+        if (state?.status === 'error') {
+            return 'var(--color-status-error)';
+        }
+
+        if (state?.status === 'running') {
+            return 'var(--color-status-running)';
+        }
+
         return selected ? 'var(--color-accent)' : 'var(--color-border)';
     }
 
     private static statusRing(state?: NodeExecutionState): Record<string, unknown> {
-        if (!state || state.status === 'idle') return { display: 'none' };
+        if (!state || state.status === 'idle') {
+            return { display: 'none' };
+        }
+
         const colors = {
             running: 'var(--color-status-running)',
             success: 'var(--color-status-success)',

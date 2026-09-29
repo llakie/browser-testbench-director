@@ -10,6 +10,7 @@ test('Director-Projektservice verwaltet ausschließlich validierte Workspace-Pro
     const workspace = await mkdtemp(join(tmpdir(), 'director-project-service-'));
     const service = new DirectorProjectService(workspace);
     const path = 'projects/example/example.btd.json';
+
     try {
         const created = await service.create(path, {
             name: 'Example',

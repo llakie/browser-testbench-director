@@ -18,6 +18,7 @@ const generated = await getLicenseFileText('package.json', {
 
 if (process.argv.includes('--check')) {
     const current = await readFile(outputPath, 'utf8');
+
     if (current !== generated) {
         throw new Error(`${outputPath} is out of date. Run npm run licenses.`);
     }

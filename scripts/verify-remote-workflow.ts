@@ -204,10 +204,16 @@ async function findNewSession(
     existing: ReadonlySet<string>,
 ): Promise<RemoteSession> {
     const deadline = Date.now() + 10_000;
+
     while (Date.now() < deadline) {
         const match = (await remote.sessions()).find((session) => !existing.has(session.id));
-        if (match) return match;
+
+        if (match) {
+            return match;
+        }
+
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
+
     throw new Error('The remote preview session was not created.');
 }

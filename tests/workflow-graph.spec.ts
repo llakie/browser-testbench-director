@@ -15,7 +15,7 @@ test('Workflow-Graph erstellt eine lineare Verbindung', () => {
     });
 });
 
-test('Workflow-Graph verhindert mehrere Nachfolger und Vorgänger', () => {
+test('Workflow-Graph erlaubt parallele Nachfolger und führt sie nur über Merge zusammen', () => {
     const project = ProjectFormat.create();
     project.nodes.push({
         id: 'second-layer',
@@ -30,15 +30,26 @@ test('Workflow-Graph verhindert mehrere Nachfolger und Vorgänger', () => {
         playback: { durationMs: 0, removeAfter: false },
         source: { html: '', css: '', javascript: '' },
     });
+    project.nodes.push({
+        id: 'merge',
+        type: 'merge',
+        name: 'Merge',
+        position: null,
+        waitFor: 'all',
+    });
 
-    assert.throws(
-        () => WorkflowGraph.createConnection(project, 'website-root', 'second-layer'),
-        (error) => error instanceof WorkflowConnectionError && error.issue === 'source-occupied',
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'website-root', 'second-layer'),
     );
     assert.throws(
         () => WorkflowGraph.createConnection(project, 'second-layer', 'layer-1'),
         (error) => error instanceof WorkflowConnectionError && error.issue === 'target-occupied',
     );
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'layer-1', 'merge'),
+        WorkflowGraph.createConnection(project, 'second-layer', 'merge'),
+    );
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
 });
 
 test('Workflow-Graph verhindert Rückverbindungen und Website-Root als Ziel', () => {

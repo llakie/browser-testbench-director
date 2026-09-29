@@ -7,6 +7,7 @@ import { ProjectFormat, type JavaScriptNode } from '../src/ui/client/core/projec
 test('ELK bricht einen langen Workflow kompakt in mehrere Zeilen um', async () => {
     const project = ProjectFormat.create();
     let previousId = 'layer-1';
+
     for (let index = 2; index <= 22; index += 1) {
         const node: JavaScriptNode = {
             id: `node-${index}`,
@@ -32,6 +33,7 @@ test('ELK bricht einen langen Workflow kompakt in mehrere Zeilen um', async () =
     assert.equal(positions.size, project.nodes.length);
     assert.ok(distinctRows.size >= 4, 'Der lineare Graph muss in mehrere Zeilen umbrechen.');
     assert.ok(width < 2_000, `Der umgebrochene Graph ist zu breit: ${width}px.`);
+
     for (let left = 0; left < arranged.length; left += 1) {
         for (let right = left + 1; right < arranged.length; right += 1) {
             const a = arranged[left]!;

@@ -266,13 +266,16 @@ export async function verifySelectorPicker(session: RemoteSession): Promise<void
     await session.click('[data-testid="pick-browser-action-selector"]');
 
     let pickerSession: RemoteSession | undefined;
+
     for (let attempt = 0; attempt < 80 && !pickerSession; attempt += 1) {
         await new Promise((resolveWait) => setTimeout(resolveWait, 250));
         pickerSession = (await testbench.sessions()).find(
             (candidate) => !existingSessions.has(candidate.id),
         );
     }
+
     assert.ok(pickerSession, 'selector picker: a remote picking session must open.');
+
     try {
         await pickerSession.waitForScript(
             `return window.__directorSelectorPicker?.status === 'picking';`,
@@ -287,6 +290,7 @@ export async function verifySelectorPicker(session: RemoteSession): Promise<void
             cause: error,
         });
     }
+
     const pickerState = await pickerSession.evaluate<{
         status: string | null;
         url: string;

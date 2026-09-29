@@ -62,8 +62,12 @@ test('Browser-Testbench-Vorschau veröffentlicht ein Dokument unter einer virtue
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.deepEqual(requests[0], {
@@ -108,8 +112,12 @@ test('Lokale HTTPS-Shell akzeptiert das Director-Entwicklungszertifikat', async 
         await BrowserTestbenchPreview.open('chrome', 'layer-1', '<!doctype html>');
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.deepEqual(JSON.parse(String(requests[1]?.body)), {
@@ -156,8 +164,12 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     const session = JSON.parse(String(requests[1]?.body)) as Record<string, unknown>;
@@ -227,8 +239,12 @@ test('Lokales HTTPS wird auf Android Chrome ohne Zertifikatswarnung geöffnet', 
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.deepEqual(requestBodies[0]?.['capabilities'], {
@@ -271,8 +287,12 @@ test('Lokale Android-Vorschau navigiert nach dem Reverse-Tunnel kontrolliert neu
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.equal(requests.length, 2);
@@ -434,8 +454,12 @@ test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeit
         assert.equal(id, 'camera-session');
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.equal(requests[0]?.url, '/browser-testbench-api/assets');
@@ -508,6 +532,7 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
     globalThis.fetch = async (input, init = {}) => {
         const url = String(input);
         requests.push({ url, headers: new Headers(init.headers), body: init.body });
+
         if (url.startsWith('/director-api/inputs/prepare?')) {
             return new Response(new Uint8Array([9, 8, 7]), {
                 headers: {
@@ -516,6 +541,7 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
                 },
             });
         }
+
         const payload = url.endsWith('/assets')
             ? {
                   id: 'prepared-asset',
@@ -565,8 +591,12 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.equal(
@@ -608,12 +638,14 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
     globalThis.fetch = async (input, init = {}) => {
         const url = String(input);
         requests.push({ url, body: init.body, headers: init.headers });
+
         if (url.endsWith('/recording/start')) {
             return new Response(JSON.stringify({ id: 'recording-1' }), {
                 status: 201,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
+
         if (url.endsWith('/recording/stop')) {
             return new Response(
                 JSON.stringify({
@@ -628,6 +660,7 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
                 { headers: { 'Content-Type': 'application/json' } },
             );
         }
+
         return new Response(video, { headers: { 'Content-Type': 'video/mp4' } });
     };
 
@@ -711,6 +744,28 @@ test('Aufnahmeintervalle für Layer und eingeschlossene Wartezeiten verwenden di
         { startMs: 5_500, endMs: 6_000 },
         { startMs: 8_000, endMs: 9_000 },
     ]);
+});
+
+test('Überlappende Layer-Zweige erzeugen nur ein Exportintervall', () => {
+    const intervals = BrowserTestbenchPreview.layerIntervals({
+        artifactId: 'artifact-1',
+        size: 1,
+        sha256: 'a'.repeat(64),
+        mimeType: 'video/mp4',
+        width: 1080,
+        height: 1920,
+        durationMs: 5_000,
+        startedSessionTimeMs: 0,
+        endedSessionTimeMs: 5_000,
+        marks: [
+            { name: 'director.layer.start', data: { nodeId: 'title' }, recordingTimeMs: 500 },
+            { name: 'director.layer.start', data: { nodeId: 'callout' }, recordingTimeMs: 520 },
+            { name: 'director.layer.end', data: { nodeId: 'title' }, recordingTimeMs: 2_500 },
+            { name: 'director.layer.end', data: { nodeId: 'callout' }, recordingTimeMs: 2_520 },
+        ],
+    });
+
+    assert.deepEqual(intervals, [{ startMs: 500, endMs: 2_520 }]);
 });
 
 test('Aufnahme markiert nur Warte-Nodes, die im Export bleiben sollen', async () => {

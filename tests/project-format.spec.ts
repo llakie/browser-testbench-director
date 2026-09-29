@@ -98,6 +98,20 @@ test('Director-Projektformat speichert typisierte Browser-Aktionen und Wartebedi
     assert.deepEqual(loaded.nodes.slice(-2), project.nodes.slice(-2));
 });
 
+test('Director-Projektformat speichert Merge-Nodes mit expliziter Strategie', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push({
+        id: 'merge',
+        type: 'merge',
+        name: 'Merge',
+        position: null,
+        waitFor: 'any',
+    });
+
+    const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
+    assert.deepEqual(loaded.nodes.at(-1), project.nodes.at(-1));
+});
+
 test('Director-Projektformat verlangt eine explizite Exportentscheidung für Warte-Nodes', () => {
     const project = ProjectFormat.create();
     const wait: BrowserWaitNode = ProjectNodes.createBrowserWait(project, 'Warten');
@@ -193,7 +207,7 @@ test('Director-Projektformat speichert mehrere Prepare-Module pro Datei-Input', 
 });
 
 test('Director-Projektformat lehnt unbekannte Versionen ab', () => {
-    const project = { ...ProjectFormat.create(), version: 11 };
+    const project = { ...ProjectFormat.create(), version: 12 };
     assert.throws(
         () => ProjectFormat.parse(JSON.stringify(project)),
         /Unsupported project version/u,

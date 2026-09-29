@@ -1,4 +1,8 @@
-import { DirectorRuntimeScript, type RuntimeStep } from './runtime-protocol.js';
+import {
+    DirectorRuntimeScript,
+    executeRuntimeGraph,
+    type RuntimeStep,
+} from './runtime-protocol.js';
 import type { BrowserSessionConfiguration, ProjectFileInput } from './project-format.js';
 
 interface MessageDescriptor {
@@ -123,7 +127,10 @@ export class BrowserTestbenchPreview {
     }
 
     static proxyWebsite(url: string): Promise<string> {
-        if (!url.trim()) throw new TypeError('Website URL must not be empty.');
+        if (!url.trim()) {
+            throw new TypeError('Website URL must not be empty.');
+        }
+
         return this.fetch<ProxiedWebsite>('/director-api/website-proxies', {
             method: 'POST',
             body: JSON.stringify({ url: this.absoluteUrl(url) }),
@@ -188,9 +195,11 @@ export class BrowserTestbenchPreview {
         const absoluteUrl = this.absoluteUrl(url);
         const cameraInput = inputs.find((input) => input.id === cameraInputId);
         const cameraFile = cameraInput ? inputFiles[cameraInput.id] : undefined;
+
         if (cameraInput && !cameraFile) {
             throw new Error(`Missing project input: ${cameraInput.id}`);
         }
+
         const runtimeInputs = await this.prepareRuntimeInputs(inputFiles, inputs, cameraInput?.id);
         const preparedCameraFile = cameraFile
             ? await this.prepareInput(cameraFile, cameraInput?.prepare)
@@ -198,9 +207,11 @@ export class BrowserTestbenchPreview {
         const nativeCamera = Boolean(
             preparedCameraFile && target.capabilities.mediaInjection.cameraImage,
         );
+
         if (preparedCameraFile && !nativeCamera) {
             throw new Error('Desktop camera previews must use the Director preview shell.');
         }
+
         const cameraAsset = nativeCamera ? await this.uploadAsset(preparedCameraFile!) : undefined;
         const configuredPermissions = [
             ...(configuration?.permissions ?? []),
@@ -247,12 +258,15 @@ export class BrowserTestbenchPreview {
                     : {}),
             }),
         });
+
         if (androidLocalOrigin) {
             await this.navigateWebsite(session.id, absoluteUrl);
         }
+
         if (Object.keys(runtimeInputs).length > 0) {
             await this.setRuntimeInputs(session.id, runtimeInputs);
         }
+
         return session.id;
     }
 
@@ -305,7 +319,11 @@ export class BrowserTestbenchPreview {
         const scale = Math.max(1, rect.innerWidth / viewport.width);
         const innerWidth = Math.round(viewport.width * scale);
         const innerHeight = Math.round(viewport.height * scale);
-        if (rect.innerWidth === innerWidth && rect.innerHeight === innerHeight) return;
+
+        if (rect.innerWidth === innerWidth && rect.innerHeight === innerHeight) {
+            return;
+        }
+
         await this.browserAction(sessionId, {
             action: 'viewport',
             width: innerWidth + Math.max(0, rect.outerWidth - rect.innerWidth),
@@ -325,18 +343,26 @@ export class BrowserTestbenchPreview {
         const response = await fetch(
             `${this.apiBase}/sessions/${encodeURIComponent(sessionId)}/recording/artifacts/${encodeURIComponent(recording.artifactId)}`,
         );
-        if (!response.ok) throw await this.responseError(response);
+
+        if (!response.ok) {
+            throw await this.responseError(response);
+        }
+
         const content = await response.arrayBuffer();
+
         if (content.byteLength !== recording.size) {
             throw new Error('Recording artifact size does not match its metadata.');
         }
+
         const digest = await crypto.subtle.digest('SHA-256', content);
         const sha256 = [...new Uint8Array(digest)]
             .map((value) => value.toString(16).padStart(2, '0'))
             .join('');
+
         if (sha256 !== recording.sha256) {
             throw new Error('Recording artifact integrity verification failed.');
         }
+
         const original = new Blob([content], { type: recording.mimeType });
         const intervals = this.layerIntervals(recording);
         const output = outputSize ?? { width: recording.width, height: recording.height };
@@ -383,7 +409,11 @@ export class BrowserTestbenchPreview {
                     : {}),
             },
         });
-        if (!response.ok) throw await this.responseError(response);
+
+        if (!response.ok) {
+            throw await this.responseError(response);
+        }
+
         return response.blob();
     }
 
@@ -392,31 +422,39 @@ export class BrowserTestbenchPreview {
         steps: readonly RuntimeStep[],
         markIntervals = false,
     ): Promise<void> {
-        for (const step of steps) {
-            if (markIntervals && step.type === 'layer') {
+        await executeRuntimeGraph(steps, async (step) => {
+            if (markIntervals && step.type === 'layer' && step.playback!.durationMs > 0) {
                 const playback = step.playback!;
                 await this.executeRuntimeStep(sessionId, {
                     ...step,
                     playback: { durationMs: 0, removeAfter: false },
                 });
                 await this.mark(sessionId, 'director.layer.start', { nodeId: step.id });
+
                 try {
                     if (step.speed === 'live' && playback.durationMs > 0) {
                         await new Promise((resolve) => setTimeout(resolve, playback.durationMs));
                     }
                 } finally {
                     await this.mark(sessionId, 'director.layer.end', { nodeId: step.id });
-                    if (playback.removeAfter) await this.removeRuntimeLayer(sessionId, step.id);
+
+                    if (playback.removeAfter) {
+                        await this.removeRuntimeLayer(sessionId, step.id);
+                    }
                 }
-                continue;
+
+                return;
             }
+
             const includeInterval =
                 markIntervals && step.type === 'browser-wait' && !step.omitFromRecording;
+
             if (includeInterval) {
                 await this.mark(sessionId, 'director.wait.start', {
                     nodeId: step.id,
                 });
             }
+
             try {
                 await this.executeRuntimeStep(sessionId, step);
             } finally {
@@ -424,7 +462,7 @@ export class BrowserTestbenchPreview {
                     await this.mark(sessionId, 'director.wait.end', { nodeId: step.id });
                 }
             }
-        }
+        });
     }
 
     static async executeOnWebsite(
@@ -434,37 +472,52 @@ export class BrowserTestbenchPreview {
         inputs: Readonly<Record<string, string>> = {},
         excludedInputId: string | null = null,
     ): Promise<void> {
-        for (const step of steps) {
+        await executeRuntimeGraph(steps, async (step) => {
             if (step.source.includes('director.inputs')) {
                 await this.setRuntimeInputs(sessionId, inputs, excludedInputId);
             }
+
             if (step.type === 'browser-action') {
                 await this.clearResult(sessionId, step.id);
                 await this.click(sessionId, step.selector!);
-                continue;
+                return;
             }
+
             if (step.type === 'browser-wait') {
                 await this.clearResult(sessionId, step.id);
                 const includeWait = markLayerIntervals && !step.omitFromRecording;
-                if (includeWait)
+
+                if (includeWait) {
                     await this.mark(sessionId, 'director.wait.start', { nodeId: step.id });
+                }
+
                 try {
                     const result = await this.wait(sessionId, step);
-                    if (result !== undefined) await this.storeResult(sessionId, step.id, result);
+
+                    if (result !== undefined) {
+                        await this.storeResult(sessionId, step.id, result);
+                    }
                 } finally {
-                    if (includeWait)
+                    if (includeWait) {
                         await this.mark(sessionId, 'director.wait.end', { nodeId: step.id });
+                    }
                 }
-                continue;
+
+                return;
             }
+
             if (step.type === 'layer') {
+                const includeInterval = markLayerIntervals && step.playback!.durationMs > 0;
                 await this.mountLayerOnWebsite(sessionId, step);
                 await this.executeSourceOnWebsite(sessionId, step, {
                     durationMs: 0,
                     removeAfter: false,
                 });
-                if (markLayerIntervals)
+
+                if (includeInterval) {
                     await this.mark(sessionId, 'director.layer.start', { nodeId: step.id });
+                }
+
                 try {
                     if (step.speed === 'live' && step.playback!.durationMs > 0) {
                         await new Promise((resolve) =>
@@ -472,14 +525,20 @@ export class BrowserTestbenchPreview {
                         );
                     }
                 } finally {
-                    if (markLayerIntervals)
+                    if (includeInterval) {
                         await this.mark(sessionId, 'director.layer.end', { nodeId: step.id });
-                    if (step.playback!.removeAfter) await this.removeLayer(sessionId, step.id);
+                    }
+
+                    if (step.playback!.removeAfter) {
+                        await this.removeLayer(sessionId, step.id);
+                    }
                 }
-                continue;
+
+                return;
             }
+
             await this.executeSourceOnWebsite(sessionId, step);
-        }
+        });
     }
 
     static layerIntervals(recording: RecordingArtifact): RecordingInterval[] {
@@ -488,19 +547,42 @@ export class BrowserTestbenchPreview {
 
         for (const mark of recording.marks ?? []) {
             const nodeId = typeof mark.data?.['nodeId'] === 'string' ? mark.data['nodeId'] : null;
-            if (!nodeId || !Number.isFinite(mark.recordingTimeMs)) continue;
+
+            if (!nodeId || !Number.isFinite(mark.recordingTimeMs)) {
+                continue;
+            }
+
             const timeMs = Math.max(0, Math.min(recording.durationMs, mark.recordingTimeMs!));
+
             if (mark.name === 'director.layer.start' || mark.name === 'director.wait.start') {
                 starts.set(nodeId, timeMs);
             } else if (mark.name === 'director.layer.end' || mark.name === 'director.wait.end') {
                 const startMs = starts.get(nodeId);
                 starts.delete(nodeId);
+
                 if (startMs !== undefined && timeMs > startMs) {
                     intervals.push({ startMs, endMs: timeMs });
                 }
             }
         }
-        return intervals.sort((left, right) => left.startMs - right.startMs);
+
+        const sorted = intervals.sort((left, right) => left.startMs - right.startMs);
+        const merged: RecordingInterval[] = [];
+
+        for (const interval of sorted) {
+            const previous = merged.at(-1);
+
+            if (previous && interval.startMs <= previous.endMs) {
+                merged[merged.length - 1] = {
+                    startMs: previous.startMs,
+                    endMs: Math.max(previous.endMs, interval.endMs),
+                };
+            } else {
+                merged.push(interval);
+            }
+        }
+
+        return merged;
     }
 
     private static async mountLayerOnWebsite(sessionId: string, step: RuntimeStep): Promise<void> {
@@ -691,8 +773,12 @@ export class BrowserTestbenchPreview {
                 window.__directorInputChunks = {};`,
             arguments: [],
         });
+
         for (const [inputId, value] of Object.entries(inputs)) {
-            if (inputId === excludedInputId) continue;
+            if (inputId === excludedInputId) {
+                continue;
+            }
+
             for (let offset = 0; offset < value.length; offset += this.inputChunkSize) {
                 const chunk = value.slice(offset, offset + this.inputChunkSize);
                 const complete = offset + this.inputChunkSize >= value.length;
@@ -919,7 +1005,11 @@ export class BrowserTestbenchPreview {
             method: 'POST',
             body: JSON.stringify(condition),
         });
-        if (step.condition !== 'script') return undefined;
+
+        if (step.condition !== 'script') {
+            return undefined;
+        }
+
         return this.browserAction(sessionId, {
             action: 'evaluate',
             script: step.script,
@@ -960,15 +1050,19 @@ export class BrowserTestbenchPreview {
         const capabilities: Record<string, unknown> = {
             ...(localHttps ? { acceptInsecureCerts: true } : {}),
         };
+
         if (target.kind === 'mobile') {
             const mobileLanguage = configuration?.language.trim();
             const mobileLocale = configuration?.locale.trim().toUpperCase();
+
             if (mobileLanguage) {
                 capabilities['appium:language'] = locale?.language ?? mobileLanguage;
             }
+
             if (mobileLocale || locale?.region) {
                 capabilities['appium:locale'] = mobileLocale || locale!.region;
             }
+
             if (localHttps && target.browser === 'chrome-android') {
                 capabilities['goog:chromeOptions'] = {
                     args: [
@@ -977,10 +1071,16 @@ export class BrowserTestbenchPreview {
                     ],
                 };
             }
+
             return capabilities;
         }
-        if (!language) return capabilities;
+
+        if (!language) {
+            return capabilities;
+        }
+
         const acceptLanguages = locale?.language ? `${language},${locale.language}` : language;
+
         if (target.browser === 'chrome') {
             capabilities['goog:chromeOptions'] = {
                 args: [
@@ -1008,13 +1108,18 @@ export class BrowserTestbenchPreview {
                 prefs: { 'intl.accept_languages': acceptLanguages },
             };
         }
+
         return capabilities;
     }
 
     private static browserLanguage(configuration: BrowserSessionConfiguration | undefined): string {
         const language = configuration?.language.trim().replaceAll('_', '-');
         const region = configuration?.locale.trim().toUpperCase();
-        if (!language) return '';
+
+        if (!language) {
+            return '';
+        }
+
         try {
             const parsed = new Intl.Locale(language);
             return new Intl.Locale(
@@ -1066,11 +1171,16 @@ export class BrowserTestbenchPreview {
         file: File,
         preparation: ProjectFileInput['prepare'],
     ): Promise<File> {
-        if (!preparation) return file;
+        if (!preparation) {
+            return file;
+        }
+
         let prepared = file;
+
         for (const module of preparation.modules) {
             prepared = await this.prepareInputWithModule(prepared, module);
         }
+
         return prepared;
     }
 
@@ -1081,7 +1191,11 @@ export class BrowserTestbenchPreview {
             body: file,
             headers: { 'Content-Type': file.type || 'application/octet-stream' },
         });
-        if (!response.ok) throw await this.responseError(response);
+
+        if (!response.ok) {
+            throw await this.responseError(response);
+        }
+
         const filename = decodeURIComponent(
             response.headers.get('x-director-file-name') ?? 'prepared-input',
         );
@@ -1123,17 +1237,26 @@ export class BrowserTestbenchPreview {
         const bytes = new Uint8Array(await file.arrayBuffer());
         let binary = '';
         const chunkSize = 32_768;
+
         for (let offset = 0; offset < bytes.length; offset += chunkSize) {
             binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
         }
+
         return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`;
     }
 
     static label(target: BrowserTestbenchTarget): string {
-        if (typeof target.label === 'string') return target.label;
+        if (typeof target.label === 'string') {
+            return target.label;
+        }
+
         const deviceName = target.label.parameters?.['deviceName'];
         const version = target.label.parameters?.['version'];
-        if (deviceName) return version ? `${deviceName} · ${version}` : String(deviceName);
+
+        if (deviceName) {
+            return version ? `${deviceName} · ${version}` : String(deviceName);
+        }
+
         return target.id;
     }
 
@@ -1155,7 +1278,10 @@ export class BrowserTestbenchPreview {
                 ...options.headers,
             },
         });
-        if (response.ok) return (await response.json()) as T;
+
+        if (response.ok) {
+            return (await response.json()) as T;
+        }
 
         throw await this.responseError(response);
     }

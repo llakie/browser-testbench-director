@@ -6,8 +6,11 @@ export class VideoUtilities {
             const child = spawn(ffmpegPath, arguments_, { stdio: 'inherit' });
             child.once('error', reject);
             child.once('exit', (code) => {
-                if (code === 0) resolve();
-                else reject(VideoUtilities.#processError(ffmpegPath, code));
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(VideoUtilities.#processError(ffmpegPath, code));
+                }
             });
         });
     }

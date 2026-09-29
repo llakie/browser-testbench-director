@@ -53,8 +53,33 @@ export async function verifyLayerSelectionAndZoom(session: RemoteSession): Promi
     `);
     await session.waitForValue('[data-testid="browser-session-language"]', 'de', 5_000);
     await session.waitForValue('[data-testid="browser-session-locale"]', 'DE', 5_000);
+    const settingsScrollHeight = await session.evaluate<number>(`
+        return document.querySelector('.project-settings-dialog').scrollHeight;
+    `);
     await session.click('[data-testid="browser-session-permissions"]');
     await session.waitForElement('[data-testid="browser-session-permission-microphone"]', 5_000);
+    const permissionMenu = await session.evaluate<{
+        dialogScrollHeight: number;
+        opensUpward: boolean;
+    }>(`
+        const dialog = document.querySelector('.project-settings-dialog');
+        const trigger = document.querySelector('[data-testid="browser-session-permissions"]');
+        const menu = document.querySelector('.permission-select__menu');
+        return {
+            dialogScrollHeight: dialog.scrollHeight,
+            opensUpward: menu.getBoundingClientRect().bottom < trigger.getBoundingClientRect().top,
+        };
+    `);
+    assert.equal(
+        permissionMenu.opensUpward,
+        true,
+        'settings: the permission menu must open above its trigger.',
+    );
+    assert.equal(
+        permissionMenu.dialogScrollHeight,
+        settingsScrollHeight,
+        'settings: opening permissions must not increase the dialog scroll height.',
+    );
     await session.click('[data-testid="browser-session-permission-microphone"]');
     const permissions = await session.evaluate<string[]>(
         'return [...document.querySelectorAll(`[data-testid^="browser-session-permission-"]:checked`)].map((input) => input.value);',
@@ -77,6 +102,7 @@ export async function verifyLayerSelectionAndZoom(session: RemoteSession): Promi
     `);
     await session.waitForValue('[data-testid="website-url"]', '/example-site.html?root=1', 5_000);
     await session.click('[data-testid="play-workflow"]');
+
     try {
         await session.waitForScript(
             `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;

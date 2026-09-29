@@ -73,13 +73,17 @@ export class DirectorVideoExports {
             this.json(response, 405, { error: 'Method not allowed.' });
             return;
         }
+
         const width = this.dimension(request.headers['x-director-video-width']);
         const height = this.dimension(request.headers['x-director-video-height']);
+
         if (!width || !height) {
             this.json(response, 400, { error: 'Valid video width and height are required.' });
             return;
         }
+
         const intervals = this.intervals(request.headers['x-director-video-intervals']);
+
         if (intervals === null) {
             this.json(response, 400, { error: 'Video intervals are invalid.' });
             return;
@@ -88,15 +92,18 @@ export class DirectorVideoExports {
         const directory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-export-'));
         const inputPath = join(directory, 'recording.mp4');
         const outputPath = join(directory, 'export.mp4');
+
         try {
             let size = 0;
             const limiter = new Transform({
                 transform(chunk: Buffer, _encoding, callback) {
                     size += chunk.byteLength;
+
                     if (size > maximumUploadBytes) {
                         callback(new Error('The recording exceeds the 2 GB limit.'));
                         return;
                     }
+
                     callback(null, chunk);
                 },
             });
@@ -134,13 +141,24 @@ export class DirectorVideoExports {
     }
 
     private intervals(value: string | string[] | undefined): VideoInterval[] | null {
-        if (value === undefined) return [];
+        if (value === undefined) {
+            return [];
+        }
+
         try {
             const parsed = JSON.parse(Array.isArray(value) ? value[0]! : value) as unknown;
-            if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 500) return null;
+
+            if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 500) {
+                return null;
+            }
+
             const intervals = parsed.map((interval) => {
-                if (!interval || typeof interval !== 'object') return null;
+                if (!interval || typeof interval !== 'object') {
+                    return null;
+                }
+
                 const { startMs, endMs } = interval as Record<string, unknown>;
+
                 if (
                     typeof startMs !== 'number' ||
                     typeof endMs !== 'number' ||
@@ -148,8 +166,10 @@ export class DirectorVideoExports {
                     !Number.isFinite(endMs) ||
                     startMs < 0 ||
                     endMs <= startMs
-                )
+                ) {
                     return null;
+                }
+
                 return { startMs, endMs };
             });
             return intervals.every((interval) => interval !== null)

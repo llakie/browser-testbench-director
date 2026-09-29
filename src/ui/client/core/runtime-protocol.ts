@@ -2,8 +2,9 @@ import type { BrowserWaitNode, LayerNode } from './project-format.js';
 
 export interface RuntimeStep {
     readonly id: string;
-    readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait';
+    readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait' | 'merge';
     readonly speed: 'catchup' | 'live';
+    readonly after?: readonly string[];
     readonly source: string;
     readonly html?: string;
     readonly css?: string;
@@ -15,6 +16,41 @@ export interface RuntimeStep {
     readonly script?: string;
     readonly timeoutMs?: number;
     readonly omitFromRecording?: boolean;
+    readonly waitFor?: 'all' | 'any';
+}
+
+export async function executeRuntimeGraph(
+    steps: readonly RuntimeStep[],
+    execute: (step: RuntimeStep) => Promise<void>,
+): Promise<void> {
+    const executions = new Map<string, Promise<void>>();
+    let previousId: string | undefined;
+
+    for (const step of steps) {
+        const dependencyIds = step.after ?? (previousId ? [previousId] : []);
+        const dependencies = dependencyIds.map((id) => {
+            const execution = executions.get(id);
+
+            if (!execution) {
+                throw new TypeError(`Runtime dependency not found: ${id}`);
+            }
+
+            return execution;
+        });
+        const ready =
+            dependencies.length === 0
+                ? Promise.resolve()
+                : step.type === 'merge' && step.waitFor === 'any'
+                  ? Promise.race(dependencies)
+                  : Promise.all(dependencies);
+        executions.set(
+            step.id,
+            ready.then(() => (step.type === 'merge' ? undefined : execute(step))),
+        );
+        previousId = step.id;
+    }
+
+    await Promise.all(executions.values());
 }
 
 export class DirectorRuntimeScript {

@@ -13,18 +13,28 @@ export class ProjectAssets {
                 'X-Director-Asset-Sha256': sha256,
             },
         });
-        if (!response.ok) throw new Error(await this.error(response));
+
+        if (!response.ok) {
+            throw new Error(await this.error(response));
+        }
+
         return (await response.json()) as InputFileReference;
     }
 
     static async load(reference: InputFileReference): Promise<File> {
         const response = await fetch(`/director-api/assets/${reference.asset}`);
-        if (!response.ok) throw new Error(await this.error(response));
+
+        if (!response.ok) {
+            throw new Error(await this.error(response));
+        }
+
         const content = await response.arrayBuffer();
         const [sha256] = reference.asset.split('/');
+
         if (content.byteLength !== reference.size || (await this.sha256(content)) !== sha256) {
             throw new Error(`Project asset is invalid: ${reference.name}`);
         }
+
         return new File([content], reference.name, { type: reference.type });
     }
 

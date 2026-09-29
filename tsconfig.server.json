@@ -3,10 +3,11 @@
     "compilerOptions": {
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
+        "allowJs": true,
         "noEmit": false,
         "outDir": "dist/server",
         "rootDir": "src",
         "sourceMap": true
     },
-    "include": ["src/server/**/*.ts", "src/video/**/*.ts"]
+    "include": ["src/server/**/*.js", "src/server/**/*.ts", "src/video/**/*.ts"]
 }
