@@ -16,6 +16,7 @@ const controllerTarget = process.env['DIRECTOR_CONTROLLER_TARGET'] ?? 'edge';
 const recordingTarget = process.env['DIRECTOR_RECORDING_TARGET'] ?? 'chrome';
 const outputDirectory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-recording-'));
 const projectPath = join(outputDirectory, 'recording-verification.btd.json');
+const audioPath = join(outputDirectory, 'recording-tone.wav');
 const filename = 'director-recording-verification.mp4';
 const cameraImagePath = resolve(
     process.env['GTP_CARD_IMAGE'] ??
@@ -28,6 +29,14 @@ project.name = 'Director Recording Verification';
 const website = project.nodes.find((node) => node.type === 'website')!;
 website.url = new URL('/example-site.html', applicationUrl).toString();
 project.nodes.unshift(
+    {
+        id: 'recording-audio',
+        type: 'input',
+        name: 'Recording audio',
+        position: null,
+        accept: 'audio/wav',
+        required: true,
+    },
     {
         id: 'camera-image',
         type: 'input',
@@ -44,10 +53,24 @@ project.nodes.unshift(
         capability: 'camera',
     },
 );
+project.nodes.push({
+    id: 'play-recording-audio',
+    type: 'audio',
+    name: 'Play recording audio',
+    position: null,
+    volume: 0.5,
+    waitForEnd: true,
+});
 project.connections.unshift(
+    { id: 'recording-audio--play', source: 'recording-audio', target: 'play-recording-audio' },
     { id: 'camera-image--camera-capability', source: 'camera-image', target: 'camera-capability' },
     { id: 'camera-capability--website-root', source: 'camera-capability', target: 'website-root' },
 );
+project.connections.push({
+    id: 'website-root--play-recording-audio',
+    source: 'website-root',
+    target: 'play-recording-audio',
+});
 const layer = project.nodes.find((node) => node.type === 'layer')!;
 layer.name = 'Recording marker';
 layer.playback = { durationMs: 1_500, removeAfter: true };
@@ -68,7 +91,23 @@ project.browserSession = {
     language: 'de',
     locale: 'DE',
 };
-await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
+const execFileAsync = promisify(execFile);
+await Promise.all([
+    writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
+    execFileAsync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=440:duration=1',
+        '-c:a',
+        'pcm_s16le',
+        audioPath,
+    ]),
+]);
 
 const controller = await testbench.open({
     target: controllerTarget,
@@ -86,6 +125,9 @@ try {
     await selectGraphNode(controller, 'camera-image');
     await controller.waitForElement('[data-testid="project-input-camera-image"]', 10_000);
     await controller.upload('[data-testid="project-input-camera-image"]', cameraImagePath);
+    await selectGraphNode(controller, 'recording-audio');
+    await controller.waitForElement('[data-testid="project-input-recording-audio"]', 10_000);
+    await controller.upload('[data-testid="project-input-recording-audio"]', audioPath);
     await controller.waitForState('[data-testid="record-workflow"]', 'enabled', 30_000);
     await controller.evaluate(`
         window.__directorRecordingRequests = [];
@@ -131,13 +173,11 @@ try {
     const bytes = await readFile(download.path);
     assert.ok(bytes.byteLength > 1_024, 'Recording must contain MP4 media data.');
     assert.equal(bytes.subarray(4, 8).toString('ascii'), 'ftyp', 'Recording must be an MP4 file.');
-    const { stdout } = await promisify(execFile)('ffprobe', [
+    const { stdout } = await execFileAsync('ffprobe', [
         '-v',
         'error',
-        '-select_streams',
-        'v:0',
         '-show_entries',
-        'stream=codec_name,width,height',
+        'stream=codec_name,codec_type,width,height',
         '-show_entries',
         'format=duration',
         '-of',
@@ -145,11 +185,18 @@ try {
         download.path,
     ]);
     const probe = JSON.parse(stdout) as {
-        streams?: Array<{ codec_name?: string; width?: number; height?: number }>;
+        streams?: Array<{
+            codec_name?: string;
+            codec_type?: string;
+            width?: number;
+            height?: number;
+        }>;
         format?: { duration?: string };
     };
-    const stream = probe.streams?.[0];
+    const stream = probe.streams?.find((candidate) => candidate.codec_type === 'video');
+    const audioStream = probe.streams?.find((candidate) => candidate.codec_type === 'audio');
     assert.ok(stream?.width && stream.height, 'Recording must have video dimensions.');
+    assert.equal(audioStream?.codec_name, 'aac', 'Recording must contain the mixed audio node.');
 
     if (recordingTargetKind === 'desktop') {
         assert.deepEqual(

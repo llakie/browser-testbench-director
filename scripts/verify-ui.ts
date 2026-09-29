@@ -7,6 +7,7 @@ import {
     testbench,
 } from './support/ui-verification-context.js';
 import { verifyEditableConnections, verifyJavaScriptNode } from './ui/graph-editing.js';
+import { verifyAudioPlayback } from './ui/audio-playback.js';
 import { verifyGraphAutoLayout } from './ui/graph-layout.js';
 import { verifyPlacement } from './ui/layer-placement.js';
 import { verifyNodeEditing } from './ui/node-editing.js';
@@ -60,6 +61,7 @@ try {
     await verifyResizableWorkspace(browser);
     await verifyEditableConnections(browser);
     await verifyNodeEditing(browser);
+    await verifyAudioPlayback(browser);
     await verifyRuntimeDataFlow(browser);
     await verifyCameraSessionConfiguration(browser);
     await verifyExecutionControls(browser);

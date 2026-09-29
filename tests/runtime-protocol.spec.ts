@@ -53,3 +53,16 @@ test('Any-Merge gibt den Nachfolger nach dem ersten Zweig frei', async () => {
     assert.ok(events.indexOf('after:start') > events.indexOf('fast:end'));
     assert.ok(events.indexOf('after:start') < events.indexOf('slow:end'));
 });
+
+test('Runtime behandelt Audio wie einen regulären ausführbaren Schritt', async () => {
+    const executed: string[] = [];
+
+    await executeRuntimeGraph(
+        [step('before', []), step('sound', ['before'], 'audio')],
+        async (entry) => {
+            executed.push(entry.id);
+        },
+    );
+
+    assert.deepEqual(executed, ['before', 'sound']);
+});

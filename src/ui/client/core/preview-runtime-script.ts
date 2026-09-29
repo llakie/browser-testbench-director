@@ -18,6 +18,7 @@ const website = document.querySelector('.director-website');
 let activeController = new AbortController();
 const results = {};
 const referenceRects = new Map();
+const activeAudio = new Map();
 const previewCameraStream = cameraInputId && inputs[cameraInputId]
     ? createPreviewCameraStream(inputs[cameraInputId])
     : null;
@@ -193,7 +194,51 @@ function unmountLayer(step) {
         .forEach((element) => element.remove());
 }
 
+async function playAudio(step) {
+    if (step.speed === 'catchup') return;
+    const source = inputs[step.inputId];
+    if (!source) throw new Error('Audio input is missing: ' + (step.inputId || step.id));
+    const parentPlayback = window.parent !== window
+        ? window.parent.__directorAudioPlayback
+        : null;
+    if (parentPlayback) {
+        return parentPlayback.play(step, source, activeController.signal);
+    }
+    const AudioConstructor = window.parent !== window ? window.parent.Audio : Audio;
+    const audio = new AudioConstructor(source);
+    audio.volume = step.volume;
+    activeAudio.set(step.id, audio);
+    await audio.play();
+    if (!step.waitForEnd) return;
+    await new Promise((resolve, reject) => {
+        const complete = () => {
+            audio.removeEventListener('ended', ended);
+            audio.removeEventListener('error', failed);
+            activeController.signal.removeEventListener('abort', aborted);
+        };
+        const ended = () => {
+            complete();
+            activeAudio.delete(step.id);
+            resolve();
+        };
+        const failed = () => {
+            complete();
+            reject(new Error('Audio playback failed: ' + step.id));
+        };
+        const aborted = () => {
+            complete();
+            audio.pause();
+            activeAudio.delete(step.id);
+            reject(new DOMException('The execution was stopped.', 'AbortError'));
+        };
+        audio.addEventListener('ended', ended, { once: true });
+        audio.addEventListener('error', failed, { once: true });
+        activeController.signal.addEventListener('abort', aborted, { once: true });
+    });
+}
+
 async function execute(step) {
+    if (step.type === 'audio') return playAudio(step);
     if (step.type === 'layer' && step.placement.reference.type === 'dom') await websiteReady;
     const root = step.type === 'layer' ? mountLayer(step) : null;
     await websiteReady;
@@ -239,11 +284,17 @@ async function execute(step) {
 
 function begin() {
     activeController.abort();
+    window.parent.__directorAudioPlayback?.cancel();
+    activeAudio.forEach((audio) => audio.pause());
+    activeAudio.clear();
     activeController = new AbortController();
 }
 
 function cancel() {
     activeController.abort();
+    window.parent.__directorAudioPlayback?.cancel();
+    activeAudio.forEach((audio) => audio.pause());
+    activeAudio.clear();
 }
 
 function remove(nodeId) {

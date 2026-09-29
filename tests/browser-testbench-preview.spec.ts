@@ -17,6 +17,7 @@ const desktopTarget: BrowserTestbenchTarget = {
         permissions: { native: [], origin: ['camera'] },
         localOrigins: { reverse: false },
         mediaInjection: { cameraImage: false },
+        mediaPlayback: { autoplay: true },
         recording: { viewport: false },
     },
 };
@@ -31,6 +32,7 @@ const androidTarget: BrowserTestbenchTarget = {
         permissions: { native: ['camera'], origin: ['camera'] },
         localOrigins: { reverse: true },
         mediaInjection: { cameraImage: true },
+        mediaPlayback: { autoplay: true },
         recording: { viewport: true },
     },
 };
@@ -161,6 +163,7 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
                 language: 'de',
                 locale: 'DE',
             },
+            true,
         );
     } finally {
         globalThis.fetch = originalFetch;
@@ -186,6 +189,7 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
             prefs: { 'intl.accept_languages': 'de-DE,de' },
         },
     });
+    assert.deepEqual(session['require'], { mediaPlayback: { autoplay: true } });
 });
 
 test('Lokale Website-Vorschau registriert eine Same-Origin-Proxy-Route', async () => {
@@ -328,6 +332,7 @@ test('Desktop-Browsersprache wird beim Sessionstart vollständig konfiguriert', 
             [],
             null,
             true,
+            true,
         );
     } finally {
         globalThis.fetch = originalFetch;
@@ -347,6 +352,7 @@ test('Desktop-Browsersprache wird beim Sessionstart vollständig konfiguriert', 
     assert.deepEqual(requestBody?.['permissions'], [
         { name: 'geolocation', origin: 'https://www.binderium.com' },
     ]);
+    assert.deepEqual(requestBody?.['require'], { mediaPlayback: { autoplay: true } });
 });
 
 test('Browser-Testbench-Targets erhalten verständliche Namen', () => {
@@ -656,6 +662,13 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
                     width: 1080,
                     height: 1920,
                     durationMs: 4_200,
+                    marks: [
+                        {
+                            name: 'director.audio.start',
+                            data: { nodeId: 'soundtrack' },
+                            recordingTimeMs: 600,
+                        },
+                    ],
                 }),
                 { headers: { 'Content-Type': 'application/json' } },
             );
@@ -669,6 +682,14 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
         const recording = await BrowserTestbenchPreview.stopRecording(
             'session-1',
             'guess-price.mp4',
+            undefined,
+            [
+                {
+                    nodeId: 'soundtrack',
+                    asset: `${'a'.repeat(64)}/sound.mp3`,
+                    volume: 0.7,
+                },
+            ],
         );
         assert.equal(recording.filename, 'guess-price.mp4');
         assert.equal(recording.blob.size, video.byteLength);
@@ -692,6 +713,9 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
     const exportHeaders = new Headers(requests[3]?.headers);
     assert.equal(exportHeaders.get('x-director-video-width'), '1080');
     assert.equal(exportHeaders.get('x-director-video-height'), '1920');
+    assert.deepEqual(JSON.parse(exportHeaders.get('x-director-video-audio')!), [
+        { asset: `${'a'.repeat(64)}/sound.mp3`, startMs: 600, volume: 0.7 },
+    ]);
 });
 
 test('Aufnahmeintervalle für Layer und eingeschlossene Wartezeiten verwenden die native Aufnahmeuhr', () => {
@@ -813,6 +837,48 @@ test('Aufnahme markiert nur Warte-Nodes, die im Export bleiben sollen', async ()
         urls.map((url) => url.split('/').at(-1)),
         ['browser', 'marks', 'wait', 'marks', 'browser', 'wait'],
     );
+});
+
+test('Remote-Audio startet über einen nativen Testbench-Klick und setzt eine Aufnahmemarke', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = async (input, init = {}) => {
+        requests.push({
+            url: String(input),
+            body: JSON.parse(String(init.body)) as Record<string, unknown>,
+        });
+        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    try {
+        await BrowserTestbenchPreview.executeOnWebsite(
+            'session-audio',
+            [
+                {
+                    id: 'soundtrack',
+                    type: 'audio',
+                    speed: 'live',
+                    source: '',
+                    inputId: 'soundtrack-file',
+                    volume: 0.6,
+                    waitForEnd: true,
+                },
+            ],
+            true,
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(
+        requests.map((request) => request.url.split('/').at(-1)),
+        ['marks', 'browser', 'click', 'browser', 'browser'],
+    );
+    assert.deepEqual(requests[0]?.body, {
+        name: 'director.audio.start',
+        data: { nodeId: 'soundtrack' },
+    });
+    assert.match(String(requests[2]?.body['selector']), /data-director-audio-trigger/u);
 });
 
 test('Browser-Aktion und Wartebedingung verwenden die nativen Testbench-Endpunkte', async () => {

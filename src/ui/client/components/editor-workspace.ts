@@ -26,6 +26,7 @@ import type { BrowserTestbenchTarget } from '../core/browser-testbench-preview.j
 import { ExecutionController, type ExecutionSnapshot } from '../core/execution-controller.js';
 import { JointLayerGraph } from '../core/joint-layer-graph.js';
 import { previewOutputSize } from '../core/media-presets.js';
+import { PreviewAudioPlayback } from '../core/preview-audio-playback.js';
 import { ProjectFiles, type ProjectFileHandle } from '../core/project-files.js';
 import { StagePanGesture, StageZoomGesture } from '../core/stage-zoom-gesture.js';
 import { WorkflowPlanner, type WorkflowPlan } from '../core/workflow-planner.js';
@@ -35,6 +36,7 @@ import {
     ProjectFormat,
     type BrowserActionNode,
     type BrowserWaitNode,
+    type AudioNode,
     type CapabilityNode,
     type DirectorNode,
     type HorizontalAlignment,
@@ -127,6 +129,7 @@ export const EditorWorkspace = defineComponent({
             mcpLoading: false,
             mcpLoadError: '',
             executionController,
+            audioPlayback: markRaw(new PreviewAudioPlayback()),
             executionState: executionController.snapshot() as ExecutionSnapshot,
         };
     },
@@ -153,6 +156,9 @@ export const EditorWorkspace = defineComponent({
         activeMerge(): MergeNode | null {
             return this.activeNode?.type === 'merge' ? this.activeNode : null;
         },
+        activeAudio(): AudioNode | null {
+            return this.activeNode?.type === 'audio' ? this.activeNode : null;
+        },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');
         },
@@ -162,6 +168,13 @@ export const EditorWorkspace = defineComponent({
         },
         cameraInputId(): string | null {
             return WorkflowPlanner.plan(this.project, 'workflow').cameraInputId;
+        },
+        audioInputIds(): ReadonlySet<string> {
+            return new Set(
+                WorkflowPlanner.plan(this.project, 'workflow')
+                    .steps.map((step) => step.inputId)
+                    .filter((id): id is string => Boolean(id)),
+            );
         },
         activeJavaScript(): JavaScriptNode | null {
             return this.activeNode?.type === 'javascript' ? this.activeNode : null;
@@ -311,7 +324,9 @@ export const EditorWorkspace = defineComponent({
         },
         browserSessionInputsReady(): boolean {
             return this.workflowInputNodes.every(
-                (input) => input.required !== true || Boolean(this.inputFiles[input.id]),
+                (input) =>
+                    (!input.required && !this.audioInputIds.has(input.id)) ||
+                    Boolean(this.inputFiles[input.id]),
             );
         },
         browserTestbenchRunning(): boolean {
@@ -345,6 +360,10 @@ export const EditorWorkspace = defineComponent({
 
             if (this.activeMerge) {
                 return this.t('merge.title');
+            }
+
+            if (this.activeAudio) {
+                return this.t('audio.title');
             }
 
             if (this.activeJavaScript) {
@@ -426,6 +445,10 @@ export const EditorWorkspace = defineComponent({
         document.addEventListener('pointerdown', this.closeRecordingMenu);
         window.addEventListener('message', this.handleRuntimeMessage);
         window.addEventListener('resize', this.positionOpenFlyouts);
+        Object.defineProperty(window, '__directorAudioPlayback', {
+            configurable: true,
+            value: this.audioPlayback,
+        });
         this.renderGraph();
         this.observePreviewStage();
         this.startPreviewInitialization();
@@ -448,6 +471,9 @@ export const EditorWorkspace = defineComponent({
         document.removeEventListener('pointerdown', this.closeRecordingMenu);
         window.removeEventListener('message', this.handleRuntimeMessage);
         window.removeEventListener('resize', this.positionOpenFlyouts);
+        delete (window as Window & { __directorAudioPlayback?: PreviewAudioPlayback })
+            .__directorAudioPlayback;
+        this.audioPlayback.dispose();
         this.stopResize();
     },
     methods: {

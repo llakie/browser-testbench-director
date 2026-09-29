@@ -1,11 +1,11 @@
 # Director Project Format
 
-Director projects are stored as UTF-8 encoded JSON files with the `.btd.json` extension. `format` and `version` form the stable format identifier. Version 11 contains `input`, `capability`, and `merge` nodes, exactly one `website` root node, executable `layer`, `javascript`, `browser-action`, and `browser-wait` nodes, and explicit connections. Earlier versions are not supported.
+Director projects are stored as UTF-8 encoded JSON files with the `.btd.json` extension. `format` and `version` form the stable format identifier. Version 12 contains `input`, `capability`, `merge`, and `audio` nodes, exactly one `website` root node, executable `layer`, `javascript`, `browser-action`, and `browser-wait` nodes, and explicit connections. Earlier versions are not supported.
 
 ```json
 {
     "format": "browser-testbench-director",
-    "version": 11,
+    "version": 12,
     "name": "Guess the Price",
     "preview": {
         "preset": "phone-portrait"
@@ -104,6 +104,14 @@ Director projects are stored as UTF-8 encoded JSON files with the `.btd.json` ex
             "name": "Story complete",
             "position": null,
             "waitFor": "all"
+        },
+        {
+            "id": "play-soundtrack",
+            "type": "audio",
+            "name": "Play soundtrack",
+            "position": null,
+            "volume": 0.8,
+            "waitForEnd": false
         }
     ],
     "connections": [
@@ -146,7 +154,7 @@ Director projects are stored as UTF-8 encoded JSON files with the `.btd.json` ex
 }
 ```
 
-Every node and connection ID must be unique within a project. IDs, node types, graph positions, connection endpoints, asset metadata, `format`, and `version` are managed by Director rather than entered as free-form project settings. A connection references existing nodes through `source` and `target`. Any workflow node may have multiple outgoing connections; their branches start independently as soon as their predecessor completes. Only a `merge` node may have multiple incoming connections. `waitFor: "all"` releases its successor after every incoming branch completes, while `waitFor: "any"` releases it after the first branch completes. Other branches continue independently. Any number of input nodes may connect directly to the website root or to a capability. A connected capability has exactly one input and then connects to the website root. The order of the `nodes` array does not affect execution. Version 11 rejects unknown properties instead of silently preserving hidden state.
+Every node and connection ID must be unique within a project. IDs, node types, graph positions, connection endpoints, asset metadata, `format`, and `version` are managed by Director rather than entered as free-form project settings. A connection references existing nodes through `source` and `target`. Any workflow node may have multiple outgoing connections; their branches start independently as soon as their predecessor completes. Only a `merge` node may have multiple workflow predecessors. `waitFor: "all"` releases its successor after every incoming branch completes, while `waitFor: "any"` releases it after the first branch completes. Other branches continue independently. Any number of input nodes may connect directly to the website root, to a capability, or to an audio node. A connected capability has exactly one input and then connects to the website root. An audio node has one workflow predecessor plus one audio file input; its asset connection is not a second workflow predecessor. The order of the `nodes` array does not affect execution. Version 12 rejects unknown properties instead of silently preserving hidden state.
 
 `preview.preset` stores only the portable local-preview choice. Supported references are `phone-portrait`, `phone-landscape`, `tablet-portrait`, `tablet-landscape`, and `desktop`; Director resolves their CSS viewport dimensions and device-pixel ratio from its central preset catalog. Browser Testbench target IDs are installation-specific and are therefore never stored in a project. A real device, simulator, or emulator records at its native fixed dimensions. A desktop recording that emulates the preview preset is exported at CSS viewport × preset DPR (for example, `360 × 640` at DPR 3 becomes `1080 × 1920`).
 
@@ -154,9 +162,11 @@ Every node and connection ID must be unique within a project. IDs, node types, g
 
 A `capability` node describes how the browser environment provides a connected input. The initially supported `camera` capability connects an image input to the website as a virtual camera. Director automatically derives camera permission, media injection, and target compatibility from it. Browser Testbench can inject the image natively on mobile targets; desktop browsers use Director's reload-safe preview shell. Recording targets must additionally support viewport recording. The file itself remains owned by the preceding input node.
 
+An `audio` node plays the file supplied by its connected input at `volume` from `0` to `1`. With `waitForEnd: true`, the workflow successor waits for playback to finish. With `false`, playback continues while the workflow advances. Catch-up skips audible playback. Audio assets use the same persistent input storage and validation as every other file input.
+
 The global project settings expose `language`, `locale`, and additional website `permissions`. On mobile targets, language and locale configure the Appium language and region. On supported desktop browsers Director combines them into a browser language such as `de-DE`, which is then available through `navigator.language`. Empty language values retain the target defaults. Permissions are granted to the website origin when the Browser Testbench session starts. Requirements derived from capability nodes are added automatically and do not need to be configured again. Local Android loopback URLs automatically use Browser Testbench's secure reverse mapping; this runtime detail is intentionally not stored in the project.
 
-In the scene graph, a connection is drawn from a node's orange output to the next node's gray input. Multiple outgoing connections create parallel branches. Multiple incoming connections are valid only on a merge node. Clicking the midpoint of a connection selects it; it can then be deleted with the trash button in the graph header or with `Delete`/`Backspace`. Nodes that cannot be reached from the website root are rendered with a dashed outline and skipped during workflow playback.
+In the scene graph, a connection is drawn from a node's orange output to the next node's gray input. Multiple outgoing connections create parallel branches. Multiple workflow inputs are valid only on a merge node; an audio node additionally accepts one file-input connection. Clicking the midpoint of a connection selects it; it can then be deleted with the trash button in the graph header or with `Delete`/`Backspace`. Nodes that cannot be reached from the website root are rendered with a dashed outline and skipped during workflow playback.
 
 `position: null` means that ELK arranges the node automatically. New and duplicated nodes start in this state. Director stores a fixed `{ "x": …, "y": … }` position only after a node has actually been moved. Manually positioned nodes remain untouched by later automatic recalculations. The auto-layout button resets every position to `null`. ELK Layered distributes long workflows compactly across multiple rows with graph wrapping; JointJS routes connections orthogonally around other nodes. The workflow order remains unchanged.
 
@@ -179,7 +189,7 @@ Content dimensions remain the responsibility of the layer CSS. HTML, CSS, and Ja
 - **Play node** reloads the website, executes every predecessor with `director.speed === "catchup"`, plays only the selected node live, and then stops. Selecting a node alone does not modify browser state.
 - **Run on current state** is a secondary development action that executes only the selected node without a reset.
 - **Play workflow** reloads the website and executes every node live. Independent branches run concurrently; merge nodes apply their configured `all` or `any` strategy.
-- **Record workflow** opens a fresh Browser Testbench session and records its viewport during complete workflow playback. Mobile targets keep their native fixed pixel dimensions; desktop emulation derives them from the selected preview preset and its DPR. Director's export pass preserves the selected dimensions while removing omitted wait intervals.
+- **Record workflow** opens a fresh Browser Testbench session and records its viewport during complete workflow playback. Mobile targets keep their native fixed pixel dimensions; desktop emulation derives them from the selected preview preset and its DPR. Director's export pass preserves the selected dimensions, mixes audio-node assets at their Browser Testbench timestamps, and removes omitted wait intervals from video and audio together.
 
 The runtime provides layer and JavaScript nodes with `director.wait(milliseconds)`, `director.waitFor(selector, timeout?)`, `director.results`, and `director.inputs`. `director.inputs` is an immutable mapping from selected non-camera files to data URLs. `director.wait` waits for real time during live playback and returns immediately during catch-up. `waitFor` and standalone `browser-wait` nodes remain real state conditions during catch-up. With `omitFromRecording: true`, a `browser-wait` node still runs in real time, but its interval is excluded from the video export. With `false`, the wait remains part of the export. Independently used global timers are deliberately not modified. This keeps arbitrary JavaScript understandable; only time described explicitly through the runtime can be accelerated safely.
 

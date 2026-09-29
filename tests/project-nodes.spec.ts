@@ -18,6 +18,7 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     project.nodes.push(action);
     const wait = ProjectNodes.createBrowserWait(project, 'Warten');
     const merge = ProjectNodes.createMerge(project, 'Zusammenführen');
+    const audio = ProjectNodes.createAudio(project, 'Ton');
 
     assert.equal(layer.id, 'layer-2');
     assert.equal(input.id, 'input-1');
@@ -33,6 +34,9 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     assert.equal(wait.omitFromRecording, true);
     assert.equal(merge.id, 'merge-1');
     assert.equal(merge.waitFor, 'all');
+    assert.equal(audio.id, 'audio-1');
+    assert.equal(audio.volume, 1);
+    assert.equal(audio.waitForEnd, true);
 });
 
 test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {

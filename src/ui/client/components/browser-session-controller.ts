@@ -329,8 +329,19 @@ export const browserSessionMethods: WorkspaceMethodMap = {
         const filename = `${ProjectFiles.filename(this.project.name).replace(/\.btd\.json$/u, '')}.mp4`;
 
         try {
+            await Promise.all(Object.values(this.inputFileStores));
             const plan = WorkflowPlanner.plan(this.project, 'workflow');
             this.assertPlanInputs(plan);
+            const audioTracks = plan.steps.flatMap((step) => {
+                if (step.node.type !== 'audio' || !step.inputId) {
+                    return [];
+                }
+
+                const input = plan.inputs.find((candidate) => candidate.id === step.inputId);
+                return input?.file
+                    ? [{ nodeId: step.node.id, asset: input.file.asset, volume: step.node.volume }]
+                    : [];
+            });
 
             if (recordingOnPreviewTarget && previewSessionId) {
                 await BrowserTestbenchPreview.close(previewSessionId).catch(() => undefined);
@@ -362,6 +373,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
                 sessionId!,
                 filename,
                 target.kind === 'desktop' ? this.previewOutputSize : undefined,
+                audioTracks,
             );
             recordingStarted = false;
             recordingCompleted = true;

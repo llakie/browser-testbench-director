@@ -206,3 +206,39 @@ test('Workflow-Reihenfolge folgt den Verbindungen und nicht dem Node-Array', () 
         ['layer-1', 'reveal-price'],
     );
 });
+
+test('Planer ordnet einer Audio-Node ihren Datei-Input zu', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push(
+        {
+            id: 'soundtrack',
+            type: 'input',
+            name: 'Soundtrack',
+            position: null,
+            accept: 'audio/*',
+            required: true,
+        },
+        {
+            id: 'play-soundtrack',
+            type: 'audio',
+            name: 'Soundtrack abspielen',
+            position: null,
+            volume: 0.75,
+            waitForEnd: false,
+        },
+    );
+    project.connections.push(
+        { id: 'soundtrack--play-soundtrack', source: 'soundtrack', target: 'play-soundtrack' },
+        { id: 'layer-1--play-soundtrack', source: 'layer-1', target: 'play-soundtrack' },
+    );
+
+    const plan = WorkflowPlanner.plan(project, 'workflow');
+    const audio = plan.steps.find((step) => step.node.id === 'play-soundtrack');
+
+    assert.deepEqual(
+        plan.inputs.map((input) => input.id),
+        ['soundtrack'],
+    );
+    assert.equal(audio?.inputId, 'soundtrack');
+    assert.deepEqual(audio?.after, ['layer-1']);
+});

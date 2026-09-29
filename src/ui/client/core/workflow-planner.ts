@@ -8,6 +8,7 @@ export interface WorkflowStep {
     readonly node: ExecutableNode;
     readonly speed: PlaybackSpeed;
     readonly after: readonly string[];
+    readonly inputId?: string;
 }
 
 export interface WorkflowPlan {
@@ -68,13 +69,9 @@ export class WorkflowPlanner {
                 inputs,
                 cameraInputId,
                 resetWebsite: true,
-                steps: executable.map((node) => ({
-                    node,
-                    speed: 'live',
-                    after: WorkflowGraph.predecessorIds(project, node.id).filter((id) =>
-                        executableIds.has(id),
-                    ),
-                })),
+                steps: executable.map((node) =>
+                    WorkflowPlanner.step(project, node, 'live', executableIds),
+                ),
             };
         }
 
@@ -88,13 +85,17 @@ export class WorkflowPlanner {
         }
 
         if (mode === 'current') {
+            const step = WorkflowPlanner.step(project, selected, 'live', new Set());
+            const selectedInputs = step.inputId
+                ? inputs.filter((input) => input.id === step.inputId)
+                : [];
             return {
                 mode,
                 website,
-                inputs: [],
+                inputs: selectedInputs,
                 cameraInputId: null,
                 resetWebsite: false,
-                steps: [{ node: selected, speed: 'live', after: [] }],
+                steps: [step],
             };
         }
 
@@ -110,13 +111,41 @@ export class WorkflowPlanner {
             inputs,
             cameraInputId,
             resetWebsite: true,
-            steps: component.slice(0, selectedIndex + 1).map((node, index) => ({
-                node,
-                speed: index < selectedIndex ? 'catchup' : 'live',
-                after: WorkflowGraph.predecessorIds(project, node.id).filter((id) =>
-                    included.has(id),
+            steps: component
+                .slice(0, selectedIndex + 1)
+                .map((node, index) =>
+                    WorkflowPlanner.step(
+                        project,
+                        node,
+                        index < selectedIndex ? 'catchup' : 'live',
+                        included,
+                    ),
                 ),
-            })),
+        };
+    }
+
+    private static step(
+        project: DirectorProject,
+        node: ExecutableNode,
+        speed: PlaybackSpeed,
+        included: ReadonlySet<string>,
+    ): WorkflowStep {
+        const inputId =
+            node.type === 'audio'
+                ? project.connections.find(
+                      (connection) =>
+                          connection.target === node.id &&
+                          project.nodes.some(
+                              (candidate) =>
+                                  candidate.id === connection.source && candidate.type === 'input',
+                          ),
+                  )?.source
+                : undefined;
+        return {
+            node,
+            speed,
+            after: WorkflowGraph.predecessorIds(project, node.id).filter((id) => included.has(id)),
+            ...(inputId ? { inputId } : {}),
         };
     }
 
@@ -125,7 +154,7 @@ export class WorkflowPlanner {
             node &&
             typeof node === 'object' &&
             'type' in node &&
-            ['layer', 'javascript', 'browser-action', 'browser-wait', 'merge'].includes(
+            ['layer', 'javascript', 'browser-action', 'browser-wait', 'merge', 'audio'].includes(
                 String(node.type),
             ),
         );

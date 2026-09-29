@@ -47,3 +47,62 @@ test('Director-Videoexport verbindet ausschließlich markierte Aufnahmeintervall
     assert.match(arguments_[filterIndex + 1]!, /concat=n=2:v=1:a=0/u);
     assert.deepEqual(arguments_.slice(filterIndex + 2, filterIndex + 4), ['-map', '[video]']);
 });
+
+test('Director-Videoexport mischt Audio-Assets zeitgenau in die Aufnahme', () => {
+    const arguments_ = DirectorVideoExports.ffmpegArguments(
+        '/tmp/raw.mp4',
+        '/tmp/export.mp4',
+        1080,
+        1920,
+        [],
+        [
+            {
+                asset: `${'a'.repeat(64)}/sound.wav`,
+                path: '/tmp/sound.wav',
+                startMs: 750,
+                volume: 0.4,
+            },
+        ],
+    );
+    const filterIndex = arguments_.indexOf('-filter_complex');
+
+    assert.deepEqual(arguments_.slice(4, 8), ['-i', '/tmp/raw.mp4', '-i', '/tmp/sound.wav']);
+    assert.match(arguments_[filterIndex + 1]!, /\[1:a\]atrim=start=0/u);
+    assert.match(arguments_[filterIndex + 1]!, /volume=0\.4,adelay=750:all=1/u);
+    assert.match(arguments_[filterIndex + 1]!, /amix=inputs=1:duration=longest/u);
+    assert.deepEqual(arguments_.slice(-6), [
+        '-c:a',
+        'aac',
+        '-b:a',
+        '192k',
+        '-shortest',
+        '/tmp/export.mp4',
+    ]);
+});
+
+test('Director-Videoexport entfernt ausgelassene Wartezeiten auch aus Audio', () => {
+    const arguments_ = DirectorVideoExports.ffmpegArguments(
+        '/tmp/raw.mp4',
+        '/tmp/export.mp4',
+        1080,
+        1920,
+        [
+            { startMs: 1_000, endMs: 2_000 },
+            { startMs: 4_000, endMs: 5_000 },
+        ],
+        [
+            {
+                asset: `${'b'.repeat(64)}/music.mp3`,
+                path: '/tmp/music.mp3',
+                startMs: 500,
+                volume: 1,
+            },
+        ],
+    );
+    const filter = arguments_[arguments_.indexOf('-filter_complex') + 1]!;
+
+    assert.match(filter, /asplit=2/u);
+    assert.match(filter, /atrim=start=0\.5:duration=1/u);
+    assert.match(filter, /atrim=start=3\.5:duration=1/u);
+    assert.match(filter, /adelay=1000:all=1/u);
+});

@@ -92,6 +92,16 @@
                             <span>{{ t('node.addMerge') }}</span>
                         </button>
                         <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-audio-node"
+                            @click="addNode('audio')"
+                        >
+                            <span class="bi bi-volume-up" aria-hidden="true"></span>
+                            <span>{{ t('node.addAudio') }}</span>
+                        </button>
+                        <button
                             v-if="activeNode && !activeWebsite && !activeInput && !activeCapability"
                             class="action-option"
                             type="button"

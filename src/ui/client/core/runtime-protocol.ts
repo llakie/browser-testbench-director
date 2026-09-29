@@ -2,7 +2,7 @@ import type { BrowserWaitNode, LayerNode } from './project-format.js';
 
 export interface RuntimeStep {
     readonly id: string;
-    readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait' | 'merge';
+    readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait' | 'merge' | 'audio';
     readonly speed: 'catchup' | 'live';
     readonly after?: readonly string[];
     readonly source: string;
@@ -17,6 +17,9 @@ export interface RuntimeStep {
     readonly timeoutMs?: number;
     readonly omitFromRecording?: boolean;
     readonly waitFor?: 'all' | 'any';
+    readonly inputId?: string;
+    readonly volume?: number;
+    readonly waitForEnd?: boolean;
 }
 
 export async function executeRuntimeGraph(

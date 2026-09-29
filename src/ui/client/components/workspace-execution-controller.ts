@@ -18,6 +18,8 @@ import {
 
 export const workspaceExecutionMethods: WorkspaceMethodMap = {
     play(): void {
+        this.audioPlayback.unlock();
+
         if (!this.activeNode || ['input', 'capability'].includes(this.activeNode.type)) {
             return;
         }
@@ -25,6 +27,8 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.playNode(this.activeNode.id);
     },
     playNode(id: string): void {
+        this.audioPlayback.unlock();
+
         if (this.executionRunning || this.browserTargetOpening) {
             return;
         }
@@ -41,6 +45,8 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.observePreviewStage();
     },
     playActiveNodeOnCurrentState(): void {
+        this.audioPlayback.unlock();
+
         if (
             !this.activeNode ||
             this.activeNode.type === 'website' ||
@@ -56,6 +62,8 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         void this.runPlayback('current', this.activeNode.id);
     },
     playWorkflow(): void {
+        this.audioPlayback.unlock();
+
         if (this.executionRunning || this.browserTargetOpening) {
             return;
         }
@@ -158,12 +166,15 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         runId: number,
     ): Promise<void> {
         const selectedFiles: Record<string, File> = {};
+        const audioInputIds = new Set(
+            plan.steps.map((step) => step.inputId).filter((id): id is string => Boolean(id)),
+        );
 
         for (const input of plan.inputs) {
             this.updateExecution(runId, input.id, 'running');
             const file = this.inputFiles[input.id];
 
-            if (!file && input.required) {
+            if (!file && (input.required || audioInputIds.has(input.id))) {
                 throw new Error(this.t('input.missing', { name: input.name }));
             }
 
@@ -183,15 +194,17 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             plan.inputs,
         );
 
-        if (plan.resetWebsite) {
-            this.inputData = { ...prepared };
-        }
+        this.inputData = plan.resetWebsite ? { ...prepared } : { ...this.inputData, ...prepared };
     },
     assertPlanInputs(plan: ReturnType<typeof WorkflowPlanner.plan>): void {
+        const audioInputIds = new Set(
+            plan.steps.map((step) => step.inputId).filter((id): id is string => Boolean(id)),
+        );
+
         for (const input of plan.inputs) {
             const file = this.inputFiles[input.id];
 
-            if (!file && input.required) {
+            if (!file && (input.required || audioInputIds.has(input.id))) {
                 throw new Error(this.t('input.missing', { name: input.name }));
             }
 
@@ -230,6 +243,8 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         let runtime = this.previewRuntime();
 
         if (plan.resetWebsite || !runtime) {
+            runtime?.cancel();
+
             if (plan.website) {
                 this.updateExecution(runId, plan.website.id, 'running');
 
@@ -407,6 +422,17 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             this.remotePreviewDirect = direct;
         }
 
+        if (
+            direct &&
+            steps.some((step) => step.type === 'audio' || step.source.includes('director.inputs'))
+        ) {
+            await BrowserTestbenchPreview.setRuntimeInputs(
+                sessionId,
+                this.inputData,
+                plan.cameraInputId,
+            );
+        }
+
         await executeRuntimeGraph(steps, async (step) => {
             this.updateExecution(runId, step.id, 'running');
             const executableStep = { ...step, after: [] };
@@ -509,6 +535,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         recording = false,
     ): Promise<string> {
         this.remotePreviewDirect = this.usesDirectRemoteWebsite(plan, target);
+        const requireAutoplay = plan.steps.some((step) => step.node.type === 'audio');
         let sessionId: string;
 
         if (this.remotePreviewDirect) {
@@ -520,6 +547,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 plan.inputs,
                 plan.cameraInputId,
                 recording && target.kind === 'desktop',
+                requireAutoplay,
             );
         } else {
             const inputs = await BrowserTestbenchPreview.prepareRuntimeInputs(
@@ -534,6 +562,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 [],
                 recording && target.kind === 'desktop',
                 this.project.browserSession,
+                requireAutoplay,
             );
         }
 

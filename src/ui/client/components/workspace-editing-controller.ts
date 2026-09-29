@@ -141,6 +141,10 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             return ProjectNodes.createMerge(this.project, this.t('node.defaultMergeName'));
         }
 
+        if (type === 'audio') {
+            return ProjectNodes.createAudio(this.project, this.t('node.defaultAudioName'));
+        }
+
         return ProjectNodes.createBrowserWait(this.project, this.t('node.defaultBrowserWaitName'));
     },
     duplicateActiveNode(): void {
@@ -938,6 +942,10 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
                     !target.capabilities.permissions.origin.includes(permission),
             )
         ) {
+            return false;
+        }
+
+        if (this.audioInputIds.size > 0 && !target.capabilities.mediaPlayback.autoplay) {
             return false;
         }
 

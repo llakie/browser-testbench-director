@@ -53,7 +53,7 @@ export class DirectorServer {
     readonly #previewRoutes = new DirectorPreviewRoutes();
     readonly #inputPreparations: DirectorInputPreparations;
     readonly #projectAssets: DirectorProjectAssets;
-    readonly #videoExports = new DirectorVideoExports();
+    readonly #videoExports: DirectorVideoExports;
     readonly #websiteProxy = new DirectorWebsiteProxy();
     readonly #browserTestbenchLifecycle: BrowserTestbenchLifecycle;
     readonly #server: HttpServer | HttpsServer;
@@ -68,9 +68,9 @@ export class DirectorServer {
         this.#inputPreparations = new DirectorInputPreparations(
             resolve(options.projectDirectory, 'projects'),
         );
-        this.#projectAssets = new DirectorProjectAssets(
-            resolve(options.projectDirectory, 'projects', '.director-assets'),
-        );
+        const assetDirectory = resolve(options.projectDirectory, 'projects', '.director-assets');
+        this.#projectAssets = new DirectorProjectAssets(assetDirectory);
+        this.#videoExports = new DirectorVideoExports(assetDirectory);
         this.#browserTestbenchLifecycle = new BrowserTestbenchLifecycle(
             options.browserTestbenchUrl,
             options.browserTestbench.version,

@@ -52,6 +52,19 @@ export class PreviewDocument {
     }
 
     private static serializeStep(step: WorkflowStep): RuntimeStep {
+        if (step.node.type === 'audio') {
+            return {
+                id: step.node.id,
+                type: step.node.type,
+                speed: step.speed,
+                after: step.after,
+                source: '',
+                inputId: step.inputId,
+                volume: step.node.volume,
+                waitForEnd: step.node.waitForEnd,
+            };
+        }
+
         if (step.node.type === 'merge') {
             return {
                 id: step.node.id,

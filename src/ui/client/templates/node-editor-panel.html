@@ -605,6 +605,33 @@
                     </select>
                 </label>
             </div>
+            <div v-else-if="activeAudio" class="automation-properties">
+                <label>
+                    <span>{{ t('audio.volume') }}</span>
+                    <span class="audio-volume-field">
+                        <input
+                            v-model.number="activeAudio.volume"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            data-testid="audio-volume"
+                            @input="markActiveNodeStale"
+                        />
+                        <output>{{ Math.round(activeAudio.volume * 100) }} %</output>
+                    </span>
+                </label>
+                <label class="automation-properties__toggle">
+                    <input
+                        v-model="activeAudio.waitForEnd"
+                        type="checkbox"
+                        data-testid="audio-wait-for-end"
+                        @change="markActiveNodeStale"
+                    />
+                    <span>{{ t('audio.waitForEnd') }}</span>
+                </label>
+                <p class="property-hint">{{ t('audio.inputHint') }}</p>
+            </div>
         </div>
     </section>
 </template>

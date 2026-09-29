@@ -275,13 +275,27 @@ export class JointLayerGraph {
             const connected = connectedNodeIds.has(node.id);
             const inputFileName = node.type === 'input' ? inputFileNames[node.id] : undefined;
             const incoming = incomingConnections.get(node.id) ?? [];
-            const inputPorts = incoming.length
-                ? incoming.map((connection, connectionIndex) => {
-                      const portId = `in-${connectionIndex}`;
-                      targetPorts.set(connection.id, portId);
-                      return { id: portId, group: 'in' };
-                  })
-                : [{ id: 'in', group: 'in' }];
+            const inputPorts =
+                node.type === 'audio'
+                    ? [
+                          { id: 'asset', group: 'in' },
+                          { id: 'flow', group: 'in' },
+                      ]
+                    : incoming.length
+                      ? incoming.map((connection, connectionIndex) => {
+                            const portId = `in-${connectionIndex}`;
+                            targetPorts.set(connection.id, portId);
+                            return { id: portId, group: 'in' };
+                        })
+                      : [{ id: 'in', group: 'in' }];
+
+            if (node.type === 'audio') {
+                for (const connection of incoming) {
+                    const source = nodes.find((candidate) => candidate.id === connection.source);
+                    targetPorts.set(connection.id, source?.type === 'input' ? 'asset' : 'flow');
+                }
+            }
+
             const cell = new GraphNode({
                 id: node.id,
                 ports: {
@@ -326,11 +340,13 @@ export class JointLayerGraph {
                                   ? 'LAYER'
                                   : node.type === 'merge'
                                     ? 'MERGE'
-                                    : node.type === 'javascript'
-                                      ? 'JS'
-                                      : node.type === 'browser-action'
-                                        ? 'ACTION'
-                                        : 'WAIT',
+                                    : node.type === 'audio'
+                                      ? 'AUDIO'
+                                      : node.type === 'javascript'
+                                        ? 'JS'
+                                        : node.type === 'browser-action'
+                                          ? 'ACTION'
+                                          : 'WAIT',
                     fill: 'var(--color-node-header-text)',
                     fontFamily: 'ui-monospace, monospace',
                     fontSize: 10,
@@ -436,15 +452,17 @@ export class JointLayerGraph {
                       ? 'HTML  ·  CSS  ·  JS'
                       : node.type === 'merge'
                         ? `Wait ${node.waitFor}`
-                        : node.type === 'javascript'
-                          ? 'JavaScript'
-                          : node.type === 'browser-action'
-                            ? `Click · ${node.selector}`
-                            : node.condition === 'element'
-                              ? `Element · ${node.selector}`
-                              : node.condition === 'url'
-                                ? `URL · ${node.value}`
-                                : 'Script';
+                        : node.type === 'audio'
+                          ? `${Math.round(node.volume * 100)} % · ${node.waitForEnd ? 'Wait' : 'Continue'}`
+                          : node.type === 'javascript'
+                            ? 'JavaScript'
+                            : node.type === 'browser-action'
+                              ? `Click · ${node.selector}`
+                              : node.condition === 'element'
+                                ? `Element · ${node.selector}`
+                                : node.condition === 'url'
+                                  ? `URL · ${node.value}`
+                                  : 'Script';
         return `${JointLayerGraph.ellipsize(node.name, 27)}\n${JointLayerGraph.ellipsize(detail, 27)}`;
     }
 
@@ -698,6 +716,10 @@ export class JointLayerGraph {
 
         if (node.type === 'merge') {
             return 'var(--color-node-merge)';
+        }
+
+        if (node.type === 'audio') {
+            return 'var(--color-node-audio)';
         }
 
         if (node.type === 'javascript') {

@@ -1,7 +1,13 @@
 import type { DirectorProject, WorkflowConnection } from './project-format.js';
 
 export type ConnectionIssue =
-    'self' | 'website-target' | 'input-target' | 'capability-target' | 'target-occupied' | 'cycle';
+    | 'self'
+    | 'website-target'
+    | 'input-target'
+    | 'capability-target'
+    | 'audio-target'
+    | 'target-occupied'
+    | 'cycle';
 
 export class WorkflowConnectionError extends TypeError {
     constructor(readonly issue: ConnectionIssue) {
@@ -30,7 +36,7 @@ export class WorkflowGraph {
             return connected;
         }
 
-        const pending = [websiteId];
+        const pending = [...connected];
 
         while (pending.length) {
             const target = pending.pop()!;
@@ -95,13 +101,26 @@ export class WorkflowGraph {
 
         if (
             sourceNode?.type === 'input' &&
-            !['website', 'capability'].includes(targetNode?.type ?? '')
+            !['website', 'capability', 'audio'].includes(targetNode?.type ?? '')
         ) {
             throw new WorkflowConnectionError('input-target');
         }
 
         if (sourceNode?.type === 'capability' && targetNode?.type !== 'website') {
             throw new WorkflowConnectionError('capability-target');
+        }
+
+        if (targetNode?.type === 'audio') {
+            const incomingNodes = project.connections
+                .filter((connection) => connection.target === target)
+                .map((connection) => project.nodes.find((node) => node.id === connection.source));
+            const matchingIncoming = incomingNodes.some(
+                (node) => (node?.type === 'input') === (sourceNode?.type === 'input'),
+            );
+
+            if (matchingIncoming) {
+                throw new WorkflowConnectionError('audio-target');
+            }
         }
 
         if (
@@ -115,6 +134,7 @@ export class WorkflowGraph {
         if (
             targetNode?.type !== 'website' &&
             targetNode?.type !== 'merge' &&
+            targetNode?.type !== 'audio' &&
             project.connections.some((connection) => connection.target === target)
         ) {
             throw new WorkflowConnectionError('target-occupied');
@@ -170,9 +190,11 @@ export class WorkflowGraph {
 
             if (
                 sourceNode?.type === 'input' &&
-                !['website', 'capability'].includes(targetNode?.type ?? '')
+                !['website', 'capability', 'audio'].includes(targetNode?.type ?? '')
             ) {
-                throw new TypeError('Input nodes must connect to a capability or website root.');
+                throw new TypeError(
+                    'Input nodes must connect to an audio node, capability, or website root.',
+                );
             }
 
             if (sourceNode?.type === 'capability' && targetNode?.type !== 'website') {
@@ -182,6 +204,7 @@ export class WorkflowGraph {
             if (
                 targetNode?.type !== 'website' &&
                 targetNode?.type !== 'merge' &&
+                targetNode?.type !== 'audio' &&
                 targets.has(connection.target)
             ) {
                 throw new TypeError(
@@ -231,6 +254,26 @@ export class WorkflowGraph {
                 if (incoming.length > 0 && incoming.length < 2) {
                     throw new TypeError(
                         'A connected merge node must receive at least two branches.',
+                    );
+                }
+            }
+
+            if (node.type === 'audio') {
+                const incoming = project.connections
+                    .filter((connection) => connection.target === node.id)
+                    .map((connection) => nodes.get(connection.source));
+                const inputs = incoming.filter((candidate) => candidate?.type === 'input');
+                const flow = incoming.filter((candidate) => candidate?.type !== 'input');
+
+                if (inputs.length > 1 || flow.length > 1) {
+                    throw new TypeError(
+                        'An audio node may receive one file input and one workflow predecessor.',
+                    );
+                }
+
+                if (flow.length > 0 && inputs.length !== 1) {
+                    throw new TypeError(
+                        'A connected audio node must receive exactly one file input.',
                     );
                 }
             }

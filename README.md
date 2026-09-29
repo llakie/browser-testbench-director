@@ -1,78 +1,152 @@
 # Browser Testbench Director
 
-Browser Testbench Director ist ein JSON-basierter Editor und Player für Website-Automationen und darüberliegende Video-Layer. Produktionsprojekte liegen lokal unter `projects/`, werden nicht eingecheckt und bringen ihre projektspezifischen Assets, Prepare-Module und Prüfskripte selbst mit.
+Browser Testbench Director is a JSON-based editor and player for website automation and video layers rendered above
+the controlled website. Production projects live locally under `projects/`, remain untracked, and provide their own
+project-specific assets, preparation modules, and verification scripts.
 
-Release-Dokumentation: [Browser Testbench Director 0.1.0](docs/releases/0.1.0.md).
+Release documentation: [Browser Testbench Director 0.1.0](docs/releases/0.1.0.md).
 
 ## Installation
 
-Browser Testbench Director benötigt Node.js 22.12 oder Node.js 24 und `ffmpeg` sowie `ffprobe` auf dem `PATH` für Videoexporte. Browser Testbench wird als Paketabhängigkeit mitinstalliert und muss nicht separat global eingerichtet werden.
+Browser Testbench Director requires Node.js 22.12 or Node.js 24, plus `ffmpeg` and `ffprobe` on `PATH` for video
+exports. Browser Testbench is installed as a package dependency and does not require a separate global installation.
 
 ```bash
 npm install --global browser-testbench-director
 browser-testbench-director start
 ```
 
-Die Oberfläche ist anschließend standardmäßig unter `http://127.0.0.1:5173` erreichbar. Mit `browser-testbench-director start --https` wird ein lokales Zertifikat im aktuellen Arbeitsverzeichnis erzeugt. Projektdateien und zugehörige Assets bleiben ebenfalls im gewählten Arbeitsverzeichnis.
+The UI is available at `http://127.0.0.1:5173` by default. `browser-testbench-director start --https` creates a local
+certificate in the current working directory. Project files and their associated assets also remain in the selected
+working directory.
 
 ## Director UI
 
-Der Director-Editor verarbeitet Input-Nodes, eine Website-Root sowie Layer-, JavaScript-, Browser-Aktions-, Warte- und Merge-Nodes. Jeder Layer belegt eine transparente Vollbildfläche; sein Inhalt kann daran ausgerichtet oder an einer geerbten Position platziert werden und bestimmt seine Größe selbst per CSS. Browser-Aktionen und Wartebedingungen werden typisiert konfiguriert; Element-, URL- und Script-Waits sowie Klicks sind vollständig lokal und über Browser Testbench ausführbar. Mehrere Ausgänge einer Node starten parallele Zweige. Ausschließlich eine Merge-Node darf mehrere Eingänge besitzen und setzt den Workflow wahlweise nach allen (`Wait all`) oder nach dem ersten (`Wait any`) abgeschlossenen Zweig fort. Rückgabewerte werden unter der Node-ID gespeichert und stehen späteren Layern und Scripts über `director.results` zur Verfügung. Ein Node-Klick wählt ausschließlich aus. Der Play-Button einer Node lädt die Website neu, rekonstruiert alle Vorgänger samt Datenfluss im Catch-up und spielt nur die gewählte Node live. Die direkte Ausführung auf dem aktuellen Seitenzustand bleibt als Entwickleraktion im Node-Menü verfügbar. Der Play-Button im Graph-Header startet den gesamten Workflow neu.
+The Director editor supports input nodes, one website root, and layer, JavaScript, browser action, wait, merge, and
+audio nodes. Each layer occupies a transparent full-screen surface. Its content can be aligned within that surface or
+placed at an inherited position, while its own CSS determines its size. Browser actions and wait conditions use typed
+configuration. Element, URL, and script waits as well as clicks run both locally and through Browser Testbench.
+Multiple outputs start parallel branches. Only a merge node may have multiple workflow inputs; it continues after
+either every branch (`Wait all`) or the first branch (`Wait any`) completes. Return values are stored under the node ID
+and are available to later layers and scripts through `director.results`.
 
-Änderungen an ausführungsrelevanten Node-Eigenschaften starten niemals automatisch Code. Stattdessen erhält der Play-Button der geänderten Node eine Akzentumrahmung. Erst ein Klick rekonstruiert Website und Vorgänger im Catch-up und gibt die Node mit den aktuellen Eigenschaften wieder; nach erfolgreicher Wiedergabe verschwindet die Umrahmung. Der reine Anzeigename ist davon ausgenommen, weil er den Runtime-Zustand nicht beeinflusst. Damit bleiben Auswahl, Bearbeitung und Ausführung auch bei JavaScript mit beliebigen DOM-Seiteneffekten klar getrennt.
+Clicking a node only selects it. A node's play button reloads the website, reconstructs every predecessor and its data
+flow in catch-up mode, and plays only the selected node live. Direct execution against the current page state remains
+available as a development action in the node menu. The play button in the graph header restarts the complete
+workflow.
 
-Nodes ohne manuell festgelegte Position tragen im Projekt `"position": null` und werden mit ELK Layered automatisch kompakt angeordnet. Lange Workflows und parallele Zweige werden unter Beibehaltung ihrer Abhängigkeiten angeordnet; JointJS routet die Verbindungen anschließend automatisch orthogonal um die Nodes. Erst ein echtes Verschieben speichert `{ "x": …, "y": … }` für diese Node. Der Auto-Layout-Button setzt alle Nodes wieder auf den automatisch verwalteten Zustand zurück.
+Changing execution-relevant node properties never runs code automatically. Instead, the changed node's play button
+receives an accent outline. Clicking it reconstructs the website and predecessors in catch-up mode and plays the node
+with its current properties. The outline disappears after successful playback. The display name is excluded because
+it does not affect runtime state. Selection, editing, and execution therefore remain separate even when arbitrary
+JavaScript changes the website DOM.
 
-Layer können zusätzlich eine Haltedauer besitzen und danach vollständig entfernt werden. So lassen sich endliche Story-Clips abbilden; beim beschleunigten Wiederaufbau wird lediglich ihre Wartezeit ausgelassen, während Seiteneffekte und Rückgabewerte erhalten bleiben.
+Nodes without a manually assigned position store `"position": null` and are arranged automatically with ELK Layered.
+Long workflows and parallel branches remain compact while preserving their dependencies; JointJS then routes
+connections orthogonally around the nodes. Only an actual drag stores `{ "x": …, "y": … }` for a node. The automatic
+layout button returns every node to the automatically managed state.
 
-Die reine Viewport-Vorschau dockt bei Portrait-Projekten rechts und bei Landscape-Projekten oben an. Die Panelgrenzen sind verschiebbar, ihre Positionen werden lokal gespeichert und jedes Panel lässt sich maximieren. Auf kleinen Viewports werden Szenengraph, Node-Einstellungen und Vorschau als drei Tabs innerhalb einer `100dvh`-App-Shell dargestellt; der Szenengraph ist die Startansicht. Der mobile Kopfbereich fasst Projekt-, KI-, Browser-Testbench- und Dateiaktionen in einem Hamburger-Menü zusammen. Projekte lassen sich als versionierte `.btd.json`-Datei laden und speichern.
+Layers can define a hold duration and be removed completely afterwards. This models finite story clips. Catch-up skips
+only the hold time while preserving page effects and return values.
 
-Der gemeinsame Abspielgeräte-Selektor enthält lokale Viewport-Presets und – solange Browser Testbench im globalen Kopfbereich eingeschaltet ist – kompatible Remote-Targets. Lokale Presets werden automatisch in die verfügbare Fläche eingepasst; einen separaten Vorschau-Zoom gibt es nicht. Ein Remote-Target übernimmt sofort den zuletzt erfolgreich ausgeführten Zustand und wird im Director durch einen klaren Platzhalter dargestellt. Beim Wechsel zurück auf ein lokales Preset wird die Remote-Session geschlossen und derselbe Zustand lokal reproduziert. Die Remote-Auswahl ist reiner Session-Zustand und gehört nicht zum Projektformat. Unabhängig davon wählt der Aufnahmebutton ausschließlich aufnahmefähige Targets aus. Die globalen Projekteinstellungen konfigurieren Sprache, Region und zusätzliche Website-Berechtigungen jeder Browser-Testbench-Session; unterstützte Desktop-Browser stellen die kombinierte Sprache beispielsweise als `navigator.language === "de-DE"` bereit.
+For portrait projects, the viewport-only preview docks on the right; for landscape projects, it docks at the top.
+Panel boundaries are resizable, their positions are stored locally, and every panel can be maximized. On small
+viewports, the scene graph, node properties, and preview become three tabs inside a `100dvh` application shell, with
+the scene graph selected initially. The mobile header groups project, AI, Browser Testbench, and file actions inside a
+hamburger menu. Projects can be loaded and saved as versioned `.btd.json` files.
 
-Der Aufnahmebutton im Graph-Header startet eine saubere Remote-Session, nimmt deren Viewport während des vollständigen Workflows auf und lädt anschließend ein MP4 herunter. Ist das gewählte Target bereits die Remote-Vorschau, wird deren Session reproduzierbar zurückgesetzt und zeigt nach der Aufnahme den finalen Stand weiter an. Aufnahmen auf einem anderen Target lassen die laufende Vorschau unberührt. Größe und SHA-256 des Browser-Testbench-Artefakts werden geprüft. Echte Geräte, Simulatoren und Emulatoren behalten ihre native feste Videoauflösung. Bei einer Desktop-Aufnahme leitet der Director die Ausgabe aus CSS-Viewport und DPR des zentral definierten Vorschau-Presets ab. Diese Maße bleiben bei der serverseitigen Entfernung ausgelassener Wartezeiten erhalten; im Projekt selbst wird ausschließlich die portable Preset-ID gespeichert.
+The shared playback-device selector contains local viewport presets and, while Browser Testbench is enabled in the
+global header, compatible remote targets. Local presets automatically fit the available space; there is no separate
+preview zoom. Selecting a remote target immediately transfers the last successfully executed state and replaces the
+local preview with a clear placeholder. Switching back to a local preset closes the remote session and reproduces the
+same state locally. The remote selection is session state and is not part of the project format.
 
-Desktop-Browser werden beim Aufnehmen headless gestartet. Der Director gleicht Browser-Chrome und Mindestfenstergrößen aus und erhält dabei das Seitenverhältnis des Projekt-Viewports. Damit kann ein Portrait-Short stabil in Chrome aufgenommen werden, ohne sichtbare Browserfenster, abgeschnittene Viewports oder Letterboxing; die interaktive Remote-Vorschau bleibt weiterhin sichtbar.
+Recording target selection remains independent and lists only targets that can record. Global project settings
+configure language, region, and additional website permissions for every Browser Testbench session. Supported desktop
+browsers expose the combined language, for example, as `navigator.language === 'de-DE'`.
 
-Projekte deklarieren Laufzeitdateien als Input-Nodes vor der Website-Root. Der Dateiselektor und die aktuelle Auswahl sind direkt in der Node sichtbar; MIME-Typen, Pflichtfeld und Prepare-Module werden in ihren Node-Eigenschaften konfiguriert. Ausgewählte Dateien werden content-addressiert unter `projects/.director-assets/` abgelegt und im Projekt-JSON über Name, Typ, Größe und SHA-256 referenziert. Beim erneuten Öffnen stellt der Director sie automatisch wieder her. Der Director validiert und bereitet alle verbundenen Inputs vor dem Start der Website auf. Kameraquellen werden anschließend binär an Browser Testbench übertragen; andere Dateien stehen Scripts als Data-URLs unter `director.inputs` zur Verfügung. Für lokale Android-URLs aktiviert der Director automatisch Browser Testbenchs sicheres Reverse-Mapping. Ein Projekt kann damit beispielsweise einen Android-Emulator mit Kameraberechtigung, Sprache/Locale, einem injizierten Kamerabild und einer Schrift starten, ohne Binärdaten oder transportspezifische Netzwerkdetails in der `.btd.json`-Datei abzulegen.
+The record button in the graph header starts a clean remote session, captures its viewport during the complete
+workflow, and downloads an MP4 afterwards. If the selected target is already used for remote preview, Director resets
+that session reproducibly and leaves it displaying the final state after recording. Recording on a different target
+does not disturb the active preview. Director verifies the size and SHA-256 digest of the Browser Testbench artifact.
+Physical devices, simulators, and emulators retain their native fixed video resolution. For desktop recording,
+Director derives the output from the CSS viewport and DPR of the centrally defined preview preset. Server-side removal
+of omitted wait times preserves those dimensions; the project stores only the portable preset ID.
 
-Der Director enthält keine fest eingebaute Produktionslogik. Beim Videoexport werden die markierten Layer-Intervalle zusammengeschnitten. Warte-Nodes können mit `omitFromRecording` explizit aus dem Video entfernt oder darin belassen werden.
+Desktop browsers start headless while recording. Director compensates for browser chrome and minimum window sizes
+while preserving the project viewport's aspect ratio. A portrait short can therefore be recorded reliably in Chrome
+without visible browser windows, cropped viewports, or letterboxing, while the interactive remote preview remains
+visible.
+
+Projects declare runtime files as input nodes before the website root. The file picker and current selection are shown
+directly in the node; MIME types, required state, and preparation modules are configured in its properties. Selected
+files are stored by content address under `projects/.director-assets/` and referenced from project JSON by name, type,
+size, and SHA-256. Director restores them automatically when the project is reopened. It validates and prepares every
+connected input before starting the website.
+
+Camera sources are transferred to Browser Testbench as binary assets. Other files are available to scripts as data
+URLs through `director.inputs`. Audio inputs feed audio nodes, which support volume control and optionally wait for
+playback to finish. For local Android URLs, Director enables Browser Testbench's secure reverse mapping automatically.
+A project can therefore start an Android emulator with camera permission, language and locale, an injected camera
+image, and a font without storing binary data or transport-specific network details in its `.btd.json` file.
+
+Director contains no hard-coded production logic. During video export, marked layer intervals are joined and audio
+nodes are mixed at their recorded timestamps. Wait nodes can be explicitly removed from the video and audio through
+`omitFromRecording`, or retained in the export.
 
 ```bash
 npm run dev
 npm run dev:https
 ```
 
-`npm run dev` startet den eigenständigen Director-Server mit eingebetteter Vite-Middleware. `npm run dev:https` erzeugt beim ersten Start ein lokales Zertifikat für `localhost`, `127.0.0.1` und `::1` unter `.certs/` und verwendet es anschließend wieder. Mit `--https-cert` und `--https-key` kann stattdessen ein eigenes Zertifikat verwendet werden. HTTPS-Websites werden für die integrierte Vorschau über eine temporäre Same-Origin-Route des Directors geladen; Browser Testbench verwendet weiterhin unverändert die originale Website-URL.
+`npm run dev` starts the standalone Director server with embedded Vite middleware. On first launch,
+`npm run dev:https` creates and then reuses a local certificate for `localhost`, `127.0.0.1`, and `::1` under `.certs/`.
+Use `--https-cert` and `--https-key` to supply a different certificate. HTTPS websites are loaded into the integrated
+preview through a temporary same-origin Director route, while Browser Testbench continues to use the original website
+URL unchanged.
 
-Für den Produktionsbetrieb werden Client und Node-Server gemeinsam gebaut und anschließend ohne Vite ausgeliefert:
+For production, the client and Node.js server are built together and then served without Vite:
 
 ```bash
 npm run build
 npm start
 ```
 
-Der CLI-Einstiegspunkt lautet `browser-testbench-director start`. Er akzeptiert `--host`, `--port`, `--https`, `--https-cert`, `--https-key` und `--browser-testbench-url`. Das serverseitige Laufzeitsystem liegt unter `src/server/` und stellt Preview-Routen, den Website-Proxy, Prepare-Module, Videoexport, Browser-Testbench-Lifecycle und den `/browser-testbench-api`-Proxy bereit. Der gebaute Client wird aus `dist/ui` ausgeliefert. Projektdateien werden weiterhin direkt über die Browser-Dateischnittstelle geöffnet und gespeichert; sie benötigen keinen Server-Datenspeicher.
+The CLI entry point is `browser-testbench-director start`. It accepts `--host`, `--port`, `--https`, `--https-cert`,
+`--https-key`, and `--browser-testbench-url`. The server runtime lives under `src/server/` and provides preview routes,
+the website proxy, preparation modules, video export, the Browser Testbench lifecycle, and the
+`/browser-testbench-api` proxy. The built client is served from `dist/ui`. Project files continue to be opened and
+saved directly through the browser file APIs and require no server-side data store.
 
 ## MCP
 
-Der Director bringt einen stdio-MCP-Server auf Basis des offiziellen TypeScript-SDKs mit. Er listet, liest, validiert und bearbeitet `.btd.json`-Projekte innerhalb eines expliziten Arbeitsverzeichnisses. Änderungen werden vollständig validiert und atomar gespeichert. Der Einrichtungsdialog „KI verbinden“ erkennt Codex, Claude Code, Gemini CLI und VS Code; unterstützte CLI-Clients lassen sich dort registrieren, für andere Clients wird die passende Konfiguration kopiert.
+Director includes a stdio MCP server based on the official TypeScript SDK. It lists, reads, validates, and edits
+`.btd.json` projects inside an explicit workspace. Changes are fully validated and saved atomically. The Connect AI
+dialog detects Codex, Claude Code, Gemini CLI, and VS Code. Supported CLI clients can be registered directly; for other
+clients, the dialog copies the appropriate configuration.
 
 ```bash
 browser-testbench-director mcp --workspace /path/to/workspace
 browser-testbench-director mcp-config --client codex --workspace /path/to/workspace
 ```
 
-Der MCP-Server stellt Werkzeuge zum Auflisten, Lesen, Erstellen und vollständigen Schreiben von Projekten sowie zum Validieren, Hinzufügen oder Entfernen von Nodes und Verbinden von Nodes bereit. Dateipfade dürfen das konfigurierte Arbeitsverzeichnis nicht verlassen.
+The MCP server provides tools for listing, reading, creating, and replacing complete projects, plus validating,
+adding, or removing nodes and connecting them. File paths cannot leave the configured workspace.
 
-## Selektor-Picker
+## Selector Picker
 
-Browser-Aktions-Nodes und elementbasierte Wait-Nodes besitzen neben dem CSS-Selektor einen Fadenkreuz-Button. Der Director öffnet dafür auf dem gewählten Browser-Testbench-Target eine frische Session, führt alle Vorgänger im Catch-up aus und aktiviert anschließend die Elementauswahl. Das Element wird beim Zeigen hervorgehoben; der Klick selbst wird unterdrückt und als stabiler Selektor übernommen. Bevorzugt werden `data-testid`, eindeutige IDs und semantische Attribute, danach eindeutige Klassen und erst zuletzt ein struktureller Pfad. `Escape` oder der aktive Picker-Button brechen die Auswahl ab.
+Browser action nodes and element-based wait nodes provide a crosshair button beside the CSS selector. Director opens a
+fresh session on the selected Browser Testbench target, executes every predecessor in catch-up mode, and then enables
+element selection. Hovered elements are highlighted; the click itself is suppressed and converted into a stable
+selector. Director prefers `data-testid`, unique IDs, and semantic attributes, followed by unique classes and finally
+a structural path. Press `Escape` or the active picker button to cancel selection.
 
-Das Projektformat ist unter [docs/project-format.md](docs/project-format.md) beschrieben.
+The project format is documented in [docs/project-format.md](docs/project-format.md).
 
-Projektlizenz und Hinweise zu Abhängigkeiten werden als `LICENSE.txt` und `THIRD_PARTY_LICENSES.txt` mit dem npm-Paket ausgeliefert.
+The npm package includes the project license and dependency notices as `LICENSE.txt` and
+`THIRD_PARTY_LICENSES.txt`.
 
-Der reproduzierbare Browser-Test erwartet die laufende Director-UI und eine lokale Browser-Testbench:
+The reproducible browser tests expect a running Director UI and a local Browser Testbench:
 
 ```bash
 npm run dev
@@ -82,12 +156,17 @@ npm run test:remote
 npm run test:recording
 ```
 
-Der vollständige Release-Gate fasst Typprüfung, Unit-Tests, Produktions-Build und alle vier Browser-Prüfungen zusammen. Director und Browser Testbench müssen dafür wie oben beschrieben laufen:
+The complete release gate combines type checking, unit tests, the production build, and all four browser checks.
+Director and Browser Testbench must be running as described above:
 
 ```bash
 npm run verify
 ```
 
-Über `BROWSER_TESTBENCH_TARGET` kann für `test:ui` ein anderes Ziel gewählt werden, beispielsweise `firefox`. Der Remote-Test steuert standardmäßig die UI in Firefox und die Vorschau in Chrome; `DIRECTOR_CONTROLLER_TARGET` und `DIRECTOR_PREVIEW_TARGET` ändern diese Ziele.
+Set `BROWSER_TESTBENCH_TARGET` to use a different target for `test:ui`, such as `firefox`. By default, the remote test
+controls the UI in Firefox and opens the preview in Chrome. `DIRECTOR_CONTROLLER_TARGET` and
+`DIRECTOR_PREVIEW_TARGET` change those targets.
 
-`test:recording` führt über dieselbe UI einen kurzen Workflow in Chrome aus, lädt das Recording herunter und prüft Container, Videodimensionen und Dauer mit `ffprobe`. Mit `DIRECTOR_RECORDING_TARGET` kann derselbe Test auf ein anderes aufnahmefähiges Ziel gelegt werden.
+`test:recording` runs a short workflow in Chrome through the same UI, downloads the recording, and verifies its
+container, video dimensions, and duration with `ffprobe`. Set `DIRECTOR_RECORDING_TARGET` to run the same test on a
+different recording-capable target.

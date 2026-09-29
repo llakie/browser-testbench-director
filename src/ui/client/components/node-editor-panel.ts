@@ -7,6 +7,7 @@ export const NodeEditorPanel = defineWorkspaceSection({
     bindings: [
         'activeBrowserAction',
         'activeBrowserWait',
+        'activeAudio',
         'activeCapability',
         'activeInput',
         'activeInputAcceptId',

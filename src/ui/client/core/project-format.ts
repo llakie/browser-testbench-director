@@ -2,7 +2,7 @@ import { WorkflowGraph } from './workflow-graph.js';
 import { PREVIEW_PRESET_IDS, type PreviewPresetId } from './media-presets.js';
 
 export const DIRECTOR_PROJECT_FORMAT = 'browser-testbench-director' as const;
-export const DIRECTOR_PROJECT_VERSION = 11 as const;
+export const DIRECTOR_PROJECT_VERSION = 12 as const;
 
 export interface Point {
     readonly x: number;
@@ -75,6 +75,15 @@ export interface MergeNode {
     waitFor: 'all' | 'any';
 }
 
+export interface AudioNode {
+    readonly id: string;
+    readonly type: 'audio';
+    name: string;
+    position: Point | null;
+    volume: number;
+    waitForEnd: boolean;
+}
+
 export interface InputFileReference {
     readonly asset: string;
     readonly name: string;
@@ -113,7 +122,7 @@ export type BrowserWaitNode =
     | (BrowserWaitNodeBase & { condition: 'script'; script: string });
 
 export type ExecutableNode =
-    LayerNode | JavaScriptNode | BrowserActionNode | BrowserWaitNode | MergeNode;
+    LayerNode | JavaScriptNode | BrowserActionNode | BrowserWaitNode | MergeNode | AudioNode;
 export type DirectorNode = InputNode | CapabilityNode | WebsiteNode | ExecutableNode;
 
 export interface WorkflowConnection {
@@ -365,6 +374,11 @@ export class ProjectFormat {
             return;
         }
 
+        if (value['type'] === 'audio') {
+            ProjectFormat.assertAudioNode(value);
+            return;
+        }
+
         if (value['type'] === 'javascript') {
             ProjectFormat.assertJavaScriptNode(value);
             return;
@@ -594,6 +608,28 @@ export class ProjectFormat {
             value,
             ['id', 'type', 'name', 'position', 'waitFor'],
             'Merge node',
+        );
+    }
+
+    private static assertAudioNode(
+        value: Record<string, unknown>,
+    ): asserts value is Record<string, unknown> & AudioNode {
+        ProjectFormat.assertCommonExecutable(value, 'Audio');
+
+        if (
+            typeof value['volume'] !== 'number' ||
+            !Number.isFinite(value['volume']) ||
+            value['volume'] < 0 ||
+            value['volume'] > 1 ||
+            typeof value['waitForEnd'] !== 'boolean'
+        ) {
+            throw new TypeError(`Audio node ${value['id']} contains invalid playback settings.`);
+        }
+
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'volume', 'waitForEnd'],
+            'Audio node',
         );
     }
 

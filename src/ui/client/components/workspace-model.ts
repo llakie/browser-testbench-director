@@ -15,6 +15,7 @@ export type CreatableNodeType =
     | 'javascript'
     | 'browser-action'
     | 'browser-wait'
+    | 'audio'
     | 'merge';
 
 export interface ViewportPreset {

@@ -1,6 +1,7 @@
 import type {
     BrowserActionNode,
     BrowserWaitNode,
+    AudioNode,
     DirectorNode,
     DirectorProject,
     InputNode,
@@ -62,6 +63,17 @@ export class ProjectNodes {
         };
     }
 
+    static createAudio(project: DirectorProject, name: string): AudioNode {
+        return {
+            id: ProjectNodes.uniqueId(project, 'audio'),
+            type: 'audio',
+            name,
+            position: null,
+            volume: 1,
+            waitForEnd: true,
+        };
+    }
+
     static createJavaScript(project: DirectorProject, name: string): JavaScriptNode {
         return {
             id: ProjectNodes.uniqueId(project, 'javascript'),
@@ -116,6 +128,10 @@ export class ProjectNodes {
         }
 
         if (node.type === 'merge') {
+            return { ...node, id, name, position };
+        }
+
+        if (node.type === 'audio') {
             return { ...node, id, name, position };
         }
 

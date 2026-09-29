@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 
@@ -15,23 +15,45 @@ interface VideoInterval {
     readonly endMs: number;
 }
 
+export interface AudioTrack {
+    readonly asset: string;
+    readonly path: string;
+    readonly startMs: number;
+    readonly volume: number;
+}
+
 export class DirectorVideoExports {
+    constructor(private readonly assetDirectory = '') {}
+
     static ffmpegArguments(
         inputPath: string,
         outputPath: string,
         width: number,
         height: number,
         intervals: readonly VideoInterval[] = [],
+        audioTracks: readonly AudioTrack[] = [],
     ) {
         const transform = `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x0d110f,setsar=1,fps=30`;
-        const filterArguments = intervals.length
-            ? [
-                  '-filter_complex',
-                  DirectorVideoExports.intervalFilter(intervals, transform),
-                  '-map',
-                  '[video]',
-              ]
-            : ['-vf', transform];
+        const inputArguments = audioTracks.flatMap((track) => ['-i', track.path]);
+        const audioFilter = DirectorVideoExports.audioFilter(audioTracks, intervals);
+        const complexFilter = [
+            intervals.length
+                ? DirectorVideoExports.intervalFilter(intervals, transform)
+                : `[0:v]${transform}[video]`,
+            audioFilter,
+        ]
+            .filter(Boolean)
+            .join(';');
+        const filterArguments =
+            intervals.length || audioFilter
+                ? [
+                      '-filter_complex',
+                      complexFilter,
+                      '-map',
+                      '[video]',
+                      ...(audioFilter ? ['-map', '[audio]'] : []),
+                  ]
+                : ['-vf', transform];
         return [
             '-hide_banner',
             '-loglevel',
@@ -39,6 +61,7 @@ export class DirectorVideoExports {
             '-y',
             '-i',
             inputPath,
+            ...inputArguments,
             ...filterArguments,
             '-c:v',
             'libx264',
@@ -50,9 +73,76 @@ export class DirectorVideoExports {
             'yuv420p',
             '-movflags',
             '+faststart',
-            '-an',
+            ...(audioFilter ? ['-c:a', 'aac', '-b:a', '192k', '-shortest'] : ['-an']),
             outputPath,
         ] as const;
+    }
+
+    private static audioFilter(
+        tracks: readonly AudioTrack[],
+        intervals: readonly VideoInterval[],
+    ): string {
+        const filters: string[] = [];
+        const labels: string[] = [];
+
+        for (const [trackIndex, track] of tracks.entries()) {
+            const input = trackIndex + 1;
+            const segments = intervals.length
+                ? DirectorVideoExports.audioSegments(track, intervals)
+                : [{ sourceStartMs: 0, outputStartMs: track.startMs, durationMs: null }];
+            const segmentInputs = segments.map((_segment, segmentIndex) =>
+                segments.length === 1 ? `[${input}:a]` : `[audio${trackIndex}split${segmentIndex}]`,
+            );
+
+            if (segments.length > 1) {
+                filters.push(`[${input}:a]asplit=${segments.length}${segmentInputs.join('')}`);
+            }
+
+            for (const [segmentIndex, segment] of segments.entries()) {
+                const label = `audio${trackIndex}_${segmentIndex}`;
+                const duration =
+                    segment.durationMs === null
+                        ? ''
+                        : `:duration=${DirectorVideoExports.seconds(segment.durationMs)}`;
+                filters.push(
+                    `${segmentInputs[segmentIndex]}atrim=start=${DirectorVideoExports.seconds(segment.sourceStartMs)}${duration},asetpts=PTS-STARTPTS,volume=${track.volume},adelay=${Math.round(segment.outputStartMs)}:all=1[${label}]`,
+                );
+                labels.push(`[${label}]`);
+            }
+        }
+
+        if (labels.length === 0) {
+            return '';
+        }
+
+        filters.push(
+            `${labels.join('')}amix=inputs=${labels.length}:duration=longest:normalize=0,apad[audio]`,
+        );
+        return filters.join(';');
+    }
+
+    private static audioSegments(track: AudioTrack, intervals: readonly VideoInterval[]) {
+        const segments: Array<{
+            sourceStartMs: number;
+            outputStartMs: number;
+            durationMs: number;
+        }> = [];
+        let outputCursorMs = 0;
+
+        for (const interval of intervals) {
+            if (interval.endMs > track.startMs) {
+                const recordingStartMs = Math.max(interval.startMs, track.startMs);
+                segments.push({
+                    sourceStartMs: recordingStartMs - track.startMs,
+                    outputStartMs: outputCursorMs + Math.max(0, track.startMs - interval.startMs),
+                    durationMs: interval.endMs - recordingStartMs,
+                });
+            }
+
+            outputCursorMs += interval.endMs - interval.startMs;
+        }
+
+        return segments;
     }
 
     private static intervalFilter(intervals: readonly VideoInterval[], transform: string): string {
@@ -89,6 +179,13 @@ export class DirectorVideoExports {
             return;
         }
 
+        const audioTracks = this.audioTracks(request.headers['x-director-video-audio']);
+
+        if (audioTracks === null) {
+            this.json(response, 400, { error: 'Audio tracks are invalid.' });
+            return;
+        }
+
         const directory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-export-'));
         const inputPath = join(directory, 'recording.mp4');
         const outputPath = join(directory, 'export.mp4');
@@ -115,6 +212,7 @@ export class DirectorVideoExports {
                     width,
                     height,
                     intervals,
+                    audioTracks,
                 ),
             );
             const output = await stat(outputPath);
@@ -175,6 +273,53 @@ export class DirectorVideoExports {
             return intervals.every((interval) => interval !== null)
                 ? (intervals as VideoInterval[])
                 : null;
+        } catch {
+            return null;
+        }
+    }
+
+    private audioTracks(value: string | string[] | undefined): AudioTrack[] | null {
+        if (value === undefined) {
+            return [];
+        }
+
+        try {
+            const parsed = JSON.parse(Array.isArray(value) ? value[0]! : value) as unknown;
+
+            if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 100) {
+                return null;
+            }
+
+            return parsed.map((entry) => {
+                if (!entry || typeof entry !== 'object') {
+                    throw new TypeError('Invalid audio track.');
+                }
+
+                const { asset, startMs, volume } = entry as Record<string, unknown>;
+
+                if (
+                    typeof asset !== 'string' ||
+                    !/^[a-f0-9]{64}\/[A-Za-z0-9%._~-]+$/u.test(asset) ||
+                    typeof startMs !== 'number' ||
+                    !Number.isFinite(startMs) ||
+                    startMs < 0 ||
+                    typeof volume !== 'number' ||
+                    !Number.isFinite(volume) ||
+                    volume < 0 ||
+                    volume > 1
+                ) {
+                    throw new TypeError('Invalid audio track.');
+                }
+
+                const [sha256, encodedName] = asset.split('/');
+                const name = basename(decodeURIComponent(encodedName!));
+                return {
+                    asset,
+                    startMs,
+                    volume,
+                    path: resolve(this.assetDirectory, sha256!, name),
+                };
+            });
         } catch {
             return null;
         }

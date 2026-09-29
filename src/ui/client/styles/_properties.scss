@@ -118,6 +118,27 @@
     font: inherit;
 }
 
+.audio-volume-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.audio-volume-field input[type='range'] {
+    width: min(20rem, 100%);
+}
+
+.audio-volume-field output {
+    min-width: 3.5rem;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.property-hint {
+    margin: 0;
+    color: var(--color-text-muted);
+}
+
 .layer-placement-properties input:hover,
 .layer-placement-properties input:focus,
 .layer-placement-properties select:hover,

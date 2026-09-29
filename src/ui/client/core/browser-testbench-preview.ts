@@ -25,6 +25,7 @@ export interface BrowserTestbenchTargetCapabilities {
     readonly permissions: { readonly native: string[]; readonly origin: string[] };
     readonly localOrigins: { readonly reverse: boolean };
     readonly mediaInjection: { readonly cameraImage: boolean };
+    readonly mediaPlayback: { readonly autoplay: boolean };
     readonly recording: { readonly viewport: boolean };
 }
 
@@ -79,6 +80,18 @@ interface RecordingMark {
 export interface RecordingInterval {
     readonly startMs: number;
     readonly endMs: number;
+}
+
+export interface RecordingAudioTrack {
+    readonly nodeId: string;
+    readonly asset: string;
+    readonly volume: number;
+}
+
+interface ExportAudioTrack {
+    readonly asset: string;
+    readonly startMs: number;
+    readonly volume: number;
 }
 
 export interface RecordingExport {
@@ -153,6 +166,7 @@ export class BrowserTestbenchPreview {
         inputs: readonly ProjectFileInput[] = [],
         headless = false,
         configuration?: BrowserSessionConfiguration,
+        requireAutoplay = false,
     ): Promise<string> {
         const preview = await this.publish(nodeId, document);
         const previewUrl = new URL(preview.url, globalThis.location.origin);
@@ -177,6 +191,7 @@ export class BrowserTestbenchPreview {
                 leaseTimeoutMs: this.sessionLeaseTimeoutMs,
                 ...(permissions.length ? { permissions } : {}),
                 ...(Object.keys(capabilities).length ? { capabilities } : {}),
+                ...(requireAutoplay ? { require: { mediaPlayback: { autoplay: true } } } : {}),
             }),
         });
         await this.waitForDirectorRuntime(session.id);
@@ -191,6 +206,7 @@ export class BrowserTestbenchPreview {
         inputs: readonly ProjectFileInput[] = [],
         cameraInputId: string | null = null,
         headless = false,
+        requireAutoplay = false,
     ): Promise<string> {
         const absoluteUrl = this.absoluteUrl(url);
         const cameraInput = inputs.find((input) => input.id === cameraInputId);
@@ -232,6 +248,16 @@ export class BrowserTestbenchPreview {
             headless,
             localHttps,
         );
+        const requirement = {
+            ...(nativeCamera
+                ? {
+                      localOrigins: { reverse: true },
+                      permissions: { native: ['camera'], origin: ['camera'] },
+                      mediaInjection: { cameraImage: true },
+                  }
+                : {}),
+            ...(requireAutoplay ? { mediaPlayback: { autoplay: true } } : {}),
+        };
         const session = await this.request<StartedSession>('/sessions', {
             method: 'POST',
             body: JSON.stringify({
@@ -244,15 +270,7 @@ export class BrowserTestbenchPreview {
                 ...(cameraAsset
                     ? { media: { camera: { facing: 'back', source: cameraAsset } } }
                     : {}),
-                ...(nativeCamera
-                    ? {
-                          require: {
-                              localOrigins: { reverse: true },
-                              permissions: { native: ['camera'], origin: ['camera'] },
-                              mediaInjection: { cameraImage: true },
-                          },
-                      }
-                    : {}),
+                ...(Object.keys(requirement).length ? { require: requirement } : {}),
                 ...(Object.keys(sessionCapabilities).length
                     ? { capabilities: sessionCapabilities }
                     : {}),
@@ -335,6 +353,7 @@ export class BrowserTestbenchPreview {
         sessionId: string,
         filename: string,
         outputSize?: ExportViewport,
+        audioTracks: readonly RecordingAudioTrack[] = [],
     ): Promise<RecordingExport> {
         const recording = await this.request<RecordingArtifact>(
             `/sessions/${encodeURIComponent(sessionId)}/recording/stop`,
@@ -366,7 +385,13 @@ export class BrowserTestbenchPreview {
         const original = new Blob([content], { type: recording.mimeType });
         const intervals = this.layerIntervals(recording);
         const output = outputSize ?? { width: recording.width, height: recording.height };
-        const blob = await this.normalizeRecording(original, filename, output, intervals);
+        const blob = await this.normalizeRecording(
+            original,
+            filename,
+            output,
+            intervals,
+            this.audioTracks(recording, audioTracks),
+        );
         return {
             blob,
             filename,
@@ -395,6 +420,7 @@ export class BrowserTestbenchPreview {
         filename: string,
         viewport: ExportViewport,
         intervals: readonly RecordingInterval[],
+        audioTracks: readonly ExportAudioTrack[],
     ): Promise<Blob> {
         const response = await fetch('/director-api/video-exports', {
             method: 'POST',
@@ -406,6 +432,9 @@ export class BrowserTestbenchPreview {
                 'x-director-video-height': String(viewport.height),
                 ...(intervals.length
                     ? { 'x-director-video-intervals': JSON.stringify(intervals) }
+                    : {}),
+                ...(audioTracks.length
+                    ? { 'x-director-video-audio': JSON.stringify(audioTracks) }
                     : {}),
             },
         });
@@ -423,6 +452,10 @@ export class BrowserTestbenchPreview {
         markIntervals = false,
     ): Promise<void> {
         await executeRuntimeGraph(steps, async (step) => {
+            if (markIntervals && step.type === 'audio' && step.speed === 'live') {
+                await this.mark(sessionId, 'director.audio.start', { nodeId: step.id });
+            }
+
             if (markIntervals && step.type === 'layer' && step.playback!.durationMs > 0) {
                 const playback = step.playback!;
                 await this.executeRuntimeStep(sessionId, {
@@ -475,6 +508,15 @@ export class BrowserTestbenchPreview {
         await executeRuntimeGraph(steps, async (step) => {
             if (step.source.includes('director.inputs')) {
                 await this.setRuntimeInputs(sessionId, inputs, excludedInputId);
+            }
+
+            if (step.type === 'audio') {
+                if (markLayerIntervals && step.speed === 'live') {
+                    await this.mark(sessionId, 'director.audio.start', { nodeId: step.id });
+                }
+
+                await this.playAudioOnWebsite(sessionId, step);
+                return;
             }
 
             if (step.type === 'browser-action') {
@@ -583,6 +625,30 @@ export class BrowserTestbenchPreview {
         }
 
         return merged;
+    }
+
+    private static audioTracks(
+        recording: RecordingArtifact,
+        definitions: readonly RecordingAudioTrack[],
+    ): ExportAudioTrack[] {
+        const byNode = new Map(definitions.map((track) => [track.nodeId, track]));
+        return (recording.marks ?? []).flatMap((mark) => {
+            const nodeId = typeof mark.data?.['nodeId'] === 'string' ? mark.data['nodeId'] : '';
+            const definition =
+                mark.name === 'director.audio.start' ? byNode.get(nodeId) : undefined;
+
+            if (!definition || !Number.isFinite(mark.recordingTimeMs)) {
+                return [];
+            }
+
+            return [
+                {
+                    asset: definition.asset,
+                    startMs: Math.max(0, mark.recordingTimeMs!),
+                    volume: definition.volume,
+                },
+            ];
+        });
     }
 
     private static async mountLayerOnWebsite(sessionId: string, step: RuntimeStep): Promise<void> {
@@ -726,6 +792,69 @@ export class BrowserTestbenchPreview {
                     return result;
                 })();`,
             arguments: [step.speed, step.id, playback],
+        });
+    }
+
+    private static async playAudioOnWebsite(sessionId: string, step: RuntimeStep): Promise<void> {
+        const triggerToken = crypto.randomUUID();
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: `(() => {
+                if (arguments[0].speed === 'catchup') return;
+                const source = window.__directorInputs?.[arguments[0].inputId];
+                if (!source) throw new Error('Audio input is missing: ' + arguments[0].inputId);
+                window.__directorAudio ??= new Map();
+                const previous = window.__directorAudio.get(arguments[0].id);
+                previous?.pause();
+                const audio = new Audio(source);
+                audio.volume = arguments[0].volume;
+                window.__directorAudio.set(arguments[0].id, audio);
+                window.__directorAudioCompletions ??= new Map();
+                window.__directorAudioStarts ??= new Map();
+                const ended = new Promise((resolve, reject) => {
+                    audio.addEventListener('ended', resolve, { once: true });
+                    audio.addEventListener('error', () => reject(
+                        new Error('Audio playback failed: ' + arguments[0].id)
+                    ), { once: true });
+                });
+                const trigger = document.createElement('button');
+                trigger.type = 'button';
+                trigger.dataset.directorAudioTrigger = arguments[1];
+                Object.assign(trigger.style, {
+                    position: 'fixed', left: '0', bottom: '0', width: '1px', height: '1px',
+                    opacity: '0', padding: '0', border: '0', zIndex: '2147483647',
+                });
+                trigger.addEventListener('click', () => {
+                    const started = audio.play();
+                    window.__directorAudioStarts.set(arguments[0].id, started);
+                    window.__directorAudioCompletions.set(
+                        arguments[0].id,
+                        started.then(() => ended),
+                    );
+                    trigger.remove();
+                }, { once: true });
+                document.documentElement.append(trigger);
+            })();`,
+            arguments: [step, triggerToken],
+        });
+        await this.click(sessionId, `[data-director-audio-trigger="${triggerToken}"]`);
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'return window.__directorAudioStarts.get(arguments[0]);',
+            arguments: [step.id],
+        });
+
+        if (!step.waitForEnd) {
+            return;
+        }
+
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: `return window.__directorAudioCompletions.get(arguments[0]).then(() => {
+                window.__directorAudio.delete(arguments[0]);
+                window.__directorAudioCompletions.delete(arguments[0]);
+            });`,
+            arguments: [step.id],
         });
     }
 

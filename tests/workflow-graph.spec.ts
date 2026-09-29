@@ -127,3 +127,36 @@ test('Workflow-Graph verbindet einen Datei-Input über die Kamera-Capability mit
     );
     assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
 });
+
+test('Workflow-Graph trennt Datei- und Ablauf-Eingang einer Audio-Node', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push(
+        {
+            id: 'soundtrack',
+            type: 'input',
+            name: 'Soundtrack',
+            position: null,
+            accept: 'audio/*',
+            required: true,
+        },
+        {
+            id: 'play-soundtrack',
+            type: 'audio',
+            name: 'Soundtrack abspielen',
+            position: null,
+            volume: 0.8,
+            waitForEnd: false,
+        },
+    );
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'soundtrack', 'play-soundtrack'),
+        WorkflowGraph.createConnection(project, 'layer-1', 'play-soundtrack'),
+    );
+
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
+    assert.ok(WorkflowGraph.connectedNodeIds(project).has('soundtrack'));
+    assert.throws(
+        () => WorkflowGraph.createConnection(project, 'website-root', 'play-soundtrack'),
+        (error) => error instanceof WorkflowConnectionError && error.issue === 'audio-target',
+    );
+});
