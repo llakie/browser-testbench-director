@@ -1,0 +1,150 @@
+<template>
+    <section class="panel preview-panel" :aria-label="t('preview.title')">
+        <header class="panel__header panel__header--preview">
+            <div class="preview-toolbar">
+                <div
+                    data-workspace-ref="deviceFlyout"
+                    class="device-flyout"
+                    @keydown.esc.stop.prevent="deviceMenuOpen = false"
+                >
+                    <span class="toolbar-control-label">{{ t('preview.destination') }}</span>
+                    <button
+                        class="viewport-label viewport-selector"
+                        type="button"
+                        data-testid="viewport-device-trigger"
+                        :aria-label="t('preview.deviceChoice', { device: previewDestinationLabel })"
+                        :title="t('preview.deviceChoice', { device: previewDestinationLabel })"
+                        aria-haspopup="menu"
+                        :aria-expanded="String(deviceMenuOpen)"
+                        @click="toggleDeviceMenu"
+                    >
+                        <span :class="['bi', viewportPresetIcon]" aria-hidden="true"></span>
+                        <span data-testid="viewport-scale">{{ viewportLabel }}</span>
+                    </button>
+                    <div v-if="deviceMenuOpen" class="flyout-menu device-flyout__menu" role="menu">
+                        <button
+                            v-for="preset in viewportPresets"
+                            :key="preset.id"
+                            :class="[
+                                        'device-option',
+                                        { 'is-active': currentViewportPreset?.id === preset.id },
+                                    ]"
+                            type="button"
+                            role="menuitemradio"
+                            :data-testid="`viewport-device-${preset.id}`"
+                            :aria-checked="String(currentViewportPreset?.id === preset.id)"
+                            @click="selectViewportPreset(preset)"
+                        >
+                            <span :class="['bi', preset.icon]" aria-hidden="true"></span>
+                            <span class="device-option__content">
+                                <span>{{ t(preset.labelKey) }}</span>
+                                <small>
+                                    {{ preset.viewport.width }} × {{ preset.viewport.height }} CSS ·
+                                    {{ preset.output.width }} × {{ preset.output.height }} Video
+                                </small>
+                            </span>
+                        </button>
+                        <div v-if="browserTestbenchRunning" class="device-menu-section">
+                            <span class="device-menu-section__label"
+                                >{{ t('preview.remoteTargets') }}</span
+                            >
+                            <button
+                                v-for="target in compatiblePreviewTargets"
+                                :key="target.id"
+                                :class="[
+                                            'target-option',
+                                            { 'is-active': selectedBrowserTargetId === target.id },
+                                        ]"
+                                type="button"
+                                role="menuitemradio"
+                                :data-testid="`remote-target-${target.id}`"
+                                :aria-checked="String(selectedBrowserTargetId === target.id)"
+                                :disabled="!target.ready || target.busy"
+                                @click="selectRemotePreviewTarget(target)"
+                            >
+                                <i
+                                    :class="['bi', target.kind === 'mobile' ? 'bi-phone' : 'bi-display']"
+                                    aria-hidden="true"
+                                ></i>
+                                <span>
+                                    <strong>{{ browserTargetLabel(target) }}</strong>
+                                    <small>{{ previewTargetStatus(target) }}</small>
+                                </span>
+                            </button>
+                            <small
+                                v-if="compatiblePreviewTargets.length === 0"
+                                class="device-menu-hint"
+                            >
+                                {{ t('preview.browserTargetsUnavailable') }}
+                            </small>
+                        </div>
+                        <small v-else class="device-menu-hint">
+                            {{ t('preview.enableTestbenchHint') }}
+                        </small>
+                    </div>
+                </div>
+                <button
+                    v-if="executionRunning"
+                    class="icon-button execution-stop"
+                    type="button"
+                    data-testid="stop-preview-execution"
+                    :aria-label="t('playback.stop')"
+                    :title="t('playback.stop')"
+                    @click="stopPlayback"
+                >
+                    <span class="bi bi-stop-fill" aria-hidden="true"></span>
+                </button>
+                <button
+                    class="icon-button preview-expand"
+                    type="button"
+                    data-testid="maximize-preview"
+                    :aria-label="t(maximizedPanel === 'preview' ? 'workspace.restoreLayout' : 'workspace.maximizePreview')"
+                    :title="t(maximizedPanel === 'preview' ? 'workspace.restoreLayout' : 'workspace.maximizePreview')"
+                    @click="togglePanelMaximized('preview')"
+                >
+                    <span
+                        :class="['fullscreen-icon', { 'is-exit': maximizedPanel === 'preview' }]"
+                        aria-hidden="true"
+                        ><span></span><span></span><span></span><span></span
+                    ></span>
+                </button>
+            </div>
+        </header>
+
+        <div data-workspace-ref="previewStage" class="preview-stage">
+            <div v-if="selectedBrowserTarget" class="remote-preview-placeholder">
+                <i class="bi bi-cast" aria-hidden="true"></i>
+                <strong>
+                    {{ t('preview.remoteActiveOn', { target:
+                    browserTargetLabel(selectedBrowserTarget) }) }}
+                </strong>
+                <small v-if="remotePreviewError" class="remote-preview-placeholder__error">
+                    {{ remotePreviewError }}
+                </small>
+                <button
+                    class="button button--quiet remote-preview-stop"
+                    type="button"
+                    data-testid="stop-remote-preview"
+                    :disabled="browserTargetOpening"
+                    @click="stopRemotePreview"
+                >
+                    <i class="bi bi-stop-fill" aria-hidden="true"></i>
+                    {{ t('preview.stopRemote') }}
+                </button>
+            </div>
+            <div v-else class="preview-canvas" :style="viewportStyle">
+                <div class="preview-viewport">
+                    <iframe
+                        v-if="previewDocument"
+                        data-workspace-ref="previewFrame"
+                        :key="previewRevision"
+                        :srcdoc="previewDocument"
+                        :title="t('preview.frameTitle')"
+                        allow="camera; microphone"
+                        sandbox="allow-scripts allow-same-origin"
+                    ></iframe>
+                </div>
+            </div>
+        </div>
+    </section>
+</template>

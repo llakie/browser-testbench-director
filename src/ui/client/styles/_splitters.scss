@@ -1,0 +1,75 @@
+.workspace-splitter {
+    position: relative;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    touch-action: none;
+}
+
+.workspace-splitter::before {
+    position: absolute;
+    inset: 2px;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    content: '';
+}
+
+.workspace-splitter:hover::before,
+.workspace-splitter:focus-visible::before {
+    background: var(--color-primary-divider);
+}
+
+.workspace-splitter span {
+    z-index: 1;
+    border-radius: var(--radius-pill);
+    background: var(--color-border-strong);
+}
+
+.workspace--portrait .workspace-splitter--outer,
+.workspace--landscape .workspace-splitter--inner {
+    cursor: col-resize;
+}
+
+.workspace--portrait .workspace-splitter--outer span,
+.workspace--landscape .workspace-splitter--inner span {
+    width: 2px;
+    height: 28px;
+}
+
+.workspace--portrait .workspace-splitter--inner,
+.workspace--landscape .workspace-splitter--outer {
+    cursor: row-resize;
+}
+
+.workspace--portrait .workspace-splitter--inner span,
+.workspace--landscape .workspace-splitter--outer span {
+    width: 28px;
+    height: 2px;
+}
+
+.workspace--portrait .workspace-splitter--outer {
+    grid-column: 2;
+    grid-row: 1 / -1;
+}
+
+.workspace--portrait .workspace-splitter--inner {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.workspace--landscape .workspace-splitter--outer {
+    grid-column: 1 / -1;
+    grid-row: 2;
+}
+
+.workspace--landscape .workspace-splitter--inner {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+body.is-resizing-workspace {
+    cursor: grabbing;
+    user-select: none;
+}

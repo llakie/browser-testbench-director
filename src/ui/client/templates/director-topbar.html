@@ -1,0 +1,110 @@
+<template>
+    <header :class="['topbar', { 'topbar--recording': recordingActive }]">
+        <div class="brand">
+            <span class="brand__mark" aria-hidden="true"><span></span></span>
+            <span class="brand__copy">
+                <small>{{ t('product.eyebrow') }}</small>
+                <strong>{{ t('product.name') }}</strong>
+            </span>
+        </div>
+
+        <div class="project-title">
+            <label class="visually-hidden" for="project-name">{{ t('project.localHint') }}</label>
+            <input id="project-name" v-model="project.name" type="text" @input="markDirty" />
+            <button
+                v-if="recordingActive"
+                class="recording-status"
+                type="button"
+                data-testid="recording-status"
+                :aria-label="t('recording.stop')"
+                :title="t('recording.stop')"
+                @click="stopRecordingWorkflow"
+            >
+                <span class="recording-status__dot" aria-hidden="true"></span>
+                <span class="recording-status__label">{{ t('recording.active') }}</span>
+                <span aria-hidden="true">·</span>
+                <time>{{ recordingElapsedLabel }}</time>
+                <i class="bi bi-stop-fill" aria-hidden="true"></i>
+            </button>
+            <small v-else>
+                <span :class="['status-dot', { 'is-dirty': dirty }]" aria-hidden="true"></span>
+                {{ dirty ? t('status.unsaved') : t('status.saved') }}
+            </small>
+        </div>
+
+        <nav class="file-actions" :aria-label="t('project.localHint')">
+            <button
+                class="button button--quiet mcp-setup-button"
+                type="button"
+                data-testid="open-mcp-setup"
+                :aria-label="t('mcp.setup')"
+                :title="t('mcp.setup')"
+                @click="openMcpSetup"
+            >
+                <i class="bi bi-robot" aria-hidden="true"></i>
+                <span class="mcp-setup-label">{{ t('mcp.setup') }}</span>
+            </button>
+            <button
+                :class="[
+                        'icon-button',
+                        'testbench-power',
+                        { 'is-running': browserTestbenchRunning },
+                    ]"
+                type="button"
+                data-testid="toggle-browser-testbench"
+                :disabled="browserTestbenchTransitioning || executionRunning"
+                :aria-label="browserTestbenchLifecycleLabel"
+                :title="browserTestbenchLifecycleLabel"
+                @click="toggleBrowserTestbench"
+            >
+                <span class="bi bi-flask-fill" aria-hidden="true"></span>
+            </button>
+            <button
+                class="icon-button"
+                type="button"
+                data-testid="new-project"
+                :aria-label="t('project.new')"
+                :title="t('project.new')"
+                @click="newProject"
+            >
+                <i class="bi bi-file-earmark-plus" aria-hidden="true"></i>
+            </button>
+            <button
+                class="icon-button"
+                type="button"
+                data-testid="open-project"
+                :aria-label="t('project.open')"
+                :title="t('project.open')"
+                @click="openProject"
+            >
+                <i class="bi bi-folder2-open" aria-hidden="true"></i>
+            </button>
+            <button
+                class="icon-button icon-button--primary"
+                type="button"
+                data-testid="save-project"
+                :disabled="savingProject"
+                :aria-busy="String(savingProject)"
+                :aria-label="t('project.save')"
+                :title="t('project.save')"
+                @click="saveProject"
+            >
+                <i
+                    :class="[
+                            'bi',
+                            savingProject ? 'bi-arrow-repeat icon-spinner' : 'bi-floppy',
+                        ]"
+                    aria-hidden="true"
+                ></i>
+            </button>
+        </nav>
+        <input
+            data-workspace-ref="projectFileInput"
+            class="visually-hidden"
+            data-testid="project-file-input"
+            type="file"
+            accept=".json,.btd.json,application/json"
+            @change="loadProject"
+        />
+    </header>
+</template>

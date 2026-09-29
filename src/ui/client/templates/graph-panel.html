@@ -1,0 +1,266 @@
+<template>
+    <section class="panel graph-panel" :aria-label="t('graph.title')">
+        <header class="panel__header">
+            <div class="panel-header-actions">
+                <div
+                    data-workspace-ref="nodeFlyout"
+                    class="action-flyout"
+                    @keydown.esc.stop.prevent="nodeMenuOpen = false"
+                >
+                    <button
+                        class="icon-button"
+                        type="button"
+                        data-testid="node-actions-trigger"
+                        :disabled="executionRunning"
+                        :aria-label="t('node.actions')"
+                        :title="t('node.actions')"
+                        aria-haspopup="menu"
+                        :aria-expanded="String(nodeMenuOpen)"
+                        @click="toggleNodeMenu"
+                    >
+                        <span class="bi bi-plus-lg" aria-hidden="true"></span>
+                    </button>
+                    <div v-if="nodeMenuOpen" class="flyout-menu action-flyout__menu" role="menu">
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-input-node"
+                            @click="addNode('input')"
+                        >
+                            <span class="bi bi-file-earmark-arrow-up" aria-hidden="true"></span>
+                            <span>{{ t('node.addInput') }}</span>
+                        </button>
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-camera-capability-node"
+                            @click="addNode('camera-capability')"
+                        >
+                            <span class="bi bi-camera-video" aria-hidden="true"></span>
+                            <span>{{ t('node.addCameraCapability') }}</span>
+                        </button>
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-layer-node"
+                            @click="addNode('layer')"
+                        >
+                            <span class="bi bi-layers" aria-hidden="true"></span>
+                            <span>{{ t('node.addLayer') }}</span>
+                        </button>
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-javascript-node"
+                            @click="addNode('javascript')"
+                        >
+                            <span class="bi bi-braces" aria-hidden="true"></span>
+                            <span>{{ t('node.addJavaScript') }}</span>
+                        </button>
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-browser-action-node"
+                            @click="addNode('browser-action')"
+                        >
+                            <span class="bi bi-cursor" aria-hidden="true"></span>
+                            <span>{{ t('node.addBrowserAction') }}</span>
+                        </button>
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-browser-wait-node"
+                            @click="addNode('browser-wait')"
+                        >
+                            <span class="bi bi-hourglass-split" aria-hidden="true"></span>
+                            <span>{{ t('node.addBrowserWait') }}</span>
+                        </button>
+                        <button
+                            v-if="activeNode && !activeWebsite && !activeInput && !activeCapability"
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="play-node-current"
+                            @click="playActiveNodeOnCurrentState"
+                        >
+                            <span class="bi bi-lightning-fill" aria-hidden="true"></span>
+                            <span>{{ t('playback.currentNode') }}</span>
+                        </button>
+                        <button
+                            v-if="activeNode && !activeWebsite"
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="duplicate-node"
+                            @click="duplicateActiveNode"
+                        >
+                            <span class="bi bi-copy" aria-hidden="true"></span>
+                            <span>{{ t('node.duplicate') }}</span>
+                        </button>
+                        <button
+                            v-if="activeNode && !activeWebsite"
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="delete-node"
+                            @click="deleteActiveNode"
+                        >
+                            <span class="bi bi-trash3" aria-hidden="true"></span>
+                            <span>{{ t('node.delete') }}</span>
+                        </button>
+                    </div>
+                </div>
+                <button
+                    v-if="activeConnectionId"
+                    class="icon-button"
+                    type="button"
+                    data-testid="delete-connection"
+                    :disabled="executionRunning"
+                    :aria-label="t('graph.deleteConnection')"
+                    :title="t('graph.deleteConnection')"
+                    @click="deleteConnection()"
+                >
+                    <span class="bi bi-trash3" aria-hidden="true"></span>
+                </button>
+                <button
+                    class="icon-button"
+                    type="button"
+                    data-testid="auto-layout-graph"
+                    :disabled="executionRunning || graphLayoutRunning"
+                    :aria-label="t('graph.autoLayout')"
+                    :title="t('graph.autoLayout')"
+                    @click="autoLayoutGraph"
+                >
+                    <span class="bi bi-diagram-3" aria-hidden="true"></span>
+                </button>
+                <div class="zoom-control" :aria-label="t('zoom.graph')">
+                    <button
+                        type="button"
+                        data-testid="graph-zoom-out"
+                        :aria-label="t('zoom.out')"
+                        @click="changeGraphZoom(-0.25)"
+                    >
+                        −
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="graph-zoom-reset"
+                        :aria-label="t('zoom.reset')"
+                        @click="resetGraphZoom"
+                    >
+                        {{ graphZoomPercent }} %
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="graph-zoom-in"
+                        :aria-label="t('zoom.in')"
+                        @click="changeGraphZoom(0.25)"
+                    >
+                        +
+                    </button>
+                </div>
+                <button
+                    v-if="!recordingActive"
+                    :class="[
+                                'icon-button',
+                                executionRunning ? 'execution-stop' : 'workflow-play',
+                            ]"
+                    type="button"
+                    :data-testid="executionRunning ? 'stop-workflow' : 'play-workflow'"
+                    :disabled="browserTargetOpening && !executionRunning"
+                    :aria-label="t(executionRunning ? 'playback.stop' : 'playback.workflow')"
+                    :title="t(executionRunning ? 'playback.stop' : 'playback.workflow')"
+                    @click="executionRunning ? stopPlayback() : playWorkflow()"
+                >
+                    <span
+                        :class="['bi', executionRunning ? 'bi-stop-fill' : 'bi-play-fill']"
+                        aria-hidden="true"
+                    ></span>
+                </button>
+                <div
+                    data-workspace-ref="recordingFlyout"
+                    class="action-flyout recording-flyout"
+                    @keydown.esc.stop.prevent="recordingMenuOpen = false"
+                >
+                    <button
+                        :class="[
+                                    'icon-button',
+                                    'recording-control',
+                                    { 'is-recording': recordingActive },
+                                ]"
+                        type="button"
+                        :data-testid="recordingActive ? 'stop-recording' : 'record-workflow'"
+                        :disabled="!recordingActive && (executionRunning || browserTargetOpening || recordingWorkflow || !browserTestbenchRunning || !recordingTargetsAvailable || !browserSessionInputsReady)"
+                        :aria-label="t(recordingActive ? 'recording.stop' : 'recording.chooseTarget')"
+                        :title="t(recordingActive ? 'recording.stop' : 'recording.chooseTarget')"
+                        aria-haspopup="menu"
+                        :aria-expanded="String(!recordingActive && recordingMenuOpen)"
+                        @click="recordingActive ? stopRecordingWorkflow() : toggleRecordingMenu()"
+                    >
+                        <span
+                            :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"
+                            aria-hidden="true"
+                        ></span>
+                    </button>
+                    <div
+                        v-if="recordingMenuOpen && !recordingActive"
+                        class="flyout-menu target-flyout__menu recording-flyout__menu"
+                        role="menu"
+                        :aria-label="t('recording.target')"
+                    >
+                        <button
+                            v-for="target in availableRecordingTargets"
+                            :key="target.id"
+                            class="target-option recording-target-option"
+                            type="button"
+                            role="menuitem"
+                            :data-testid="`recording-target-${target.id}`"
+                            @click="startRecordingOnTarget(target)"
+                        >
+                            <i
+                                :class="['bi', target.kind === 'mobile' ? 'bi-phone' : 'bi-display']"
+                                aria-hidden="true"
+                            ></i>
+                            <span>
+                                <strong>{{ browserTargetLabel(target) }}</strong>
+                                <small>{{ recordingTargetStatus(target) }}</small>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                <button
+                    class="icon-button"
+                    type="button"
+                    data-testid="maximize-graph"
+                    :aria-label="t(maximizedPanel === 'graph' ? 'workspace.restoreLayout' : 'workspace.maximizeGraph')"
+                    :title="t(maximizedPanel === 'graph' ? 'workspace.restoreLayout' : 'workspace.maximizeGraph')"
+                    @click="togglePanelMaximized('graph')"
+                >
+                    <span
+                        :class="['fullscreen-icon', { 'is-exit': maximizedPanel === 'graph' }]"
+                        aria-hidden="true"
+                        ><span></span><span></span><span></span><span></span
+                    ></span>
+                </button>
+            </div>
+        </header>
+        <div
+            data-workspace-ref="graph"
+            class="graph-canvas"
+            data-testid="graph-canvas"
+            @pointerdown.capture="startStageGesture('graph', $event)"
+            @pointermove.capture="moveStageGesture('graph', $event)"
+            @pointerup.capture="endStageGesture('graph', $event)"
+            @pointercancel.capture="endStageGesture('graph', $event)"
+            @wheel="zoomFromWheel('graph', $event)"
+            @dblclick="resetGraphZoom"
+            @contextmenu.prevent
+        ></div>
+    </section>
+</template>

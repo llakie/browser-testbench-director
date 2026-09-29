@@ -123,6 +123,7 @@ export class BrowserTestbenchPreview {
     }
 
     static proxyWebsite(url: string): Promise<string> {
+        if (!url.trim()) throw new TypeError('Website URL must not be empty.');
         return this.fetch<ProxiedWebsite>('/director-api/website-proxies', {
             method: 'POST',
             body: JSON.stringify({ url: this.absoluteUrl(url) }),

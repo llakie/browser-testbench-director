@@ -1,0 +1,108 @@
+:root {
+    color-scheme: light;
+    --color-canvas: #f4f6f9;
+    --color-surface: #ffffff;
+    --color-surface-muted: #f8fafc;
+    --color-ink: #162031;
+    --color-ink-muted: #617086;
+    --color-line: #dce3eb;
+    --color-primary: #4f46e5;
+    --color-primary-soft: #eeedff;
+    --color-primary-highlight: #7367f0;
+    --color-primary-border: #dcd9ff;
+    --color-success: #22c55e;
+    --color-success-soft: #e9f8f1;
+    --color-warning: #a76508;
+    --color-warning-soft: #fff5df;
+    --color-danger: #bd3d4a;
+    --color-danger-soft: #fff0f1;
+    --color-on-primary: #ffffff;
+    --color-canvas-glow: rgb(79 70 229 / 13%);
+    --color-backdrop: rgb(15 23 42 / 45%);
+    --color-topbar-border: rgb(220 227 235 / 85%);
+    --color-topbar-surface: rgb(255 255 255 / 84%);
+    --color-primary-divider: rgb(79 70 229 / 14%);
+    --color-danger-border: #f4c5ca;
+    --color-success-border: #b8e6d2;
+
+    --color-surface-raised: var(--color-surface);
+    --color-surface-soft: var(--color-surface-muted);
+    --color-surface-inset: var(--color-canvas);
+    --color-surface-header: var(--color-surface-muted);
+    --color-surface-control: var(--color-surface);
+    --color-surface-code: var(--color-surface-muted);
+    --color-surface-notice: var(--color-surface);
+    --color-border: var(--color-line);
+    --color-border-strong: #c5ced9;
+    --color-text: var(--color-ink);
+    --color-text-muted: var(--color-ink-muted);
+    --color-text-subtle: #94a0b1;
+    --color-text-code: var(--color-ink);
+    --color-on-strong: var(--color-on-primary);
+    --color-accent: var(--color-primary);
+    --color-accent-soft: var(--color-primary-highlight);
+    --color-accent-ink: var(--color-on-primary);
+    --color-accent-surface: var(--color-primary-soft);
+    --color-accent-border: var(--color-primary-border);
+    --color-html: var(--color-primary);
+    --color-css: var(--color-success);
+    --color-js: var(--color-warning);
+    --color-status-running: var(--color-warning);
+    --color-status-success: var(--color-success);
+    --color-status-error: var(--color-danger);
+    --color-status-cancelled: var(--color-ink-muted);
+    --color-recording: var(--color-danger);
+    --color-recording-strong: var(--color-danger);
+    --color-recording-text: var(--color-danger);
+    --color-recording-border: var(--color-danger-border);
+    --color-recording-surface: var(--color-danger);
+    --color-recording-surface-hover: #a82f3b;
+    --color-play: var(--color-success);
+    --color-play-surface: var(--color-success-soft);
+    --color-graph-grid: var(--color-line);
+    --color-node-surface: var(--color-surface);
+    --color-node-control: var(--color-surface-muted);
+    --color-node-website: var(--color-primary-border);
+    --color-node-input: var(--color-success-border);
+    --color-node-capability: var(--color-success-soft);
+    --color-node-javascript: var(--color-primary-soft);
+    --color-node-action: var(--color-success-soft);
+    --color-node-wait: var(--color-warning-soft);
+    --color-node-layer: var(--color-primary-soft);
+    --space-1: 4px;
+    --space-2: 6px;
+    --space-3: 8px;
+    --space-4: 10px;
+    --space-5: 12px;
+    --space-6: 14px;
+    --space-7: 16px;
+    --space-8: 18px;
+    --space-9: 22px;
+    --space-10: 24px;
+    --radius-small: 8px;
+    --radius-medium: 14px;
+    --radius-pill: 999px;
+    --control-size: 32px;
+    --panel-inline-padding: 15px;
+    --properties-inline-padding: 10px;
+    --automation-script-min-height: 140px;
+    --workspace-splitter-size: 12px;
+    --z-flyout: 40;
+    --shadow-panel: 0 14px 38px rgb(31 43 61 / 8%);
+    --shadow-brand: 0 8px 20px rgb(79 70 229 / 24%);
+    --shadow-preview: 0 28px 80px rgb(31 43 61 / 14%);
+    --shadow-overlay: 0 24px 80px rgb(31 43 61 / 18%);
+    --focus-ring: 0 0 0 3px rgb(79 70 229 / 13%);
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m3.5 5.75 4.5 4.5 4.5-4.5' stroke='%23617086' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        sans-serif;
+    font-synthesis: none;
+    color: var(--color-text);
+    background: var(--color-canvas);
+}

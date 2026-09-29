@@ -26,6 +26,7 @@ const browser = await testbench.open({
 
 try {
     await browser.waitForElement('.workspace', 10_000);
+    await verifyEmptyProjectPlayback(browser);
     await verifyLayout(browser, 'desktop', 1440, 1000, 'portrait-dock');
     await verifyLayout(browser, 'tablet', 1024, 900, 'portrait-dock');
     await verifyLayout(browser, 'mobile', 390, 844, 'mobile-tabs');
@@ -59,6 +60,50 @@ try {
     );
 } finally {
     await browser.close().catch(() => undefined);
+}
+
+async function verifyEmptyProjectPlayback(session: RemoteSession): Promise<void> {
+    await session.setViewport(1440, 1000);
+    await session.refresh();
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
+    await session.click('[data-testid="play-workflow"]');
+    await session.waitForScript(
+        `const root = document.querySelector('[model-id="website-root"]');
+        return root?.querySelector('[joint-selector="statusText"]')?.textContent === '!' &&
+            Boolean(document.querySelector('[data-testid="play-workflow"]'));`,
+        [],
+        5_000,
+    );
+    const state = await session.evaluate<{
+        nestedWebsite: boolean;
+        previewBackground: string;
+        responsive: boolean;
+        rootStatus: string;
+        rootStroke: string;
+        notice: string;
+    }>(`
+        const frame = document.querySelector('.preview-viewport iframe');
+        const preview = frame?.contentDocument;
+        const root = document.querySelector('[model-id="website-root"]');
+        return {
+            nestedWebsite: Boolean(preview?.querySelector('.director-website')),
+            previewBackground: preview ? getComputedStyle(preview.body).backgroundColor : '',
+            responsive: Boolean(document.querySelector('[data-testid="play-workflow"]')),
+            rootStatus: root?.querySelector('[joint-selector="statusText"]')?.textContent ?? '',
+            rootStroke: root?.querySelector('[joint-selector="outline"]')?.getAttribute('stroke') ?? '',
+            notice: document.querySelector('.notice')?.textContent?.trim() ?? '',
+        };
+    `);
+    assert.equal(state.nestedWebsite, false, 'empty project: playback must not proxy the Director itself.');
+    assert.equal(state.previewBackground, 'rgb(255, 255, 255)', 'empty project: playback stays white.');
+    assert.equal(state.responsive, true, 'empty project: playback must leave the Director responsive.');
+    assert.equal(state.rootStatus, '!', 'empty project: the invalid website root must show an error.');
+    assert.equal(
+        state.rootStroke,
+        'var(--color-status-error)',
+        'empty project: the root must use the standard node error outline.',
+    );
+    assert.match(state.notice, /Website-URL|website URL/u, 'empty project: playback explains the missing URL.');
 }
 
 async function verifyFlyoutCollision(session: RemoteSession): Promise<void> {
@@ -277,6 +322,7 @@ async function verifyGraphAutoLayout(session: RemoteSession): Promise<void> {
         rowCount: number;
         routeCount: number;
         allNodesInsideCanvas: boolean;
+        nodeHeadersCovered: boolean;
         routeObstructions: string[];
         rootInputPortCount: number;
     }>(`
@@ -313,6 +359,19 @@ async function verifyGraphAutoLayout(session: RemoteSession): Promise<void> {
         });
         const root = document.querySelector('.joint-element[model-id="website-root"]');
         const rootBounds = root.getBoundingClientRect();
+        const nodeHeadersCovered = nodeElements.every((element) => {
+            const header = element.querySelector('[joint-selector="header"]');
+            const outline = element.querySelector('[joint-selector="outline"]');
+            if (!(header instanceof SVGGraphicsElement) || !(outline instanceof SVGGraphicsElement)) {
+                return false;
+            }
+            const headerBounds = header.getBBox();
+            const outlineBounds = outline.getBBox();
+            return Math.abs(headerBounds.x - outlineBounds.x) < 0.1 &&
+                Math.abs(headerBounds.y - outlineBounds.y) < 0.1 &&
+                Math.abs(headerBounds.width - outlineBounds.width) < 0.1 &&
+                Boolean(header.compareDocumentPosition(outline) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
         const rootInputPortCount = [...root.querySelectorAll('.joint-port')]
             .map((port) => port.getBoundingClientRect())
             .filter((port) => Math.abs((port.left + port.right) / 2 - rootBounds.left) < 3)
@@ -324,6 +383,7 @@ async function verifyGraphAutoLayout(session: RemoteSession): Promise<void> {
                 node.left >= canvas.left - 1 && node.right <= canvas.right + 1 &&
                 node.top >= canvas.top - 1 && node.bottom <= canvas.bottom + 1
             ),
+            nodeHeadersCovered,
             routeObstructions,
             rootInputPortCount,
         };
@@ -340,6 +400,11 @@ async function verifyGraphAutoLayout(session: RemoteSession): Promise<void> {
         'auto layout: fitted nodes must stay in the canvas.',
     );
     assert.deepEqual(layout.routeObstructions, [], 'routing: edges must avoid unrelated nodes.');
+    assert.equal(
+        layout.nodeHeadersCovered,
+        true,
+        'graph: every node header must span the top edge beneath one continuous outline.',
+    );
     assert.equal(
         layout.rootInputPortCount,
         2,
@@ -1311,6 +1376,36 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
         true,
         'placement: maximize must be the only control aligned to the right edge.',
     );
+    await session.setViewport(1440, 650);
+    const alignmentScroll = await session.evaluate<{
+        scrollTop: number;
+        nameShift: number;
+        alignmentShift: number;
+    }>(`
+        const body = document.querySelector('[data-testid="editor-properties-scroll"]');
+        const name = document.querySelector('.editor-node-header');
+        const alignment = document.querySelector('.layer-alignment-field');
+        const nameTop = name.getBoundingClientRect().top;
+        const alignmentTop = alignment.getBoundingClientRect().top;
+        body.scrollTop = Math.min(48, body.scrollHeight - body.clientHeight);
+        const result = {
+            scrollTop: body.scrollTop,
+            nameShift: name.getBoundingClientRect().top - nameTop,
+            alignmentShift: alignment.getBoundingClientRect().top - alignmentTop,
+        };
+        body.scrollTop = 0;
+        return result;
+    `);
+    assert.ok(alignmentScroll.scrollTop > 0, 'placement: layer properties must be scrollable.');
+    assert.ok(
+        Math.abs(alignmentScroll.nameShift) < 1,
+        'placement: the node name must remain fixed while properties scroll.',
+    );
+    assert.ok(
+        alignmentScroll.alignmentShift < -10,
+        'placement: alignment controls must scroll with the layer properties.',
+    );
+    await session.setViewport(1440, 1000);
     await session.click('[data-testid="horizontal-right"]');
     const verticalIconGeometry = await session.evaluate<{
         horizontalLines: boolean;
@@ -1480,6 +1575,26 @@ async function verifyPlacement(session: RemoteSession): Promise<void> {
 }
 
 async function verifyPlayback(session: RemoteSession): Promise<void> {
+    const project = ProjectFormat.create('Playback');
+    const website = project.nodes.find((node) => node.type === 'website')!;
+    website.url = `${applicationUrl}example-site.html`;
+    const projectPath = join(outputDirectory, 'playback.btd.json');
+    await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
+    await session.upload('[data-testid="project-file-input"]', projectPath);
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 5_000);
+    await playGraphNode(session, 'website-root');
+    await session.waitForScript(
+        `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
+        const website = preview?.querySelector('.director-website')?.contentDocument;
+        return Boolean(
+            website?.querySelector('#example-website') &&
+            document.querySelector(
+                '[model-id="website-root"] [joint-selector="statusText"]'
+            )?.textContent === '✓'
+        );`,
+        [],
+        5_000,
+    );
     await playGraphNode(session, 'layer-1');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement('.director-layer', 5_000);
@@ -1491,7 +1606,7 @@ async function verifyExecutionControls(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
     const project = ProjectFormat.create('Execution controls');
     const website = project.nodes.find((node) => node.type === 'website')!;
-    website.url = '';
+    website.url = `${applicationUrl}example-site.html`;
     const layer = project.nodes.find((node) => node.type === 'layer')!;
     layer.name = 'Execution state test';
     layer.source.html = '<div id="execution-state-test">Running</div>';
@@ -1565,10 +1680,7 @@ async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
     await session.waitForElement('.source-editor textarea', 5_000);
     await session.fill('[data-testid="node-name"]', 'Prepare GTP');
-    await session.fill(
-        '.source-editor textarea',
-        "document.body.dataset.prepared = 'true';",
-    );
+    await session.fill('.source-editor textarea', "document.body.dataset.prepared = 'true';");
     await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="duplicate-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
@@ -1601,9 +1713,9 @@ async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     );
     const createdLayer = await session.evaluate<{ disconnected: boolean; editorHeight: number }>(`
         const selected = [...document.querySelectorAll('[data-testid="graph-canvas"] .joint-element')]
-            .find((node) => node.querySelector('[joint-selector="body"]')?.getAttribute('stroke-width') === '2');
+            .find((node) => node.querySelector('[joint-selector="outline"]')?.getAttribute('stroke-width') === '2');
         return {
-            disconnected: selected?.querySelector('[joint-selector="body"]')
+            disconnected: selected?.querySelector('[joint-selector="outline"]')
                 ?.getAttribute('stroke-dasharray') === '5 4',
             editorHeight: document.querySelector('.source-editor').getBoundingClientRect().height,
         };
@@ -1701,7 +1813,7 @@ async function verifyRuntimeDataFlow(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create();
     const website = project.nodes.find((node) => node.type === 'website')!;
     const layer = project.nodes.find((node) => node.type === 'layer')!;
-    website.url = '';
+    website.url = `${applicationUrl}example-site.html`;
     layer.position = { x: 1056, y: 8 };
     layer.source = {
         html: '<output id="data-flow-output"></output>',
@@ -1934,10 +2046,7 @@ async function verifyCameraSessionConfiguration(session: RemoteSession): Promise
     await selectGraphNode(session, 'website-root');
     await session.click('[data-testid="viewport-device-trigger"]');
     await session.waitForElement('.device-flyout__menu', 5_000);
-    await session.waitForElement(
-        '.device-flyout__menu [data-testid^="remote-target-"]',
-        30_000,
-    );
+    await session.waitForElement('.device-flyout__menu [data-testid^="remote-target-"]', 30_000);
     const targetState = await session.evaluate<{
         options: Array<{ value: string; disabled: boolean }>;
     }>(`
@@ -1975,7 +2084,7 @@ async function verifyEditableConnections(session: RemoteSession): Promise<void> 
     await session.waitForState('[data-testid="delete-connection"]', 'absent', 5_000);
     const disconnected = await session.evaluate<boolean>(`
         return document.querySelector(
-            '[model-id="layer-1"] [joint-selector="body"]',
+            '[model-id="layer-1"] [joint-selector="outline"]',
         ).getAttribute('stroke-dasharray') === '5 4';
     `);
     assert.equal(disconnected, true, 'graph: disconnected nodes must be visibly marked.');
@@ -1986,14 +2095,14 @@ async function verifyEditableConnections(session: RemoteSession): Promise<void> 
     );
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 1, 5_000);
     await session.waitForElement(
-        '[model-id="layer-1"] [joint-selector="body"][stroke-dasharray="none"]',
+        '[model-id="layer-1"] [joint-selector="outline"][stroke-dasharray="none"]',
         5_000,
     );
     const connectionState = await session.evaluate<{ dirty: boolean; solidNodes: boolean }>(`
         return {
             dirty: document.querySelector('.status-dot').classList.contains('is-dirty'),
-            solidNodes: [...document.querySelectorAll('[data-testid="graph-canvas"] [joint-selector="body"]')]
-                .every((body) => body.getAttribute('stroke-dasharray') === 'none'),
+            solidNodes: [...document.querySelectorAll('[data-testid="graph-canvas"] [joint-selector="outline"]')]
+                .every((outline) => outline.getAttribute('stroke-dasharray') === 'none'),
         };
     `);
     assert.equal(
@@ -2076,40 +2185,44 @@ root.dataset.speed = director.speed;`,
     await session.click('[data-testid="maximize-editor"]');
     await session.waitForState('.preview-viewport iframe', 'present', 5_000);
     await playGraphNode(session, 'prepare-website');
-    await session.switchFrame('.preview-viewport iframe');
-    await session.switchFrame('.director-website');
-    await session.waitForState(
-        '#example-website[data-runs="1"][data-speed="live"]',
-        'present',
+    await session.waitForScript(
+        `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
+        const website = preview?.querySelector('.director-website')?.contentDocument;
+        return Boolean(website?.querySelector('#example-website[data-runs="1"][data-speed="live"]'));`,
+        [],
         5_000,
     );
-    await session.switchFrame();
     await session.waitForScript(
         `return document.querySelector(
-            '[model-id="prepare-website"] [joint-selector="preparedBadge"]'
-        )?.getAttribute('display') === 'block';`,
+            '[model-id="prepare-website"] [joint-selector="statusText"]'
+        )?.textContent === '✓' &&
+            !document.querySelector('[model-id="prepare-website"] [joint-selector^="prepared"]');`,
         [],
         5_000,
     );
 
     await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="play-node-current"]');
-    await session.switchFrame('.preview-viewport iframe');
-    await session.switchFrame('.director-website');
-    await session.waitForState('#example-website[data-runs="2"]', 'present', 5_000);
-    await session.switchFrame();
+    await session.waitForScript(
+        `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
+        const website = preview?.querySelector('.director-website')?.contentDocument;
+        return Boolean(website?.querySelector('#example-website[data-runs="2"]'));`,
+        [],
+        5_000,
+    );
 
     await selectGraphNode(session, 'layer-1');
     await playGraphNode(session, 'layer-1');
-    await session.switchFrame('.preview-viewport iframe');
-    await session.waitForElement('.director-layer', 5_000);
-    await session.switchFrame('.director-website');
-    await session.waitForState(
-        '#example-website[data-runs="1"][data-speed="catchup"]',
-        'present',
+    await session.waitForScript(
+        `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
+        const website = preview?.querySelector('.director-website')?.contentDocument;
+        return Boolean(
+            preview?.querySelector('.director-layer') &&
+            website?.querySelector('#example-website[data-runs="1"][data-speed="catchup"]')
+        );`,
+        [],
         5_000,
     );
-    await session.switchFrame();
 
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
@@ -2117,6 +2230,8 @@ root.dataset.speed = director.speed;`,
 
 async function verifyProjectRoundtrip(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create('Roundtrip project');
+    const website = project.nodes.find((node) => node.type === 'website')!;
+    website.url = `${applicationUrl}example-site.html`;
     project.nodes.unshift({
         id: 'roundtrip-input',
         type: 'input',
@@ -2238,7 +2353,7 @@ async function verifyRecordingExport(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create();
     project.name = 'Recording UI';
     const website = project.nodes.find((node) => node.type === 'website')!;
-    website.url = '';
+    website.url = `${applicationUrl}example-site.html`;
     const layer = project.nodes.find((node) => node.type === 'layer')!;
     layer.playback = { durationMs: 1_200, removeAfter: true };
     layer.source = {

@@ -10,8 +10,17 @@ const GraphNode = dia.Element.define(
         size: { width: 216, height: 112 },
         attrs: {
             body: { width: 216, height: 112, rx: 12, ry: 12 },
-            header: { width: 216, height: 34, rx: 12, ry: 12 },
-            headerCover: { y: 22, width: 216, height: 12 },
+            header: {
+                d: 'M 0 12 A 12 12 0 0 1 12 0 H 204 A 12 12 0 0 1 216 12 V 34 H 0 Z',
+            },
+            outline: {
+                width: 216,
+                height: 112,
+                rx: 12,
+                ry: 12,
+                fill: 'none',
+                pointerEvents: 'none',
+            },
             headerText: { x: 14, y: 21, textAnchor: 'start' },
             bodyText: { x: 14, y: 58, textAnchor: 'start' },
             statusRing: { cx: 194, cy: 17, r: 7, display: 'none' },
@@ -24,31 +33,18 @@ const GraphNode = dia.Element.define(
                 fontWeight: 900,
                 pointerEvents: 'none',
             },
-            preparedBadge: { cx: 18, cy: 92, r: 5, display: 'none' },
-            preparedText: {
-                x: 29,
-                y: 96,
-                text: 'STATE',
-                textAnchor: 'start',
-                fontFamily: 'ui-monospace, monospace',
-                fontSize: 9,
-                fontWeight: 800,
-                letterSpacing: 1,
-                display: 'none',
-                pointerEvents: 'none',
-            },
             playButton: {
                 cx: 190,
                 cy: 85,
                 r: 14,
-                fill: '#292e38',
-                stroke: '#596171',
+                fill: 'var(--color-node-control)',
+                stroke: 'var(--color-border-strong)',
                 cursor: 'pointer',
                 event: 'node:play',
             },
             playIcon: {
                 d: 'M 186 78 L 197 85 L 186 92 Z',
-                fill: '#f3f1eb',
+                fill: 'var(--color-accent)',
                 stroke: 'none',
                 cursor: 'pointer',
                 pointerEvents: 'none',
@@ -60,8 +56,8 @@ const GraphNode = dia.Element.define(
                 height: 26,
                 rx: 6,
                 ry: 6,
-                fill: '#292e38',
-                stroke: '#596171',
+                fill: 'var(--color-node-control)',
+                stroke: 'var(--color-border-strong)',
                 cursor: 'pointer',
                 event: 'input:choose',
                 display: 'none',
@@ -70,7 +66,7 @@ const GraphNode = dia.Element.define(
                 x: 85,
                 y: 86,
                 textAnchor: 'middle',
-                fill: '#f3f1eb',
+                fill: 'var(--color-text)',
                 fontFamily: 'Inter, ui-sans-serif, system-ui',
                 fontSize: 10,
                 fontWeight: 700,
@@ -80,7 +76,7 @@ const GraphNode = dia.Element.define(
             fileName: {
                 x: 14,
                 y: 86,
-                fill: '#aeb5c2',
+                fill: 'var(--color-text-muted)',
                 fontFamily: 'Inter, ui-sans-serif, system-ui',
                 fontSize: 10,
                 pointerEvents: 'none',
@@ -90,8 +86,8 @@ const GraphNode = dia.Element.define(
                 cx: 188,
                 cy: 82,
                 r: 12,
-                fill: '#292e38',
-                stroke: '#596171',
+                fill: 'var(--color-node-control)',
+                stroke: 'var(--color-border-strong)',
                 cursor: 'pointer',
                 event: 'input:clear',
                 display: 'none',
@@ -101,7 +97,7 @@ const GraphNode = dia.Element.define(
                 y: 86,
                 text: '×',
                 textAnchor: 'middle',
-                fill: '#f3f1eb',
+                fill: 'var(--color-text)',
                 fontSize: 15,
                 pointerEvents: 'none',
                 display: 'none',
@@ -112,14 +108,12 @@ const GraphNode = dia.Element.define(
         portMarkup: [{ tagName: 'circle', selector: 'portBody' }],
         markup: [
             { tagName: 'rect', selector: 'body' },
-            { tagName: 'rect', selector: 'header' },
-            { tagName: 'rect', selector: 'headerCover' },
+            { tagName: 'path', selector: 'header' },
+            { tagName: 'rect', selector: 'outline' },
             { tagName: 'text', selector: 'headerText' },
             { tagName: 'text', selector: 'bodyText' },
             { tagName: 'circle', selector: 'statusRing' },
             { tagName: 'text', selector: 'statusText' },
-            { tagName: 'circle', selector: 'preparedBadge' },
-            { tagName: 'text', selector: 'preparedText' },
             { tagName: 'circle', selector: 'playButton' },
             { tagName: 'path', selector: 'playIcon' },
             { tagName: 'rect', selector: 'fileButton' },
@@ -174,7 +168,10 @@ export class JointLayerGraph {
             height: '100%',
             async: true,
             gridSize: 8,
-            drawGrid: { name: 'mesh', args: { color: '#252a34', thickness: 1 } },
+            drawGrid: {
+                name: 'mesh',
+                args: { color: 'var(--color-graph-grid)', thickness: 1 },
+            },
             background: { color: 'transparent' },
             interactive: { elementMove: true },
             defaultLink: () => JointLayerGraph.createLink(),
@@ -250,8 +247,6 @@ export class JointLayerGraph {
         states: Readonly<Record<string, NodeExecutionState>> = {},
         connectedNodeIds: ReadonlySet<string> = new Set(),
         disconnectedLabel = 'Not connected',
-        preparedNodeId: string | null = null,
-        preparedLabel = 'Prepared state',
         staleNodeIds: ReadonlySet<string> = new Set(),
         inputFileNames: Readonly<Record<string, string>> = {},
         chooseFileLabel = 'Choose file',
@@ -292,10 +287,8 @@ export class JointLayerGraph {
             cell.attr({
                 root: { cursor: 'pointer' },
                 body: {
-                    fill: '#191c23',
-                    stroke: JointLayerGraph.borderColor(node.id === selectedId, execution),
-                    strokeWidth: node.id === selectedId ? 2 : 1,
-                    strokeDasharray: connected ? 'none' : '5 4',
+                    fill: 'var(--color-node-surface)',
+                    stroke: 'none',
                     rx: 12,
                     ry: 12,
                 },
@@ -303,7 +296,11 @@ export class JointLayerGraph {
                     fill: JointLayerGraph.color(node),
                     stroke: JointLayerGraph.color(node),
                 },
-                headerCover: { fill: JointLayerGraph.color(node), stroke: 'none' },
+                outline: {
+                    stroke: JointLayerGraph.borderColor(node.id === selectedId, execution),
+                    strokeWidth: node.id === selectedId ? 2 : 1,
+                    strokeDasharray: connected ? 'none' : '5 4',
+                },
                 headerText: {
                     text:
                         node.type === 'website'
@@ -312,14 +309,14 @@ export class JointLayerGraph {
                               ? 'INPUT'
                               : node.type === 'capability'
                                 ? 'CAPABILITY'
-                              : node.type === 'layer'
-                                ? 'LAYER'
-                                : node.type === 'javascript'
-                                  ? 'JS'
-                                  : node.type === 'browser-action'
-                                    ? 'ACTION'
-                                    : 'WAIT',
-                    fill: '#17130f',
+                                : node.type === 'layer'
+                                  ? 'LAYER'
+                                  : node.type === 'javascript'
+                                    ? 'JS'
+                                    : node.type === 'browser-action'
+                                      ? 'ACTION'
+                                      : 'WAIT',
+                    fill: 'var(--color-text)',
                     fontFamily: 'ui-monospace, monospace',
                     fontSize: 10,
                     fontWeight: 800,
@@ -327,24 +324,22 @@ export class JointLayerGraph {
                 },
                 bodyText: {
                     text: JointLayerGraph.nodeText(node),
-                    fill: '#f3f1eb',
+                    fill: 'var(--color-text)',
                     fontFamily: 'Inter, ui-sans-serif, system-ui',
                     fontSize: 13,
                     fontWeight: 650,
                     lineHeight: 20,
                 },
                 playButton: {
-                    display: ['website', 'input', 'capability'].includes(node.type)
-                        ? 'none'
-                        : 'block',
+                    display: ['input', 'capability'].includes(node.type) ? 'none' : 'block',
                     class: staleNodeIds.has(node.id) ? 'is-stale' : '',
-                    stroke: staleNodeIds.has(node.id) ? 'var(--color-accent)' : '#596171',
+                    stroke: staleNodeIds.has(node.id)
+                        ? 'var(--color-accent)'
+                        : 'var(--color-border-strong)',
                     strokeWidth: staleNodeIds.has(node.id) ? 2.5 : 1,
                 },
                 playIcon: {
-                    display: ['website', 'input', 'capability'].includes(node.type)
-                        ? 'none'
-                        : 'block',
+                    display: ['input', 'capability'].includes(node.type) ? 'none' : 'block',
                 },
                 fileButton: {
                     display: node.type === 'input' && !inputFileName ? 'block' : 'none',
@@ -365,20 +360,9 @@ export class JointLayerGraph {
                 },
                 statusRing: JointLayerGraph.statusRing(execution),
                 statusText: JointLayerGraph.statusText(execution),
-                preparedBadge: {
-                    display: node.id === preparedNodeId ? 'block' : 'none',
-                    fill: 'var(--color-status-running)',
-                    stroke: '#17130f',
-                    strokeWidth: 1,
-                },
-                preparedText: {
-                    display: node.id === preparedNodeId ? 'block' : 'none',
-                    fill: 'var(--color-status-running)',
-                },
             });
             const title = [
                 connected ? '' : disconnectedLabel,
-                node.id === preparedNodeId ? preparedLabel : '',
                 JointLayerGraph.nodeDetail(node),
             ]
                 .filter(Boolean)
@@ -426,17 +410,17 @@ export class JointLayerGraph {
                   ? ''
                   : node.type === 'capability'
                     ? 'Virtual camera'
-                  : node.type === 'layer'
-                    ? 'HTML  ·  CSS  ·  JS'
-                    : node.type === 'javascript'
-                      ? 'JavaScript'
-                      : node.type === 'browser-action'
-                        ? `Click · ${node.selector}`
-                        : node.condition === 'element'
-                          ? `Element · ${node.selector}`
-                          : node.condition === 'url'
-                            ? `URL · ${node.value}`
-                            : 'Script';
+                    : node.type === 'layer'
+                      ? 'HTML  ·  CSS  ·  JS'
+                      : node.type === 'javascript'
+                        ? 'JavaScript'
+                        : node.type === 'browser-action'
+                          ? `Click · ${node.selector}`
+                          : node.condition === 'element'
+                            ? `Element · ${node.selector}`
+                            : node.condition === 'url'
+                              ? `URL · ${node.value}`
+                              : 'Script';
         return `${JointLayerGraph.ellipsize(node.name, 27)}\n${JointLayerGraph.ellipsize(detail, 27)}`;
     }
 
@@ -649,19 +633,19 @@ export class JointLayerGraph {
     }
 
     private static color(node: DirectorNode): string {
-        if (node.type === 'website') return '#5f8fff';
-        if (node.type === 'input') return '#43b5d4';
-        if (node.type === 'capability') return '#56c7b2';
-        if (node.type === 'javascript') return '#9d7aff';
-        if (node.type === 'browser-action') return '#55c2a3';
-        if (node.type === 'browser-wait') return '#f0b84b';
-        return '#ff6d38';
+        if (node.type === 'website') return 'var(--color-node-website)';
+        if (node.type === 'input') return 'var(--color-node-input)';
+        if (node.type === 'capability') return 'var(--color-node-capability)';
+        if (node.type === 'javascript') return 'var(--color-node-javascript)';
+        if (node.type === 'browser-action') return 'var(--color-node-action)';
+        if (node.type === 'browser-wait') return 'var(--color-node-wait)';
+        return 'var(--color-node-layer)';
     }
 
     private static borderColor(selected: boolean, state?: NodeExecutionState): string {
         if (state?.status === 'error') return 'var(--color-status-error)';
         if (state?.status === 'running') return 'var(--color-status-running)';
-        return selected ? '#ff6d38' : '#343a46';
+        return selected ? 'var(--color-accent)' : 'var(--color-border)';
     }
 
     private static statusRing(state?: NodeExecutionState): Record<string, unknown> {
@@ -691,6 +675,12 @@ export class JointLayerGraph {
                   : state?.status === 'cancelled'
                     ? '■'
                     : '';
-        return { text, fill: state?.status === 'error' ? '#fff' : '#17130f' };
+        return {
+            text,
+            fill:
+                state?.status === 'success' || state?.status === 'error'
+                    ? 'var(--color-on-strong)'
+                    : 'var(--color-text)',
+        };
     }
 }

@@ -1,0 +1,76 @@
+<template>
+    <div
+        v-if="mcpSetupOpen"
+        class="modal-backdrop"
+        data-testid="mcp-setup-backdrop"
+        @pointerdown.self="closeMcpSetup"
+    >
+        <section class="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-title">
+            <header>
+                <div>
+                    <h2 id="mcp-title">{{ t('mcp.title') }}</h2>
+                    <p>{{ t('mcp.intro') }}</p>
+                </div>
+                <button
+                    class="icon-button"
+                    type="button"
+                    data-testid="close-mcp-setup"
+                    :aria-label="t('mcp.close')"
+                    @click="closeMcpSetup"
+                >
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div v-if="mcpLoading" class="setup-dialog__state" role="status">
+                <i class="bi bi-arrow-repeat icon-spinner" aria-hidden="true"></i>
+                <span>{{ t('mcp.loading') }}</span>
+            </div>
+            <div
+                v-else-if="mcpLoadError"
+                class="setup-dialog__state setup-dialog__state--error"
+                data-testid="mcp-setup-error"
+                role="alert"
+            >
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                <span>{{ mcpLoadError }}</span>
+                <button class="button button--quiet" type="button" @click="loadMcpClients">
+                    {{ t('mcp.retry') }}
+                </button>
+            </div>
+            <div v-else-if="!mcpClients.length" class="setup-dialog__state" role="status">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                <span>{{ t('mcp.empty') }}</span>
+            </div>
+            <div v-else class="mcp-client-list">
+                <article v-for="client in mcpClients" :key="client.id" class="mcp-client">
+                    <div>
+                        <strong>{{ client.label }}</strong>
+                        <small>
+                            {{ t( client.registered ? 'mcp.current' : client.installed ?
+                            'mcp.available' : 'mcp.notInstalled', ) }}
+                        </small>
+                    </div>
+                    <button
+                        v-if="client.automatic"
+                        class="button button--quiet"
+                        type="button"
+                        :disabled="!client.installed || mcpLoading || client.registered"
+                        :data-testid="`connect-mcp-${client.id}`"
+                        @click="connectMcpClient(client)"
+                    >
+                        {{ t(client.registered ? 'mcp.connectedAction' : 'mcp.connect') }}
+                    </button>
+                    <button
+                        v-else
+                        class="button button--quiet"
+                        type="button"
+                        @click="copyMcpConfiguration(client)"
+                    >
+                        {{ t('mcp.copy') }}
+                    </button>
+                    <code>{{ client.command }}</code>
+                </article>
+            </div>
+        </section>
+    </div>
+</template>

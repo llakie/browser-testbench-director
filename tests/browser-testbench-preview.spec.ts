@@ -142,6 +142,13 @@ test('Lokale Website-Vorschau registriert eine Same-Origin-Proxy-Route', async (
     ]);
 });
 
+test('Leere Website-URLs werden niemals auf den Director selbst aufgelöst', () => {
+    assert.throws(
+        () => BrowserTestbenchPreview.proxyWebsite('   '),
+        /Website URL must not be empty/u,
+    );
+});
+
 test('Lokales HTTPS wird auf Android Chrome ohne Zertifikatswarnung geöffnet', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');

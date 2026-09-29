@@ -1,0 +1,138 @@
+.notice {
+    position: fixed;
+    z-index: 50;
+    right: 18px;
+    bottom: 18px;
+    max-width: min(360px, calc(100vw - 36px));
+    margin: 0;
+    padding: 11px 14px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 9px;
+    background: var(--color-surface-notice);
+    box-shadow: var(--shadow-panel);
+    font-size: 12px;
+}
+
+.modal-backdrop {
+    position: fixed;
+    z-index: 100;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: var(--color-backdrop);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+}
+
+.setup-dialog {
+    display: grid;
+    gap: var(--space-7);
+    width: min(680px, 100%);
+    max-height: min(760px, calc(100dvh - 40px));
+    padding: 18px;
+    overflow: auto;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-medium);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+}
+
+.setup-dialog > header,
+.mcp-client {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-5);
+}
+
+.setup-dialog > header > div,
+.mcp-client > div {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: var(--space-1);
+}
+
+.setup-dialog h2,
+.setup-dialog p {
+    margin: 0;
+}
+
+.setup-dialog p,
+.mcp-client small {
+    color: var(--color-text-muted);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.setup-dialog > header .icon-button {
+    margin-left: auto;
+}
+
+.setup-dialog__state {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    min-height: 56px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    color: var(--color-text-muted);
+    background: var(--color-surface-soft);
+    font-size: 12px;
+}
+
+.setup-dialog__state > span {
+    min-width: 0;
+    flex: 1;
+}
+
+.setup-dialog__state--error {
+    color: var(--color-text);
+}
+
+.icon-spinner {
+    display: inline-block;
+    animation: icon-spin 800ms linear infinite;
+}
+
+@keyframes icon-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.mcp-client-list {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.mcp-client {
+    flex-wrap: wrap;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface-soft);
+}
+
+.mcp-client code {
+    width: 100%;
+    padding: 9px;
+    overflow: auto;
+    border-radius: 6px;
+    color: var(--color-text-muted);
+    background: var(--color-canvas);
+    font-size: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.visually-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+}
