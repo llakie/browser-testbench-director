@@ -12,8 +12,11 @@ export const DirectorTopbar = defineWorkspaceSection({
         'executionRunning',
         'loadProject',
         'markDirty',
+        'mobileMenuOpen',
         'newProject',
+        'closeMobileMenu',
         'openMcpSetup',
+        'openProjectSettings',
         'openProject',
         'project',
         'recordingActive',
@@ -23,5 +26,6 @@ export const DirectorTopbar = defineWorkspaceSection({
         'stopRecordingWorkflow',
         't',
         'toggleBrowserTestbench',
+        'toggleMobileMenu',
     ],
 });

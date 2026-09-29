@@ -71,7 +71,8 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
             },
         });
         assert.equal(storedAsset.status, 201);
-        const assetReference = (await storedAsset.json()) as { asset: string };
+        const assetReference = (await storedAsset.json()) as Record<string, unknown>;
+        assert.deepEqual(Object.keys(assetReference).sort(), ['asset', 'name', 'size', 'type']);
         const restoredAsset = await fetch(`${origin}/director-api/assets/${assetReference.asset}`);
         assert.equal(await restoredAsset.text(), 'persistent input');
 

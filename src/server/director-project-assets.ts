@@ -45,7 +45,6 @@ export class DirectorProjectAssets {
             name,
             type: String(request.headers['content-type'] ?? 'application/octet-stream'),
             size: content.length,
-            sha256,
         });
     }
 

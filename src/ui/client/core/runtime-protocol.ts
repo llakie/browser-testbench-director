@@ -1,4 +1,4 @@
-import type { BrowserActionNode, BrowserWaitNode, LayerNode } from './project-format.js';
+import type { BrowserWaitNode, LayerNode } from './project-format.js';
 
 export interface RuntimeStep {
     readonly id: string;
@@ -9,7 +9,6 @@ export interface RuntimeStep {
     readonly css?: string;
     readonly placement?: LayerNode['placement'];
     readonly playback?: LayerNode['playback'];
-    readonly action?: BrowserActionNode['action'];
     readonly condition?: BrowserWaitNode['condition'];
     readonly selector?: string;
     readonly value?: string;

@@ -9,6 +9,7 @@ import { ProjectAssets } from '../core/project-assets.js';
 import { ProjectNodes } from '../core/project-nodes.js';
 import type {
     DirectorNode,
+    BrowserPermission,
     HorizontalAlignment,
     InputNode,
     ProjectFileInput,
@@ -171,6 +172,28 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
         if (becameStale) this.renderGraph();
     },
+    toggleMobileMenu(): void {
+        this.mobileMenuOpen = !this.mobileMenuOpen;
+        if (!this.mobileMenuOpen) return;
+        void nextTick(() => this.workspaceElement('mobileMenu')?.focus());
+    },
+    closeMobileMenu(): void {
+        this.mobileMenuOpen = false;
+    },
+    openProjectSettings(): void {
+        this.projectPermissionsOpen = false;
+        this.projectSettingsOpen = true;
+    },
+    closeProjectSettings(): void {
+        this.projectPermissionsOpen = false;
+        this.projectSettingsOpen = false;
+    },
+    toggleProjectPermissions(): void {
+        this.projectPermissionsOpen = !this.projectPermissionsOpen;
+    },
+    closeProjectPermissions(): void {
+        this.projectPermissionsOpen = false;
+    },
     async openMcpSetup(): Promise<void> {
         this.mcpSetupOpen = true;
         await this.loadMcpClients();
@@ -242,6 +265,32 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         this.activeWebsite.url = input.value;
         this.markExecutionDirty();
         this.renderGraph();
+    },
+    updateBrowserSessionSetting(setting: 'language' | 'locale', event: Event): void {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        const value = input.value.trim();
+        if (this.project.browserSession[setting] === value) return;
+        this.project.browserSession[setting] = value;
+        this.markBrowserSessionChanged();
+    },
+    setBrowserPermission(permission: BrowserPermission, event: Event): void {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        const permissions = this.project.browserSession.permissions;
+        const selected = new Set(permissions);
+        if (input.checked) selected.add(permission);
+        else selected.delete(permission);
+        this.project.browserSession.permissions = [...this.browserPermissions].filter((candidate) =>
+            selected.has(candidate),
+        );
+        this.markBrowserSessionChanged();
+    },
+    markBrowserSessionChanged(): void {
+        this.markExecutionDirty();
+        if (this.remotePreviewSessionId || this.selectedBrowserTargetId) {
+            void this.switchToLocalPreview();
+        }
     },
     inputAcceptValues(input: ProjectFileInput): string[] {
         return input.accept
@@ -392,6 +441,32 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         this.activeJavaScript.source = input.value;
         this.markActiveNodeStale();
     },
+    setBrowserWaitCondition(event: Event): void {
+        const input = event.target;
+        if (!(input instanceof HTMLSelectElement) || !this.activeBrowserWait) return;
+        const condition = input.value as 'element' | 'url' | 'script';
+        if (condition === this.activeBrowserWait.condition) return;
+        const current = this.activeBrowserWait;
+        const common = {
+            id: current.id,
+            type: current.type,
+            name: current.name,
+            position: current.position,
+            timeoutMs: current.timeoutMs,
+            omitFromRecording: current.omitFromRecording,
+        } as const;
+        const replacement =
+            condition === 'url'
+                ? { ...common, condition, value: '/' }
+                : condition === 'script'
+                  ? { ...common, condition, script: 'return true;' }
+                  : { ...common, condition, selector: 'body' };
+        const index = this.project.nodes.findIndex((node: DirectorNode) => node.id === current.id);
+        if (index < 0) return;
+        this.project.nodes.splice(index, 1, replacement);
+        this.markActiveNodeStale();
+        this.renderGraph();
+    },
     setPlacementReference(event: Event): void {
         const input = event.target;
         if (!(input instanceof HTMLSelectElement) || !this.activeLayer) return;
@@ -486,19 +561,13 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         void this.recordWorkflow();
     },
     selectViewportPreset(preset: ViewportPreset): void {
-        const sizeChanged =
-            preset.viewport.width !== this.project.viewport.width ||
-            preset.viewport.height !== this.project.viewport.height ||
-            preset.output.width !== this.project.output.width ||
-            preset.output.height !== this.project.output.height;
-        this.selectedViewportPresetId = preset.id;
+        const presetChanged = preset.id !== this.project.preview.preset;
         this.deviceMenuOpen = false;
         if (this.remotePreviewSessionId || this.selectedBrowserTargetId) {
             void this.switchToLocalPreview();
         }
-        if (!sizeChanged) return;
-        this.project.viewport = { ...preset.viewport };
-        this.project.output = { ...preset.output };
+        if (!presetChanged) return;
+        this.project.preview.preset = preset.id;
         this.markDirty();
         void nextTick(() => {
             this.renderGraph();
@@ -524,16 +593,15 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         if (target.busy) return this.t('preview.targetBusy');
         return this.t('preview.targetReady');
     },
-    matchesConfiguredTarget(target: BrowserTestbenchTarget): boolean {
-        const requirement = this.project.browserSession.target;
-        return (
-            (!requirement.browser || target.browser === requirement.browser) &&
-            (!requirement.deviceKind || target.deviceKind === requirement.deviceKind)
-        );
-    },
     isCompatiblePreviewTarget(target: BrowserTestbenchTarget): boolean {
-        if (!this.matchesConfiguredTarget(target)) return false;
-        const configuration = this.project.browserSession;
+        if (
+            this.project.browserSession.permissions.some(
+                (permission: BrowserPermission) =>
+                    !target.capabilities.permissions.origin.includes(permission),
+            )
+        ) {
+            return false;
+        }
         if (!this.cameraInputId) return true;
         return (
             target.capabilities.mediaInjection.cameraImage ||

@@ -21,10 +21,8 @@ export class ProjectAssets {
         const response = await fetch(`/director-api/assets/${reference.asset}`);
         if (!response.ok) throw new Error(await this.error(response));
         const content = await response.arrayBuffer();
-        if (
-            content.byteLength !== reference.size ||
-            (await this.sha256(content)) !== reference.sha256
-        ) {
+        const [sha256] = reference.asset.split('/');
+        if (content.byteLength !== reference.size || (await this.sha256(content)) !== sha256) {
             throw new Error(`Project asset is invalid: ${reference.name}`);
         }
         return new File([content], reference.name, { type: reference.type });

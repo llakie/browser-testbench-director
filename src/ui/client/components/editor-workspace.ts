@@ -6,6 +6,7 @@ import { GraphPanel } from './graph-panel.js';
 import { McpSetupDialog } from './mcp-setup-dialog.js';
 import { NodeEditorPanel } from './node-editor-panel.js';
 import { PreviewPanel } from './preview-panel.js';
+import { ProjectSettingsDialog } from './project-settings-dialog.js';
 import { projectMethods } from './project-controller.js';
 import { workspaceEditingMethods } from './workspace-editing-controller.js';
 import { workspaceExecutionMethods } from './workspace-execution-controller.js';
@@ -24,11 +25,13 @@ import {
 import type { BrowserTestbenchTarget } from '../core/browser-testbench-preview.js';
 import { ExecutionController, type ExecutionSnapshot } from '../core/execution-controller.js';
 import { JointLayerGraph } from '../core/joint-layer-graph.js';
+import { previewOutputSize } from '../core/media-presets.js';
 import { ProjectFiles, type ProjectFileHandle } from '../core/project-files.js';
 import { StagePanGesture, StageZoomGesture } from '../core/stage-zoom-gesture.js';
 import { WorkflowPlanner, type WorkflowPlan } from '../core/workflow-planner.js';
 import { WorkflowGraph } from '../core/workflow-graph.js';
 import {
+    BROWSER_PERMISSIONS,
     ProjectFormat,
     type BrowserActionNode,
     type BrowserWaitNode,
@@ -50,6 +53,7 @@ export const EditorWorkspace = defineComponent({
         McpSetupDialog,
         NodeEditorPanel,
         PreviewPanel,
+        ProjectSettingsDialog,
     },
     data: () => {
         const project = ProjectFormat.create();
@@ -89,7 +93,6 @@ export const EditorWorkspace = defineComponent({
             nodeMenuOpen: false,
             recordingMenuOpen: false,
             viewportPresets,
-            selectedViewportPresetId: 'phone-portrait' as ViewportPreset['id'] | null,
             browserTargets: [] as BrowserTestbenchTarget[],
             inputFiles: {} as Record<string, File>,
             inputData: {} as Record<string, string>,
@@ -114,6 +117,10 @@ export const EditorWorkspace = defineComponent({
             recordingStopRequested: false,
             selectorPicking: false,
             mcpSetupOpen: false,
+            mobileMenuOpen: false,
+            projectSettingsOpen: false,
+            projectPermissionsOpen: false,
+            browserPermissions: BROWSER_PERMISSIONS,
             mcpClients: [] as McpClientStatus[],
             mcpLoading: false,
             mcpLoadError: '',
@@ -172,6 +179,15 @@ export const EditorWorkspace = defineComponent({
         websiteNode(): WebsiteNode | null {
             return this.project.nodes.find((node) => node.type === 'website') ?? null;
         },
+        browserSession() {
+            return this.project.browserSession;
+        },
+        browserPermissionSummary(): string {
+            const permissions = this.project.browserSession.permissions;
+            return permissions.length
+                ? permissions.map((permission) => this.t(`browserSession.${permission}`)).join(', ')
+                : this.t('browserSession.noPermissions');
+        },
         sourceLineCount(): number {
             const source =
                 this.activeLayer?.source[this.activeSource] ?? this.activeJavaScript?.source;
@@ -201,47 +217,34 @@ export const EditorWorkspace = defineComponent({
             );
         },
         previewOrientation(): 'portrait' | 'landscape' {
-            return this.project.viewport.height > this.project.viewport.width
+            return this.previewViewport.height > this.previewViewport.width
                 ? 'portrait'
                 : 'landscape';
         },
         viewportLabel(): string {
             if (this.selectedBrowserTarget)
                 return this.browserTargetLabel(this.selectedBrowserTarget);
-            return `${this.project.viewport.width} × ${this.project.viewport.height} CSS`;
+            return `${this.previewViewport.width} × ${this.previewViewport.height} CSS`;
         },
-        currentViewportPreset(): ViewportPreset | undefined {
-            const selected = this.viewportPresets.find(
-                (preset) => preset.id === this.selectedViewportPresetId,
-            );
-            if (
-                selected?.viewport.width === this.project.viewport.width &&
-                selected.viewport.height === this.project.viewport.height &&
-                selected.output.width === this.project.output.width &&
-                selected.output.height === this.project.output.height
-            ) {
-                return selected;
-            }
-            return [...this.viewportPresets]
-                .reverse()
-                .find(
-                    (preset) =>
-                        preset.viewport.width === this.project.viewport.width &&
-                        preset.viewport.height === this.project.viewport.height &&
-                        preset.output.width === this.project.output.width &&
-                        preset.output.height === this.project.output.height,
-                );
+        currentViewportPreset(): ViewportPreset {
+            return this.viewportPresets.find(
+                (preset) => preset.id === this.project.preview.preset,
+            )!;
+        },
+        previewViewport(): Readonly<{ width: number; height: number }> {
+            return this.currentViewportPreset.viewport;
+        },
+        previewOutputSize(): Readonly<{ width: number; height: number }> {
+            return previewOutputSize(this.project.preview.preset);
         },
         viewportPresetIcon(): string {
             if (this.selectedBrowserTarget) {
                 return this.selectedBrowserTarget.kind === 'mobile' ? 'bi-phone' : 'bi-display';
             }
-            return this.currentViewportPreset?.icon ?? 'bi-aspect-ratio';
+            return this.currentViewportPreset.icon;
         },
         viewportPresetLabel(): string {
-            return this.currentViewportPreset
-                ? this.t(this.currentViewportPreset.labelKey)
-                : this.t('preview.customViewport');
+            return this.t(this.currentViewportPreset.labelKey);
         },
         previewDestinationLabel(): string {
             return this.selectedBrowserTarget
@@ -313,8 +316,8 @@ export const EditorWorkspace = defineComponent({
             return Math.round(this.graphZoom * 100);
         },
         viewportStyle(): Record<string, string> {
-            const width = this.project.viewport.width;
-            const height = this.project.viewport.height;
+            const width = this.previewViewport.width;
+            const height = this.previewViewport.height;
             return {
                 '--preview-frame-width': `${width}px`,
                 '--preview-frame-height': `${height}px`,

@@ -121,6 +121,61 @@ test('Lokale HTTPS-Shell akzeptiert das Director-Entwicklungszertifikat', async 
     });
 });
 
+test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    const requests: Array<{ url: string; body?: BodyInit | null }> = [];
+    Object.defineProperty(globalThis, 'location', {
+        value: new URL('http://127.0.0.1:5173/'),
+        configurable: true,
+    });
+    globalThis.fetch = async (input, init = {}) => {
+        requests.push({ url: String(input), body: init.body });
+        const payload = String(input).startsWith('/director-api/previews/')
+            ? { url: '/director-preview/nodes/layer-1/preview-token' }
+            : { id: 'session-1' };
+        return new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+
+    try {
+        await BrowserTestbenchPreview.open(
+            desktopTarget,
+            'layer-1',
+            '<!doctype html>',
+            {},
+            [],
+            false,
+            {
+                permissions: ['microphone'],
+                language: 'de',
+                locale: 'DE',
+            },
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
+        else delete (globalThis as { location?: Location }).location;
+    }
+
+    const session = JSON.parse(String(requests[1]?.body)) as Record<string, unknown>;
+    assert.deepEqual(session['permissions'], [
+        { name: 'microphone', origin: 'http://127.0.0.1:5173' },
+    ]);
+    assert.deepEqual(session['capabilities'], {
+        'goog:chromeOptions': {
+            args: [
+                '--remote-allow-origins=https://chrome-devtools-frontend.appspot.com',
+                '--lang=de-DE',
+                '--disable-features=Translate,TranslateUI',
+            ],
+            prefs: { 'intl.accept_languages': 'de-DE,de' },
+        },
+    });
+});
+
 test('Lokale Website-Vorschau registriert eine Same-Origin-Proxy-Route', async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -152,13 +207,13 @@ test('Leere Website-URLs werden niemals auf den Director selbst aufgelöst', () 
 test('Lokales HTTPS wird auf Android Chrome ohne Zertifikatswarnung geöffnet', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
-    let requestBody: Record<string, unknown> | undefined;
+    const requestBodies: Record<string, unknown>[] = [];
     Object.defineProperty(globalThis, 'location', {
         value: new URL('https://127.0.0.1:5173/'),
         configurable: true,
     });
     globalThis.fetch = async (_input, init = {}) => {
-        requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
         return new Response(JSON.stringify({ id: 'android-https-session' }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -176,12 +231,13 @@ test('Lokales HTTPS wird auf Android Chrome ohne Zertifikatswarnung geöffnet', 
         else delete (globalThis as { location?: Location }).location;
     }
 
-    assert.deepEqual(requestBody?.['capabilities'], {
+    assert.deepEqual(requestBodies[0]?.['capabilities'], {
         acceptInsecureCerts: true,
         'goog:chromeOptions': {
             args: ['--allow-insecure-localhost', '--disable-features=Translate,TranslateUI'],
         },
     });
+    assert.equal(requestBodies[0]?.['localOrigins'], 'reverse');
 });
 
 test('Lokale Android-Vorschau navigiert nach dem Reverse-Tunnel kontrolliert neu', async () => {
@@ -208,8 +264,6 @@ test('Lokale Android-Vorschau navigiert nach dem Reverse-Tunnel kontrolliert neu
             androidTarget,
             'https://127.0.0.1:4200/price-check/scan',
             {
-                target: { browser: 'chrome-android', deviceKind: 'emulator' },
-                localOrigins: 'reverse',
                 permissions: [],
                 language: 'de',
                 locale: 'DE',
@@ -223,10 +277,56 @@ test('Lokale Android-Vorschau navigiert nach dem Reverse-Tunnel kontrolliert neu
 
     assert.equal(requests.length, 2);
     assert.equal(requests[0]?.url, '/browser-testbench-api/sessions');
+    assert.equal(requests[0]?.body['localOrigins'], 'reverse');
     assert.deepEqual(requests[1], {
         url: '/browser-testbench-api/sessions/android-local-session/navigate',
         body: { url: 'https://127.0.0.1:4200/price-check/scan' },
     });
+});
+
+test('Desktop-Browsersprache wird beim Sessionstart vollständig konfiguriert', async () => {
+    const originalFetch = globalThis.fetch;
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = async (_input, init = {}) => {
+        requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify({ id: 'localized-desktop-session' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+
+    try {
+        await BrowserTestbenchPreview.openWebsite(
+            desktopTarget,
+            'https://www.binderium.com/price-check/scan',
+            {
+                permissions: ['geolocation'],
+                language: 'de',
+                locale: 'DE',
+            },
+            {},
+            [],
+            null,
+            true,
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(requestBody?.['capabilities'], {
+        'goog:chromeOptions': {
+            args: [
+                '--remote-allow-origins=https://chrome-devtools-frontend.appspot.com',
+                '--headless=new',
+                '--lang=de-DE',
+                '--disable-features=Translate,TranslateUI',
+            ],
+            prefs: { 'intl.accept_languages': 'de-DE,de' },
+        },
+    });
+    assert.deepEqual(requestBody?.['permissions'], [
+        { name: 'geolocation', origin: 'https://www.binderium.com' },
+    ]);
 });
 
 test('Browser-Testbench-Targets erhalten verständliche Namen', () => {
@@ -314,8 +414,6 @@ test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeit
             androidTarget,
             'https://www.binderium.com/price-check/scan',
             {
-                target: { browser: 'chrome-android', deviceKind: 'emulator' },
-                localOrigins: 'reverse',
                 permissions: [],
                 language: 'de',
                 locale: 'DE',
@@ -373,8 +471,6 @@ test('Desktop-Kamera wird ausschließlich über die reloadfeste Preview-Shell ge
             desktopTarget,
             'https://www.binderium.com/price-check/scan',
             {
-                target: { browser: null, deviceKind: null },
-                localOrigins: 'reverse',
                 permissions: [],
                 language: 'de',
                 locale: 'DE',
@@ -440,8 +536,6 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
             androidTarget,
             'https://www.binderium.com/price-check/scan',
             {
-                target: { browser: 'chrome-android', deviceKind: 'emulator' },
-                localOrigins: 'reverse',
                 permissions: [],
                 language: 'de',
                 locale: 'DE',
@@ -510,10 +604,10 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
     const sha256 = [...new Uint8Array(digest)]
         .map((value) => value.toString(16).padStart(2, '0'))
         .join('');
-    const requests: Array<{ url: string; body?: BodyInit | null }> = [];
+    const requests: Array<{ url: string; body?: BodyInit | null; headers?: HeadersInit }> = [];
     globalThis.fetch = async (input, init = {}) => {
         const url = String(input);
-        requests.push({ url, body: init.body });
+        requests.push({ url, body: init.body, headers: init.headers });
         if (url.endsWith('/recording/start')) {
             return new Response(JSON.stringify({ id: 'recording-1' }), {
                 status: 201,
@@ -561,6 +655,10 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
         requests[2]?.url,
         '/browser-testbench-api/sessions/session-1/recording/artifacts/artifact-1',
     );
+    assert.equal(requests[3]?.url, '/director-api/video-exports');
+    const exportHeaders = new Headers(requests[3]?.headers);
+    assert.equal(exportHeaders.get('x-director-video-width'), '1080');
+    assert.equal(exportHeaders.get('x-director-video-height'), '1920');
 });
 
 test('Aufnahmeintervalle für Layer und eingeschlossene Wartezeiten verwenden die native Aufnahmeuhr', () => {
@@ -636,8 +734,6 @@ test('Aufnahme markiert nur Warte-Nodes, die im Export bleiben sollen', async ()
                     source: '',
                     condition: 'element',
                     selector: '#ready',
-                    value: '/',
-                    script: 'return true;',
                     timeoutMs: 1_000,
                     omitFromRecording: false,
                 },
@@ -648,8 +744,6 @@ test('Aufnahme markiert nur Warte-Nodes, die im Export bleiben sollen', async ()
                     source: '',
                     condition: 'element',
                     selector: '#done',
-                    value: '/',
-                    script: 'return true;',
                     timeoutMs: 1_000,
                     omitFromRecording: true,
                 },
@@ -683,8 +777,6 @@ test('Browser-Aktion und Wartebedingung verwenden die nativen Testbench-Endpunkt
                 source: '',
                 condition: 'element',
                 selector: '#ready',
-                value: '/',
-                script: 'return true;',
                 timeoutMs: 12_000,
                 omitFromRecording: true,
             },
@@ -693,7 +785,6 @@ test('Browser-Aktion und Wartebedingung verwenden die nativen Testbench-Endpunkt
                 type: 'browser-action',
                 speed: 'live',
                 source: '',
-                action: 'click',
                 selector: '#ready',
             },
         ]);
@@ -754,8 +845,6 @@ test('Script-Wait speichert sein Ergebnis für nachfolgende Nodes', async () => 
                 speed: 'live',
                 source: '',
                 condition: 'script',
-                selector: 'body',
-                value: '/',
                 script: 'return { price: "42 €" };',
                 timeoutMs: 30_000,
                 omitFromRecording: true,

@@ -139,25 +139,37 @@ export class BrowserTestbenchPreview {
     }
 
     static async open(
-        target: string,
+        target: BrowserTestbenchTarget | string,
         nodeId: string,
         document: string,
         inputFiles: Readonly<Record<string, File>> = {},
         inputs: readonly ProjectFileInput[] = [],
         headless = false,
+        configuration?: BrowserSessionConfiguration,
     ): Promise<string> {
         const preview = await this.publish(nodeId, document);
         const previewUrl = new URL(preview.url, globalThis.location.origin);
+        const targetId = typeof target === 'string' ? target : target.id;
+        const localHttps = this.isLocalHttps(previewUrl.toString());
+        const capabilities =
+            typeof target === 'string'
+                ? localHttps
+                    ? { acceptInsecureCerts: true }
+                    : {}
+                : this.sessionCapabilities(target, configuration, headless, localHttps);
+        const permissions = (configuration?.permissions ?? []).map((name) => ({
+            name,
+            origin: previewUrl.origin,
+        }));
         const session = await this.request<StartedSession>('/sessions', {
             method: 'POST',
             body: JSON.stringify({
-                target,
+                target: targetId,
                 url: previewUrl.toString(),
                 headless,
                 leaseTimeoutMs: this.sessionLeaseTimeoutMs,
-                ...(this.isLocalHttps(previewUrl.toString())
-                    ? { capabilities: { acceptInsecureCerts: true } }
-                    : {}),
+                ...(permissions.length ? { permissions } : {}),
+                ...(Object.keys(capabilities).length ? { capabilities } : {}),
             }),
         });
         await this.waitForDirectorRuntime(session.id);
@@ -194,15 +206,21 @@ export class BrowserTestbenchPreview {
             ...(configuration?.permissions ?? []),
             ...(nativeCamera ? (['camera'] as const) : []),
         ];
-        const permissions = [...new Set(configuredPermissions)]
-            .filter((name) => name !== 'camera' || nativeCamera)
-            .map((name) => ({ name, origin: new URL(absoluteUrl).origin }));
+        const permissions = [...new Set(configuredPermissions)].map((name) => ({
+            name,
+            origin: new URL(absoluteUrl).origin,
+        }));
         const localHttps = this.isLocalHttps(absoluteUrl);
-        const androidLocalHttps = localHttps && target.browser === 'chrome-android';
         const androidLocalOrigin =
             target.browser === 'chrome-android' &&
             this.isLocalOrigin(absoluteUrl) &&
-            Boolean(configuration?.localOrigins && target.capabilities.localOrigins.reverse);
+            target.capabilities.localOrigins.reverse;
+        const sessionCapabilities = this.sessionCapabilities(
+            target,
+            configuration,
+            headless,
+            localHttps,
+        );
         const session = await this.request<StartedSession>('/sessions', {
             method: 'POST',
             body: JSON.stringify({
@@ -210,9 +228,7 @@ export class BrowserTestbenchPreview {
                 url: absoluteUrl,
                 headless,
                 leaseTimeoutMs: this.sessionLeaseTimeoutMs,
-                ...(configuration?.localOrigins && target.capabilities.localOrigins.reverse
-                    ? { localOrigins: configuration.localOrigins }
-                    : {}),
+                ...(androidLocalOrigin ? { localOrigins: 'reverse' } : {}),
                 ...(permissions?.length ? { permissions } : {}),
                 ...(cameraAsset
                     ? { media: { camera: { facing: 'back', source: cameraAsset } } }
@@ -226,28 +242,8 @@ export class BrowserTestbenchPreview {
                           },
                       }
                     : {}),
-                ...(configuration?.language || configuration?.locale || localHttps
-                    ? {
-                          capabilities: {
-                              ...(localHttps ? { acceptInsecureCerts: true } : {}),
-                              ...(androidLocalHttps
-                                  ? {
-                                        'goog:chromeOptions': {
-                                            args: [
-                                                '--allow-insecure-localhost',
-                                                '--disable-features=Translate,TranslateUI',
-                                            ],
-                                        },
-                                    }
-                                  : {}),
-                              ...(target.kind === 'mobile' && configuration?.language
-                                  ? { 'appium:language': configuration.language }
-                                  : {}),
-                              ...(target.kind === 'mobile' && configuration?.locale
-                                  ? { 'appium:locale': configuration.locale }
-                                  : {}),
-                          },
-                      }
+                ...(Object.keys(sessionCapabilities).length
+                    ? { capabilities: sessionCapabilities }
                     : {}),
             }),
         });
@@ -320,7 +316,7 @@ export class BrowserTestbenchPreview {
     static async stopRecording(
         sessionId: string,
         filename: string,
-        viewport?: ExportViewport,
+        outputSize?: ExportViewport,
     ): Promise<RecordingExport> {
         const recording = await this.request<RecordingArtifact>(
             `/sessions/${encodeURIComponent(sessionId)}/recording/stop`,
@@ -343,14 +339,13 @@ export class BrowserTestbenchPreview {
         }
         const original = new Blob([content], { type: recording.mimeType });
         const intervals = this.layerIntervals(recording);
-        const blob = viewport
-            ? await this.normalizeRecording(original, filename, viewport, intervals)
-            : original;
+        const output = outputSize ?? { width: recording.width, height: recording.height };
+        const blob = await this.normalizeRecording(original, filename, output, intervals);
         return {
             blob,
             filename,
-            width: viewport?.width ?? recording.width,
-            height: viewport?.height ?? recording.height,
+            width: output.width,
+            height: output.height,
             durationMs: intervals.length
                 ? intervals.reduce(
                       (total, interval) => total + interval.endMs - interval.startMs,
@@ -952,6 +947,82 @@ export class BrowserTestbenchPreview {
                 delete window.__directorResults[arguments[0]];`,
             arguments: [nodeId],
         });
+    }
+
+    private static sessionCapabilities(
+        target: BrowserTestbenchTarget,
+        configuration: BrowserSessionConfiguration | undefined,
+        headless: boolean,
+        localHttps: boolean,
+    ): Record<string, unknown> {
+        const language = this.browserLanguage(configuration);
+        const locale = language ? new Intl.Locale(language) : null;
+        const capabilities: Record<string, unknown> = {
+            ...(localHttps ? { acceptInsecureCerts: true } : {}),
+        };
+        if (target.kind === 'mobile') {
+            const mobileLanguage = configuration?.language.trim();
+            const mobileLocale = configuration?.locale.trim().toUpperCase();
+            if (mobileLanguage) {
+                capabilities['appium:language'] = locale?.language ?? mobileLanguage;
+            }
+            if (mobileLocale || locale?.region) {
+                capabilities['appium:locale'] = mobileLocale || locale!.region;
+            }
+            if (localHttps && target.browser === 'chrome-android') {
+                capabilities['goog:chromeOptions'] = {
+                    args: [
+                        '--allow-insecure-localhost',
+                        '--disable-features=Translate,TranslateUI',
+                    ],
+                };
+            }
+            return capabilities;
+        }
+        if (!language) return capabilities;
+        const acceptLanguages = locale?.language ? `${language},${locale.language}` : language;
+        if (target.browser === 'chrome') {
+            capabilities['goog:chromeOptions'] = {
+                args: [
+                    '--remote-allow-origins=https://chrome-devtools-frontend.appspot.com',
+                    ...(headless ? ['--headless=new'] : []),
+                    `--lang=${language}`,
+                    '--disable-features=Translate,TranslateUI',
+                    ...(localHttps ? ['--allow-insecure-localhost'] : []),
+                ],
+                prefs: { 'intl.accept_languages': acceptLanguages },
+            };
+        } else if (target.browser === 'edge') {
+            capabilities['ms:edgeOptions'] = {
+                args: [
+                    ...(headless ? ['--headless=new'] : []),
+                    `--lang=${language}`,
+                    '--disable-features=Translate,TranslateUI',
+                    ...(localHttps ? ['--allow-insecure-localhost'] : []),
+                ],
+                prefs: { 'intl.accept_languages': acceptLanguages },
+            };
+        } else if (target.browser === 'firefox') {
+            capabilities['moz:firefoxOptions'] = {
+                ...(headless ? { args: ['-headless'] } : {}),
+                prefs: { 'intl.accept_languages': acceptLanguages },
+            };
+        }
+        return capabilities;
+    }
+
+    private static browserLanguage(configuration: BrowserSessionConfiguration | undefined): string {
+        const language = configuration?.language.trim().replaceAll('_', '-');
+        const region = configuration?.locale.trim().toUpperCase();
+        if (!language) return '';
+        try {
+            const parsed = new Intl.Locale(language);
+            return new Intl.Locale(
+                !parsed.region && region ? `${language}-${region}` : language,
+            ).toString();
+        } catch {
+            return region && !language.includes('-') ? `${language}-${region}` : language;
+        }
     }
 
     private static absoluteUrl(url: string): string {

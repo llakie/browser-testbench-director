@@ -1,7 +1,8 @@
 import { WorkflowGraph } from './workflow-graph.js';
+import { PREVIEW_PRESET_IDS, type PreviewPresetId } from './media-presets.js';
 
 export const DIRECTOR_PROJECT_FORMAT = 'browser-testbench-director' as const;
-export const DIRECTOR_PROJECT_VERSION = 7 as const;
+export const DIRECTOR_PROJECT_VERSION = 10 as const;
 
 export interface Point {
     readonly x: number;
@@ -71,7 +72,6 @@ export interface InputFileReference {
     readonly name: string;
     readonly type: string;
     readonly size: number;
-    readonly sha256: string;
 }
 
 export interface JavaScriptNode {
@@ -87,22 +87,22 @@ export interface BrowserActionNode {
     readonly type: 'browser-action';
     name: string;
     position: Point | null;
-    action: 'click';
     selector: string;
 }
 
-export interface BrowserWaitNode {
+interface BrowserWaitNodeBase {
     readonly id: string;
     readonly type: 'browser-wait';
     name: string;
     position: Point | null;
-    condition: 'element' | 'url' | 'script';
-    selector: string;
-    value: string;
-    script: string;
     timeoutMs: number;
     omitFromRecording: boolean;
 }
+
+export type BrowserWaitNode =
+    | (BrowserWaitNodeBase & { condition: 'element'; selector: string })
+    | (BrowserWaitNodeBase & { condition: 'url'; value: string })
+    | (BrowserWaitNodeBase & { condition: 'script'; script: string });
 
 export type ExecutableNode = LayerNode | JavaScriptNode | BrowserActionNode | BrowserWaitNode;
 export type DirectorNode = InputNode | CapabilityNode | WebsiteNode | ExecutableNode;
@@ -115,13 +115,16 @@ export interface WorkflowConnection {
 
 export type ProjectFileInput = InputNode;
 
+export const BROWSER_PERMISSIONS = [
+    'camera',
+    'microphone',
+    'geolocation',
+    'notifications',
+] as const;
+export type BrowserPermission = (typeof BROWSER_PERMISSIONS)[number];
+
 export interface BrowserSessionConfiguration {
-    target: {
-        browser: 'chrome-android' | null;
-        deviceKind: 'emulator' | 'simulator' | 'physical' | null;
-    };
-    localOrigins: 'reverse' | 'emulator-host' | null;
-    permissions: Array<'camera' | 'microphone' | 'geolocation' | 'notifications'>;
+    permissions: BrowserPermission[];
     language: string;
     locale: string;
 }
@@ -130,13 +133,8 @@ export interface DirectorProject {
     readonly format: typeof DIRECTOR_PROJECT_FORMAT;
     readonly version: typeof DIRECTOR_PROJECT_VERSION;
     name: string;
-    viewport: {
-        readonly width: number;
-        readonly height: number;
-    };
-    output: {
-        readonly width: number;
-        readonly height: number;
+    preview: {
+        preset: PreviewPresetId;
     };
     nodes: DirectorNode[];
     connections: WorkflowConnection[];
@@ -149,11 +147,8 @@ export class ProjectFormat {
             format: DIRECTOR_PROJECT_FORMAT,
             version: DIRECTOR_PROJECT_VERSION,
             name,
-            viewport: { width: 360, height: 640 },
-            output: { width: 1080, height: 1920 },
+            preview: { preset: 'phone-portrait' },
             browserSession: {
-                target: { browser: null, deviceKind: null },
-                localOrigins: null,
                 permissions: [],
                 language: '',
                 locale: '',
@@ -191,7 +186,6 @@ export class ProjectFormat {
         } catch (error) {
             throw new TypeError(`Invalid project JSON: ${ProjectFormat.errorMessage(error)}`);
         }
-        value = ProjectFormat.migrate(value);
         ProjectFormat.assertProject(value);
         return value;
     }
@@ -215,109 +209,6 @@ export class ProjectFormat {
         };
     }
 
-    private static migrate(value: unknown): unknown {
-        if (!ProjectFormat.isRecord(value) || ![5, 6].includes(value['version'] as number))
-            return value;
-        const viewport = value['viewport'];
-        if (
-            !ProjectFormat.isRecord(viewport) ||
-            !ProjectFormat.isPositiveNumber(viewport['width']) ||
-            !ProjectFormat.isPositiveNumber(viewport['height'])
-        ) {
-            return value;
-        }
-        const outputValue =
-            value['version'] === 5
-                ? { width: viewport['width'], height: viewport['height'] }
-                : value['output'];
-        if (
-            !ProjectFormat.isRecord(outputValue) ||
-            !ProjectFormat.isPositiveNumber(outputValue['width']) ||
-            !ProjectFormat.isPositiveNumber(outputValue['height'])
-        ) {
-            return value;
-        }
-        const output = { width: outputValue['width'], height: outputValue['height'] };
-        const browserSession = ProjectFormat.isRecord(value['browserSession'])
-            ? value['browserSession']
-            : {};
-        const cameraInputId =
-            typeof browserSession['cameraInputId'] === 'string'
-                ? browserSession['cameraInputId']
-                : null;
-        const { cameraInputId: _legacyCameraInputId, ...session } = browserSession;
-        return {
-            ...value,
-            version: DIRECTOR_PROJECT_VERSION,
-            viewport:
-                value['version'] === 5
-                    ? ProjectFormat.migrateViewport(output, value['browserSession'])
-                    : viewport,
-            output,
-            nodes:
-                Array.isArray(value['nodes']) && cameraInputId
-                    ? [
-                          ...value['nodes'],
-                          {
-                              id: 'camera-capability',
-                              type: 'capability',
-                              name: 'Virtual camera',
-                              position: null,
-                              capability: 'camera',
-                          },
-                      ]
-                    : value['nodes'],
-            connections:
-                Array.isArray(value['connections']) && cameraInputId
-                    ? [
-                          ...value['connections'].filter(
-                              (connection) =>
-                                  !ProjectFormat.isRecord(connection) ||
-                                  connection['source'] !== cameraInputId,
-                          ),
-                          {
-                              id: `${cameraInputId}--camera-capability`,
-                              source: cameraInputId,
-                              target: 'camera-capability',
-                          },
-                          {
-                              id: 'camera-capability--website-root',
-                              source: 'camera-capability',
-                              target: 'website-root',
-                          },
-                      ]
-                    : value['connections'],
-            browserSession: {
-                ...session,
-                permissions: Array.isArray(session['permissions'])
-                    ? session['permissions'].filter(
-                          (permission) => permission !== 'camera' || !cameraInputId,
-                      )
-                    : session['permissions'],
-            },
-        };
-    }
-
-    private static migrateViewport(
-        output: { readonly width: number; readonly height: number },
-        browserSession: unknown,
-    ): { readonly width: number; readonly height: number } {
-        const knownSizes = new Map([
-            ['1080x1920', { width: 360, height: 640 }],
-            ['1536x2048', { width: 768, height: 1024 }],
-            ['2048x1536', { width: 1024, height: 768 }],
-        ]);
-        const known = knownSizes.get(`${output.width}x${output.height}`);
-        if (known) return known;
-        const mobileLandscape =
-            output.width === 1920 &&
-            output.height === 1080 &&
-            ProjectFormat.isRecord(browserSession) &&
-            ProjectFormat.isRecord(browserSession['target']) &&
-            browserSession['target']['browser'] === 'chrome-android';
-        return mobileLandscape ? { width: 640, height: 360 } : { ...output };
-    }
-
     private static assertProject(value: unknown): asserts value is DirectorProject {
         if (!ProjectFormat.isRecord(value)) throw new TypeError('Project must be an object.');
         if (value['format'] !== DIRECTOR_PROJECT_FORMAT) {
@@ -329,22 +220,19 @@ export class ProjectFormat {
         if (typeof value['name'] !== 'string' || !value['name'].trim()) {
             throw new TypeError('Project name must be a non-empty string.');
         }
-        const viewport = value['viewport'];
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['format', 'version', 'name', 'preview', 'nodes', 'connections', 'browserSession'],
+            'Project',
+        );
+        const preview = value['preview'];
         if (
-            !ProjectFormat.isRecord(viewport) ||
-            !ProjectFormat.isPositiveNumber(viewport['width']) ||
-            !ProjectFormat.isPositiveNumber(viewport['height'])
+            !ProjectFormat.isRecord(preview) ||
+            !PREVIEW_PRESET_IDS.includes(preview['preset'] as PreviewPresetId)
         ) {
-            throw new TypeError('Project viewport must contain positive width and height values.');
+            throw new TypeError('Project preview must reference a known preset.');
         }
-        const output = value['output'];
-        if (
-            !ProjectFormat.isRecord(output) ||
-            !ProjectFormat.isPositiveNumber(output['width']) ||
-            !ProjectFormat.isPositiveNumber(output['height'])
-        ) {
-            throw new TypeError('Project output must contain positive width and height values.');
-        }
+        ProjectFormat.assertOnlyKeys(preview, ['preset'], 'Project preview');
         if (!Array.isArray(value['nodes']) || value['nodes'].length === 0) {
             throw new TypeError('Project must contain at least one node.');
         }
@@ -370,6 +258,7 @@ export class ProjectFormat {
             ) {
                 throw new TypeError('Project contains an invalid workflow connection.');
             }
+            ProjectFormat.assertOnlyKeys(connection, ['id', 'source', 'target'], 'Connection');
         }
         ProjectFormat.assertBrowserSession(value['browserSession']);
         const project = value as unknown as DirectorProject;
@@ -449,6 +338,11 @@ export class ProjectFormat {
             throw new TypeError(`Website node ${value['id']} must contain a URL.`);
         }
         ProjectFormat.assertPosition(value, 'Website');
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'url'],
+            'Website node',
+        );
     }
 
     private static assertInputNode(
@@ -470,6 +364,14 @@ export class ProjectFormat {
         ) {
             throw new TypeError(`Input node ${value['id']} contains invalid settings.`);
         }
+        if (ProjectFormat.isRecord(value['prepare'])) {
+            ProjectFormat.assertOnlyKeys(value['prepare'], ['modules'], 'Input preparation');
+        }
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'accept', 'required', 'file', 'prepare'],
+            'Input node',
+        );
     }
 
     private static assertCapabilityNode(
@@ -479,6 +381,11 @@ export class ProjectFormat {
         if (value['capability'] !== 'camera') {
             throw new TypeError(`Capability node ${value['id']} contains an invalid capability.`);
         }
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'capability'],
+            'Capability node',
+        );
     }
 
     private static assertLayerNode(value: unknown): asserts value is LayerNode {
@@ -501,11 +408,13 @@ export class ProjectFormat {
         ) {
             throw new TypeError(`Layer node ${value['id']} must contain HTML, CSS and JavaScript.`);
         }
+        ProjectFormat.assertOnlyKeys(source, ['html', 'css', 'javascript'], 'Layer source');
         const placement = value['placement'];
         if (!ProjectFormat.isRecord(placement)) {
             throw new TypeError(`Layer node ${value['id']} must contain a placement.`);
         }
         const reference = placement['reference'];
+        const referenceType = ProjectFormat.isRecord(reference) ? reference['type'] : undefined;
         const validReference =
             ProjectFormat.isRecord(reference) &&
             (reference['type'] === 'viewport' ||
@@ -522,7 +431,26 @@ export class ProjectFormat {
         if (!validPlacement) {
             throw new TypeError(`Layer node ${value['id']} contains an invalid placement.`);
         }
+        ProjectFormat.assertOnlyKeys(
+            placement,
+            ['reference', 'horizontal', 'vertical'],
+            'Layer placement',
+        );
+        ProjectFormat.assertOnlyKeys(
+            reference as Record<string, unknown>,
+            referenceType === 'layer'
+                ? ['type', 'nodeId']
+                : referenceType === 'dom'
+                  ? ['type', 'selector']
+                  : ['type'],
+            'Layer placement reference',
+        );
         ProjectFormat.assertLayerPlayback(value);
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'placement', 'playback', 'source'],
+            'Layer node',
+        );
     }
 
     private static isInputFileReference(value: unknown): value is InputFileReference {
@@ -535,8 +463,7 @@ export class ProjectFormat {
             typeof value['type'] === 'string' &&
             Number.isInteger(value['size']) &&
             Number(value['size']) >= 0 &&
-            typeof value['sha256'] === 'string' &&
-            /^[a-f0-9]{64}$/u.test(value['sha256'])
+            ProjectFormat.hasOnlyKeys(value, ['asset', 'name', 'type', 'size'])
         );
     }
 
@@ -551,6 +478,7 @@ export class ProjectFormat {
         ) {
             throw new TypeError(`Layer node ${value['id']} contains invalid playback settings.`);
         }
+        ProjectFormat.assertOnlyKeys(playback, ['durationMs', 'removeAfter'], 'Layer playback');
     }
 
     private static assertJavaScriptNode(
@@ -566,16 +494,23 @@ export class ProjectFormat {
             throw new TypeError(`JavaScript node ${value['id']} must contain JavaScript source.`);
         }
         ProjectFormat.assertPosition(value, 'JavaScript');
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'source'],
+            'JavaScript node',
+        );
     }
 
     private static assertBrowserActionNode(
         value: Record<string, unknown>,
     ): asserts value is Record<string, unknown> & BrowserActionNode {
         ProjectFormat.assertCommonExecutable(value, 'Browser action');
-        if (value['action'] !== 'click') {
-            throw new TypeError(`Browser action node ${value['id']} contains an invalid action.`);
-        }
         ProjectFormat.assertSelector(value, 'Browser action');
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'selector'],
+            'Browser action node',
+        );
     }
 
     private static assertBrowserWaitNode(
@@ -585,20 +520,17 @@ export class ProjectFormat {
         if (!['element', 'url', 'script'].includes(String(value['condition']))) {
             throw new TypeError(`Browser wait node ${value['id']} contains an invalid condition.`);
         }
-        if (typeof value['selector'] !== 'string') {
-            throw new TypeError(`Browser wait node ${value['id']} must contain a selector.`);
-        }
-        if (typeof value['value'] !== 'string') {
-            throw new TypeError(`Browser wait node ${value['id']} must contain a URL value.`);
-        }
-        if (typeof value['script'] !== 'string') {
-            throw new TypeError(`Browser wait node ${value['id']} must contain a script.`);
-        }
         if (value['condition'] === 'element') ProjectFormat.assertSelector(value, 'Browser wait');
-        if (value['condition'] === 'url' && !value['value'].trim()) {
+        if (
+            value['condition'] === 'url' &&
+            (typeof value['value'] !== 'string' || !value['value'].trim())
+        ) {
             throw new TypeError(`Browser wait node ${value['id']} must have a URL value.`);
         }
-        if (value['condition'] === 'script' && !value['script'].trim()) {
+        if (
+            value['condition'] === 'script' &&
+            (typeof value['script'] !== 'string' || !value['script'].trim())
+        ) {
             throw new TypeError(`Browser wait node ${value['id']} must have a script.`);
         }
         if (!ProjectFormat.isPositiveNumber(value['timeoutMs'])) {
@@ -609,6 +541,26 @@ export class ProjectFormat {
                 `Browser wait node ${value['id']} must define its recording behavior.`,
             );
         }
+        const conditionKey =
+            value['condition'] === 'element'
+                ? 'selector'
+                : value['condition'] === 'url'
+                  ? 'value'
+                  : 'script';
+        ProjectFormat.assertOnlyKeys(
+            value,
+            [
+                'id',
+                'type',
+                'name',
+                'position',
+                'condition',
+                conditionKey,
+                'timeoutMs',
+                'omitFromRecording',
+            ],
+            'Browser wait node',
+        );
     }
 
     private static assertCommonExecutable(value: Record<string, unknown>, type: string): void {
@@ -639,33 +591,43 @@ export class ProjectFormat {
                 `${type} node ${String(value['id'])} must have a numeric position or null.`,
             );
         }
+        ProjectFormat.assertOnlyKeys(position, ['x', 'y'], `${type} node position`);
     }
 
     private static assertBrowserSession(
         value: unknown,
     ): asserts value is BrowserSessionConfiguration {
-        if (!ProjectFormat.isRecord(value) || !ProjectFormat.isRecord(value['target'])) {
+        if (!ProjectFormat.isRecord(value)) {
             throw new TypeError('Project must contain Browser Testbench session settings.');
         }
-        const target = value['target'];
         if (
-            ![null, 'chrome-android'].includes(target['browser'] as null | string) ||
-            ![null, 'emulator', 'simulator', 'physical'].includes(
-                target['deviceKind'] as null | string,
-            ) ||
-            ![null, 'reverse', 'emulator-host'].includes(value['localOrigins'] as null | string) ||
             !Array.isArray(value['permissions']) ||
             value['permissions'].some(
-                (permission) =>
-                    !['camera', 'microphone', 'geolocation', 'notifications'].includes(
-                        String(permission),
-                    ),
+                (permission) => !BROWSER_PERMISSIONS.includes(permission as BrowserPermission),
             ) ||
             typeof value['language'] !== 'string' ||
             typeof value['locale'] !== 'string'
         ) {
             throw new TypeError('Project contains invalid Browser Testbench session settings.');
         }
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['permissions', 'language', 'locale'],
+            'Browser session',
+        );
+    }
+
+    private static assertOnlyKeys(
+        value: Record<string, unknown>,
+        keys: readonly string[],
+        type: string,
+    ): void {
+        const unexpected = Object.keys(value).find((key) => !keys.includes(key));
+        if (unexpected) throw new TypeError(`${type} contains an unknown property: ${unexpected}`);
+    }
+
+    private static hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+        return Object.keys(value).every((key) => keys.includes(key));
     }
 
     private static isRecord(value: unknown): value is Record<string, unknown> {

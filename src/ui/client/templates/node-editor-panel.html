@@ -256,12 +256,6 @@
             </div>
             <div v-else-if="activeBrowserAction" class="automation-properties">
                 <label>
-                    <span>{{ t('browserAction.action') }}</span>
-                    <select v-model="activeBrowserAction.action" @change="markActiveNodeStale">
-                        <option value="click">{{ t('browserAction.click') }}</option>
-                    </select>
-                </label>
-                <label>
                     <span>{{ t('browser.selector') }}</span>
                     <span class="selector-field">
                         <input
@@ -297,9 +291,9 @@
                 <label>
                     <span>{{ t('browserWait.condition') }}</span>
                     <select
-                        v-model="activeBrowserWait.condition"
+                        :value="activeBrowserWait.condition"
                         data-testid="browser-wait-condition"
-                        @change="markActiveNodeStale"
+                        @change="setBrowserWaitCondition"
                     >
                         <option value="element">{{ t('browserWait.element') }}</option>
                         <option value="url">{{ t('browserWait.url') }}</option>

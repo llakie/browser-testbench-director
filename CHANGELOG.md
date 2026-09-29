@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - JSON-based workflow editor for website, input, capability, layer, JavaScript, browser action, and browser wait nodes.
 - Local viewport and Browser Testbench remote previews with reproducible catch-up execution.
-- Desktop, simulator, emulator, and device recording with configurable CSS viewport and video output dimensions.
+- Desktop recording derived from preview preset dimensions and DPR, plus native simulator, emulator, and device recording.
 - Content-addressed project inputs, project-owned preparation modules, and omitted wait intervals in video exports.
 - Director server, CLI, HTTPS development certificates, CSS selector picker, and stdio MCP server.
+
+### Changed
+
+- Project format 10 rejects unknown persisted properties and removes redundant browser-action,
+  wait-condition, and input-asset fields.

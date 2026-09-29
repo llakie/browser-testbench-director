@@ -67,7 +67,6 @@ export class ProjectNodes {
             type: 'browser-action',
             name,
             position: null,
-            action: 'click',
             selector: 'button',
         };
     }
@@ -80,8 +79,6 @@ export class ProjectNodes {
             position: null,
             condition: 'element',
             selector: 'body',
-            value: '/',
-            script: 'return true;',
             timeoutMs: 30_000,
             omitFromRecording: true,
         };

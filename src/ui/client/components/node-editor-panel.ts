@@ -42,6 +42,7 @@ export const NodeEditorPanel = defineWorkspaceSection({
         'renderGraph',
         'selectedBrowserTarget',
         'selectorPicking',
+        'setBrowserWaitCondition',
         'setHorizontalAlignment',
         'setParentLayer',
         'setPlacementReference',

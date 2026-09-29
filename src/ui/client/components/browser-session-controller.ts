@@ -303,7 +303,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
             const recording = await BrowserTestbenchPreview.stopRecording(
                 sessionId!,
                 filename,
-                this.project.output,
+                target.kind === 'desktop' ? this.previewOutputSize : undefined,
             );
             recordingStarted = false;
             recordingCompleted = true;

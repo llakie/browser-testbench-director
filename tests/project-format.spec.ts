@@ -5,6 +5,7 @@ import { ProjectFiles } from '../src/ui/client/core/project-files.js';
 import { ProjectFormat, type BrowserWaitNode } from '../src/ui/client/core/project-format.js';
 import { ProjectNodes } from '../src/ui/client/core/project-nodes.js';
 import { PreviewDocument } from '../src/ui/client/core/preview-document.js';
+import { previewOutputSize, previewPreset } from '../src/ui/client/core/media-presets.js';
 import de from '../src/i18n/de.json' with { type: 'json' };
 import en from '../src/i18n/en.json' with { type: 'json' };
 
@@ -19,8 +20,7 @@ test('Director-Projektformat erhält Layer-Quellen bei einem Roundtrip', () => {
     const layer = loaded.nodes.find((node) => node.type === 'layer');
 
     assert.deepEqual(loaded, project);
-    assert.deepEqual(loaded.viewport, { width: 360, height: 640 });
-    assert.deepEqual(loaded.output, { width: 1080, height: 1920 });
+    assert.deepEqual(loaded.preview, { preset: 'phone-portrait' });
     assert.equal(website?.id, 'website-root');
     assert.equal(website?.url, '');
     assert.equal(website?.position, null);
@@ -80,7 +80,6 @@ test('Director-Projektformat speichert typisierte Browser-Aktionen und Wartebedi
             type: 'browser-action',
             name: 'Kamera öffnen',
             position: { x: 544, y: 8 },
-            action: 'click',
             selector: '[data-testid="select-camera-source"]',
         },
         {
@@ -90,8 +89,6 @@ test('Director-Projektformat speichert typisierte Browser-Aktionen und Wartebedi
             position: { x: 800, y: 8 },
             condition: 'element',
             selector: '[data-testid="scanner-camera-preview"]',
-            value: '/price-check/value',
-            script: 'return true;',
             timeoutMs: 90_000,
             omitFromRecording: true,
         },
@@ -145,9 +142,7 @@ test('Director-Projektformat speichert Dateieingaben und Browser-Session-Anforde
         target: 'website-root',
     });
     project.browserSession = {
-        target: { browser: 'chrome-android', deviceKind: 'emulator' },
-        localOrigins: 'reverse',
-        permissions: [],
+        permissions: ['microphone', 'geolocation'],
         language: 'de',
         locale: 'DE',
     };
@@ -180,7 +175,6 @@ test('Director-Projektformat speichert mehrere Prepare-Module pro Datei-Input', 
             name: 'card.png',
             type: 'image/png',
             size: 123,
-            sha256: 'a'.repeat(64),
         },
         prepare: {
             modules: [
@@ -199,60 +193,49 @@ test('Director-Projektformat speichert mehrere Prepare-Module pro Datei-Input', 
 });
 
 test('Director-Projektformat lehnt unbekannte Versionen ab', () => {
-    const project = { ...ProjectFormat.create(), version: 8 };
+    const project = { ...ProjectFormat.create(), version: 11 };
     assert.throws(
         () => ProjectFormat.parse(JSON.stringify(project)),
         /Unsupported project version/u,
     );
 });
 
-test('Director-Projektformat migriert Version 5 auf getrennte Vorschau und Ausgabe', () => {
+test('Director-Projektformat lehnt versteckte und inaktive Eigenschaften ab', () => {
     const project = ProjectFormat.create();
-    const legacy = {
-        ...project,
-        version: 5,
-        viewport: { width: 1080, height: 1920 },
-    } as Record<string, unknown>;
-    delete legacy['output'];
+    const layer = project.nodes.find((node) => node.type === 'layer')!;
+    (layer as unknown as Record<string, unknown>)['legacySetting'] = true;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /unknown property/u);
 
-    const loaded = ProjectFormat.parse(JSON.stringify(legacy));
-
-    assert.equal(loaded.version, 7);
-    assert.deepEqual(loaded.viewport, { width: 360, height: 640 });
-    assert.deepEqual(loaded.output, { width: 1080, height: 1920 });
+    delete (layer as unknown as Record<string, unknown>)['legacySetting'];
+    const wait = ProjectNodes.createBrowserWait(project, 'Warten');
+    (wait as unknown as Record<string, unknown>)['script'] = 'return true;';
+    project.nodes.push(wait);
+    project.connections.push({ id: `layer-1--${wait.id}`, source: 'layer-1', target: wait.id });
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /unknown property: script/u);
 });
 
-test('Version-5-Migration unterscheidet Desktop und mobiles Querformat', () => {
-    const desktop = ProjectFormat.create();
-    const mobile = ProjectFormat.create();
-    mobile.browserSession.target.browser = 'chrome-android';
-    for (const project of [desktop, mobile]) {
-        Object.assign(project, { version: 5, viewport: { width: 1920, height: 1080 } });
-        delete (project as unknown as { output?: unknown }).output;
-    }
-
-    assert.deepEqual(ProjectFormat.parse(JSON.stringify(desktop)).viewport, {
-        width: 1920,
-        height: 1080,
-    });
-    assert.deepEqual(ProjectFormat.parse(JSON.stringify(mobile)).viewport, {
-        width: 640,
-        height: 360,
-    });
-});
-
-test('Director-Projektformat trennt CSS-Viewport und Videoausgabe', () => {
+test('Director-Projektformat speichert das Vorschaugerät als stabile Preset-Referenz', () => {
     const project = ProjectFormat.create();
-    project.viewport = { width: 390, height: 844 };
-    project.output = { width: 1080, height: 1920 };
+    project.preview.preset = 'desktop';
 
     const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
 
-    assert.deepEqual(loaded.viewport, { width: 390, height: 844 });
-    assert.deepEqual(loaded.output, { width: 1080, height: 1920 });
+    assert.deepEqual(loaded.preview, { preset: 'desktop' });
+    assert.equal('viewport' in loaded, false);
+    assert.equal('output' in loaded, false);
+});
 
-    delete (project as unknown as { output?: unknown }).output;
-    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /Project output/u);
+test('Vorschau-Presets leiten die Videoauflösung aus CSS-Viewport und DPR ab', () => {
+    assert.equal(previewPreset('phone-portrait').devicePixelRatio, 3);
+    assert.deepEqual(previewOutputSize('phone-portrait'), { width: 1080, height: 1920 });
+    assert.deepEqual(previewOutputSize('tablet-landscape'), { width: 2048, height: 1536 });
+});
+
+test('Director-Projektformat lehnt unbekannte Vorschau-Presets ab', () => {
+    const project = ProjectFormat.create();
+    project.preview.preset = 'custom-size' as never;
+
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /known preset/u);
 });
 
 test('Director-Projektformat migriert Version 1 bewusst nicht', () => {
@@ -260,6 +243,14 @@ test('Director-Projektformat migriert Version 1 bewusst nicht', () => {
     assert.throws(
         () => ProjectFormat.parse(JSON.stringify(project)),
         /Unsupported project version: 1/u,
+    );
+});
+
+test('Director-Projektformat migriert frühere Versionen bewusst nicht', () => {
+    const project = { ...ProjectFormat.create(), version: 7 };
+    assert.throws(
+        () => ProjectFormat.parse(JSON.stringify(project)),
+        /Unsupported project version: 7/u,
     );
 });
 

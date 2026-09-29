@@ -348,23 +348,24 @@ ready.catch(showError);
                 type: step.node.type,
                 speed: step.speed,
                 source: '',
-                action: step.node.action,
                 selector: step.node.selector,
             };
         }
         if (step.node.type === 'browser-wait') {
-            return {
+            const common = {
                 id: step.node.id,
                 type: step.node.type,
                 speed: step.speed,
                 source: '',
                 condition: step.node.condition,
-                selector: step.node.selector,
-                value: step.node.value,
-                script: step.node.script,
                 timeoutMs: step.node.timeoutMs,
                 omitFromRecording: step.node.omitFromRecording,
             };
+            if (step.node.condition === 'element') {
+                return { ...common, selector: step.node.selector };
+            }
+            if (step.node.condition === 'url') return { ...common, value: step.node.value };
+            return { ...common, script: step.node.script };
         }
         if (step.node.type === 'javascript') {
             return {

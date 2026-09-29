@@ -26,7 +26,7 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     assert.equal(script.id, 'javascript-1');
     assert.equal(layer.position, null);
     assert.equal(script.position, null);
-    assert.equal(action.action, 'click');
+    assert.equal(action.selector, 'button');
     assert.equal(wait.condition, 'element');
     assert.equal(wait.timeoutMs, 30_000);
     assert.equal(wait.omitFromRecording, true);

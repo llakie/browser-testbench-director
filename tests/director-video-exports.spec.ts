@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { DirectorVideoExports } from '../src/server/director-video-exports.js';
 
-test('Director-Videoexport normalisiert Aufnahme auf die Projektmaße', () => {
+test('Director-Videoexport behält die nativen Target-Maße bei der Nachbearbeitung bei', () => {
     const arguments_ = DirectorVideoExports.ffmpegArguments(
         '/tmp/raw.mp4',
         '/tmp/export.mp4',

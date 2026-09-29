@@ -90,16 +90,6 @@ export const projectMethods: WorkspaceMethodMap = {
         }
         this.project = ProjectFormat.clone(project);
         this.activeConnectionId = null;
-        this.selectedViewportPresetId =
-            [...this.viewportPresets]
-                .reverse()
-                .find(
-                    (preset) =>
-                        preset.viewport.width === this.project.viewport.width &&
-                        preset.viewport.height === this.project.viewport.height &&
-                        preset.output.width === this.project.output.width &&
-                        preset.output.height === this.project.output.height,
-                )?.id ?? null;
         this.filename = filename;
         this.inputFiles = {};
         this.inputData = {};
@@ -122,6 +112,9 @@ export const projectMethods: WorkspaceMethodMap = {
         ) ?? this.project.nodes[0])!.id;
         this.activeSource = 'html';
         this.deviceMenuOpen = false;
+        this.mobileMenuOpen = false;
+        this.projectSettingsOpen = false;
+        this.projectPermissionsOpen = false;
         this.mobileActivePanel = 'graph';
         this.dirty = dirty;
         this.hasPlayed = false;

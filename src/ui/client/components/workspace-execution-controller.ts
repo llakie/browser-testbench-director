@@ -408,16 +408,17 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 plan.inputs,
             );
             sessionId = await BrowserTestbenchPreview.open(
-                target.id,
+                target,
                 nodeId,
                 await this.remoteShellDocument(plan, inputs),
                 {},
                 [],
                 recording && target.kind === 'desktop',
+                this.project.browserSession,
             );
         }
         if (target.kind === 'desktop') {
-            await BrowserTestbenchPreview.setViewport(sessionId, this.project.viewport);
+            await BrowserTestbenchPreview.setViewport(sessionId, this.previewViewport);
         }
         return sessionId;
     },

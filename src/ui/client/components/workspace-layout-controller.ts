@@ -48,8 +48,8 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
         if (availableWidth <= 0 || availableHeight <= 0) return;
         this.previewFitScale = Math.min(
-            availableWidth / this.project.viewport.width,
-            availableHeight / this.project.viewport.height,
+            availableWidth / this.previewViewport.width,
+            availableHeight / this.previewViewport.height,
         );
     },
     changeGraphZoom(delta: number): void {

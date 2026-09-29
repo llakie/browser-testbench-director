@@ -1,0 +1,120 @@
+<template>
+    <div
+        v-if="projectSettingsOpen"
+        class="modal-backdrop"
+        data-testid="project-settings-backdrop"
+        @pointerdown.self="closeProjectSettings"
+        @keydown.esc.stop.prevent="closeProjectSettings"
+    >
+        <section
+            class="setup-dialog project-settings-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-settings-title"
+            @pointerdown="closeProjectPermissions"
+        >
+            <header>
+                <div>
+                    <h2 id="project-settings-title">{{ t('project.settings') }}</h2>
+                    <p>{{ t('browserSession.intro') }}</p>
+                </div>
+                <button
+                    class="icon-button"
+                    type="button"
+                    data-testid="close-project-settings"
+                    :aria-label="t('project.closeSettings')"
+                    @click="closeProjectSettings"
+                >
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="project-settings-group">
+                <strong>{{ t('browserSession.title') }}</strong>
+                <div class="project-settings-fields">
+                    <label>
+                        <span>{{ t('browserSession.language') }}</span>
+                        <input
+                            :value="browserSession.language"
+                            type="text"
+                            list="browser-language-options"
+                            data-testid="browser-session-language"
+                            :placeholder="t('browserSession.languagePlaceholder')"
+                            spellcheck="false"
+                            @input="updateBrowserSessionSetting('language', $event)"
+                        />
+                        <datalist id="browser-language-options">
+                            <option value="de"></option>
+                            <option value="en"></option>
+                            <option value="es"></option>
+                            <option value="fr"></option>
+                            <option value="it"></option>
+                            <option value="nl"></option>
+                            <option value="pl"></option>
+                            <option value="pt"></option>
+                        </datalist>
+                    </label>
+                    <label>
+                        <span>{{ t('browserSession.locale') }}</span>
+                        <input
+                            :value="browserSession.locale"
+                            type="text"
+                            list="browser-locale-options"
+                            data-testid="browser-session-locale"
+                            :placeholder="t('browserSession.localePlaceholder')"
+                            spellcheck="false"
+                            @input="updateBrowserSessionSetting('locale', $event)"
+                        />
+                        <datalist id="browser-locale-options">
+                            <option value="DE"></option>
+                            <option value="US"></option>
+                            <option value="GB"></option>
+                            <option value="ES"></option>
+                            <option value="FR"></option>
+                            <option value="IT"></option>
+                            <option value="NL"></option>
+                            <option value="PL"></option>
+                            <option value="PT"></option>
+                        </datalist>
+                    </label>
+                </div>
+                <p>{{ t('browserSession.languageHint') }}</p>
+                <div class="project-settings-permissions">
+                    <span>{{ t('browserSession.permissions') }}</span>
+                    <div class="permission-select" @pointerdown.stop>
+                        <button
+                            class="permission-select__trigger"
+                            type="button"
+                            data-testid="browser-session-permissions"
+                            :aria-expanded="String(projectPermissionsOpen)"
+                            aria-controls="browser-session-permission-options"
+                            @click="toggleProjectPermissions"
+                        >
+                            <span>{{ browserPermissionSummary }}</span>
+                            <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                        </button>
+                        <div
+                            v-if="projectPermissionsOpen"
+                            id="browser-session-permission-options"
+                            class="permission-select__menu"
+                            role="listbox"
+                            aria-multiselectable="true"
+                            @keydown.esc.stop.prevent="closeProjectPermissions"
+                        >
+                            <label v-for="permission in browserPermissions" :key="permission">
+                                <input
+                                    type="checkbox"
+                                    :value="permission"
+                                    :checked="browserSession.permissions.includes(permission)"
+                                    :data-testid="`browser-session-permission-${permission}`"
+                                    @change="setBrowserPermission(permission, $event)"
+                                />
+                                <span>{{ t(`browserSession.${permission}`) }}</span>
+                            </label>
+                        </div>
+                    </div>
+                    <p>{{ t('browserSession.permissionsHint') }}</p>
+                </div>
+            </div>
+        </section>
+    </div>
+</template>

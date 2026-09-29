@@ -1,5 +1,6 @@
 import type { BrowserTestbenchTarget } from '../core/browser-testbench-preview.js';
 import type { NodeExecutionStatus } from '../core/execution-controller.js';
+import { previewPresetDefinitions, type PreviewPresetId } from '../core/media-presets.js';
 import type { LayerSource } from '../core/project-format.js';
 import type { WorkflowPlan } from '../core/workflow-planner.js';
 
@@ -11,10 +12,9 @@ export type CreatableNodeType =
     'input' | 'camera-capability' | 'layer' | 'javascript' | 'browser-action' | 'browser-wait';
 
 export interface ViewportPreset {
-    readonly id:
-        'phone-portrait' | 'phone-landscape' | 'tablet-portrait' | 'tablet-landscape' | 'desktop';
+    readonly id: PreviewPresetId;
     readonly viewport: { readonly width: number; readonly height: number };
-    readonly output: { readonly width: number; readonly height: number };
+    readonly devicePixelRatio: number;
     readonly icon: string;
     readonly labelKey: string;
 }
@@ -42,43 +42,23 @@ export interface McpClientStatus {
     readonly automatic: boolean;
 }
 
-export const viewportPresets: readonly ViewportPreset[] = [
-    {
-        id: 'phone-portrait',
-        viewport: { width: 360, height: 640 },
-        output: { width: 1080, height: 1920 },
-        icon: 'bi-phone',
-        labelKey: 'preview.phonePortrait',
-    },
-    {
-        id: 'phone-landscape',
-        viewport: { width: 640, height: 360 },
-        output: { width: 1920, height: 1080 },
-        icon: 'bi-phone-landscape',
-        labelKey: 'preview.phoneLandscape',
-    },
-    {
-        id: 'tablet-portrait',
-        viewport: { width: 768, height: 1024 },
-        output: { width: 1536, height: 2048 },
-        icon: 'bi-tablet',
-        labelKey: 'preview.tabletPortrait',
-    },
-    {
-        id: 'tablet-landscape',
-        viewport: { width: 1024, height: 768 },
-        output: { width: 2048, height: 1536 },
+const viewportPresentation: Record<PreviewPresetId, Pick<ViewportPreset, 'icon' | 'labelKey'>> = {
+    'phone-portrait': { icon: 'bi-phone', labelKey: 'preview.phonePortrait' },
+    'phone-landscape': { icon: 'bi-phone-landscape', labelKey: 'preview.phoneLandscape' },
+    'tablet-portrait': { icon: 'bi-tablet', labelKey: 'preview.tabletPortrait' },
+    'tablet-landscape': {
         icon: 'bi-tablet-landscape',
         labelKey: 'preview.tabletLandscape',
     },
-    {
-        id: 'desktop',
-        viewport: { width: 1920, height: 1080 },
-        output: { width: 1920, height: 1080 },
-        icon: 'bi-display',
-        labelKey: 'preview.desktop',
-    },
-];
+    desktop: { icon: 'bi-display', labelKey: 'preview.desktop' },
+};
+
+export const viewportPresets: readonly ViewportPreset[] = previewPresetDefinitions.map(
+    (preset) => ({
+        ...preset,
+        ...viewportPresentation[preset.id],
+    }),
+);
 
 export const commonInputTypes = [
     'image/*',

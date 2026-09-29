@@ -30,6 +30,7 @@ try {
     await verifyLayout(browser, 'desktop', 1440, 1000, 'portrait-dock');
     await verifyLayout(browser, 'tablet', 1024, 900, 'portrait-dock');
     await verifyLayout(browser, 'mobile', 390, 844, 'mobile-tabs');
+    await verifyMobileMenu(browser);
     await verifyFlyoutCollision(browser);
     await verifyPreviewDevices(browser);
     await verifyMcpSetup(browser);
@@ -60,6 +61,89 @@ try {
     );
 } finally {
     await browser.close().catch(() => undefined);
+}
+
+async function verifyMobileMenu(session: RemoteSession): Promise<void> {
+    await session.setViewport(390, 844);
+    const header = await session.evaluate<{
+        desktopActionsWidth: number;
+        triggerWidth: number;
+        titleTop: number;
+        titleBottom: number;
+        headerTop: number;
+        headerBottom: number;
+    }>(`
+        const bounds = selector => document.querySelector(selector).getBoundingClientRect();
+        const header = bounds('.topbar');
+        const title = bounds('.project-title');
+        return {
+            desktopActionsWidth: bounds('.file-actions').width,
+            triggerWidth: bounds('[data-testid="open-mobile-menu"]').width,
+            titleTop: title.top,
+            titleBottom: title.bottom,
+            headerTop: header.top,
+            headerBottom: header.bottom,
+        };
+    `);
+    assert.equal(header.desktopActionsWidth, 0, 'mobile menu: desktop actions must be hidden.');
+    assert.ok(header.triggerWidth > 0, 'mobile menu: hamburger trigger must be visible.');
+    assert.ok(
+        header.titleTop >= header.headerTop && header.titleBottom <= header.headerBottom,
+        'mobile menu: project title must remain in the header row.',
+    );
+
+    await session.click('[data-testid="open-mobile-menu"]');
+    await session.waitForElement('[data-testid="mobile-menu-backdrop"]', 5_000);
+    const menu = await session.evaluate<{
+        labels: string[];
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+        width: number;
+        viewportWidth: number;
+        viewportHeight: number;
+    }>(`
+        const menu = document.querySelector('.mobile-project-menu');
+        const rect = menu.getBoundingClientRect();
+        return {
+            labels: [...menu.querySelectorAll('button span')].map(element => element.textContent.trim()),
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: rect.width,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+        };
+    `);
+    assert.equal(menu.labels.length, 6, 'mobile menu: all project actions must be available.');
+    assert.ok(menu.width > 0 && menu.left >= 0 && menu.right <= menu.viewportWidth);
+    assert.ok(menu.top >= 0 && menu.bottom <= menu.viewportHeight);
+    await session.screenshot(join(outputDirectory, 'mobile-menu.png'), true);
+
+    await session.click('[data-testid="mobile-open-project-settings"]');
+    await session.waitForState('[data-testid="mobile-menu-backdrop"]', 'absent', 5_000);
+    await session.waitForElement('[data-testid="project-settings-backdrop"]', 5_000);
+    await session.evaluate(`
+        document.querySelector('[data-testid="project-settings-backdrop"]')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    `);
+    await session.waitForState('[data-testid="project-settings-backdrop"]', 'absent', 5_000);
+
+    await session.click('[data-testid="open-mobile-menu"]');
+    await session.evaluate(`
+        document.querySelector('.mobile-project-menu')
+            .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    `);
+    await session.waitForState('[data-testid="mobile-menu-backdrop"]', 'absent', 5_000);
+
+    await session.click('[data-testid="open-mobile-menu"]');
+    await session.evaluate(`
+        document.querySelector('[data-testid="mobile-menu-backdrop"]')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    `);
+    await session.waitForState('[data-testid="mobile-menu-backdrop"]', 'absent', 5_000);
 }
 
 async function verifyEmptyProjectPlayback(session: RemoteSession): Promise<void> {
@@ -164,7 +248,9 @@ async function verifyFlyoutCollision(session: RemoteSession): Promise<void> {
 }
 
 async function verifyMcpSetup(session: RemoteSession): Promise<void> {
-    await session.click('[data-testid="open-mcp-setup"]');
+    await session.setViewport(390, 844);
+    await session.click('[data-testid="open-mobile-menu"]');
+    await session.click('[data-testid="mobile-open-mcp-setup"]');
     await session.waitForElement('.mcp-client', 10_000);
     const overlay = await session.evaluate<{ labels: string[]; blur: string }>(`
         const backdrop = document.querySelector('[data-testid="mcp-setup-backdrop"]');
@@ -185,6 +271,7 @@ async function verifyMcpSetup(session: RemoteSession): Promise<void> {
         return document.querySelector('[data-testid="mcp-setup-backdrop"]') === null;
     `);
     assert.equal(closed, true, 'overlay: backdrop pointer action must close the dialog.');
+    await session.setViewport(1440, 1000);
 }
 
 async function verifySelectorPicker(session: RemoteSession): Promise<void> {
@@ -198,7 +285,6 @@ async function verifySelectorPicker(session: RemoteSession): Promise<void> {
             type: 'browser-action',
             name: 'Pick action',
             position: null,
-            action: 'click',
             selector: 'body',
         },
     ];
@@ -272,12 +358,8 @@ async function verifySelectorPicker(session: RemoteSession): Promise<void> {
         'picking',
         `selector picker: remote session did not enter picking mode (${JSON.stringify(pickerState)}).`,
     );
-    await pickerSession.click('[data-testid="save-project"]');
-    await session.waitForValue(
-        '[data-testid="browser-action-selector"]',
-        '[data-testid="save-project"]',
-        10_000,
-    );
+    await pickerSession.click('#project-name');
+    await session.waitForValue('[data-testid="browser-action-selector"]', '#project-name', 10_000);
     await pickerSession.close().catch(() => undefined);
     await session.click('[data-testid="new-project"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
@@ -617,6 +699,34 @@ async function verifyLayerSelectionAndZoom(session: RemoteSession): Promise<void
     await session.upload('[data-testid="project-file-input"]', projectPath);
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 2, 5_000);
+
+    await session.click('[data-testid="open-project-settings"]');
+    await session.waitForElement('[data-testid="project-settings-backdrop"]', 5_000);
+    await session.evaluate(`
+        for (const [selector, value] of [
+            ['[data-testid="browser-session-language"]', 'de'],
+            ['[data-testid="browser-session-locale"]', 'DE'],
+        ]) {
+            const input = document.querySelector(selector);
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    `);
+    await session.waitForValue('[data-testid="browser-session-language"]', 'de', 5_000);
+    await session.waitForValue('[data-testid="browser-session-locale"]', 'DE', 5_000);
+    await session.click('[data-testid="browser-session-permissions"]');
+    await session.waitForElement('[data-testid="browser-session-permission-microphone"]', 5_000);
+    await session.click('[data-testid="browser-session-permission-microphone"]');
+    const permissions = await session.evaluate<string[]>(
+        'return [...document.querySelectorAll(`[data-testid^="browser-session-permission-"]:checked`)].map((input) => input.value);',
+    );
+    assert.deepEqual(permissions, ['microphone']);
+    await session.evaluate(`
+        document
+            .querySelector('[data-testid="project-settings-backdrop"]')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    `);
+    await session.waitForState('[data-testid="project-settings-backdrop"]', 'absent', 5_000);
 
     await selectGraphNode(session, 'website-root');
     await session.waitForValue('[data-testid="website-url"]', '', 5_000);
@@ -1862,8 +1972,6 @@ document.body.append(marker);`,
             name: 'Recognized card',
             position: { x: 544, y: 8 },
             condition: 'script',
-            selector: '#recognized-marker',
-            value: '/',
             script: `const marker = document.querySelector('#recognized-marker');
 return marker ? { cardName: marker.dataset.cardName } : false;`,
             timeoutMs: 5_000,
@@ -1964,8 +2072,6 @@ async function verifyCameraSessionConfiguration(session: RemoteSession): Promise
         target: 'website-root',
     });
     project.browserSession = {
-        target: { browser: null, deviceKind: null },
-        localOrigins: 'reverse',
         permissions: [],
         language: 'de',
         locale: 'DE',
@@ -2336,8 +2442,7 @@ async function verifyProjectRoundtrip(session: RemoteSession): Promise<void> {
 
 async function verifyLandscapeDock(session: RemoteSession): Promise<void> {
     const project = ProjectFormat.create('Landscape');
-    project.viewport = { width: 1920, height: 1080 };
-    project.output = { width: 1920, height: 1080 };
+    project.preview.preset = 'desktop';
     const projectPath = join(outputDirectory, 'landscape.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);

@@ -203,6 +203,11 @@
     gap: 7px;
 }
 
+.mobile-header-actions,
+.mobile-menu-backdrop {
+    display: none;
+}
+
 .file-actions .icon-button {
     width: 36px;
     height: 36px;

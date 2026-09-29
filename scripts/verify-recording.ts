@@ -64,8 +64,6 @@ layer.source = {
     javascript: `director.root.dataset.recorded = 'true';`,
 };
 project.browserSession = {
-    target: { browser: null, deviceKind: null },
-    localOrigins: null,
     permissions: [],
     language: 'de',
     locale: 'DE',
@@ -109,6 +107,10 @@ try {
     const targetSelector = `[data-testid="recording-target-${recordingTarget}"]`;
     await controller.waitForElement(targetSelector, 5_000);
     await controller.waitForState(targetSelector, 'enabled', 5_000);
+    const recordingTargetKind = await controller.evaluate<'desktop' | 'mobile'>(`
+        const target = document.querySelector('${targetSelector}');
+        return target?.querySelector('.bi-display') ? 'desktop' : 'mobile';
+    `);
     await controller.click(targetSelector);
     let download: Awaited<ReturnType<typeof controller.waitForDownload>>;
     try {
@@ -146,6 +148,13 @@ try {
     };
     const stream = probe.streams?.[0];
     assert.ok(stream?.width && stream.height, 'Recording must have video dimensions.');
+    if (recordingTargetKind === 'desktop') {
+        assert.deepEqual(
+            { width: stream.width, height: stream.height },
+            { width: 1080, height: 1920 },
+            'Desktop recording must derive its output from the preview preset DPR.',
+        );
+    }
     assert.ok(Number(probe.format?.duration) > 0, 'Recording must have a positive duration.');
     process.stdout.write(
         `Recording verification passed (${controllerTarget} → ${recordingTarget}, ${stream.width} × ${stream.height}, ${probe.format?.duration}s).\nMP4: ${download.path}\n`,
