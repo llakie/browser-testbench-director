@@ -6,7 +6,7 @@ import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
 import { ProjectNodes } from '../../src/ui/client/core/project-nodes.js';
-import { playGraphNode, selectGraphNode } from '../support/director-ui.js';
+import { selectGraphNode } from '../support/director-ui.js';
 import { outputDirectory } from '../support/ui-verification-context.js';
 
 export async function verifyAudioPlayback(session: RemoteSession): Promise<void> {
@@ -19,16 +19,24 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
     input.accept = 'audio/wav';
     const audio = ProjectNodes.createAudio(project, 'Play soundtrack');
     audio.volume = 0.4;
-    project.nodes = [input, website, audio];
+    audio.waitForEnd = true;
+    const visual = ProjectNodes.createLayer(project, 'Finish video');
+    visual.playback = { durationMs: 100, removeAfter: true };
+    const merge = ProjectNodes.createMerge(project, 'Stop remaining branches');
+    merge.waitFor = 'any';
+    project.nodes = [input, website, audio, visual, merge];
     project.connections = [
         { id: `${input.id}--${audio.id}`, source: input.id, target: audio.id },
         { id: `${website.id}--${audio.id}`, source: website.id, target: audio.id },
+        { id: `${website.id}--${visual.id}`, source: website.id, target: visual.id },
+        { id: `${audio.id}--${merge.id}`, source: audio.id, target: merge.id },
+        { id: `${visual.id}--${merge.id}`, source: visual.id, target: merge.id },
     ];
     const projectPath = join(outputDirectory, 'audio-playback.btd.json');
     const audioPath = join(outputDirectory, 'silence.wav');
     await Promise.all([
         writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
-        writeFile(audioPath, silentWave(250)),
+        writeFile(audioPath, silentWave(2_000)),
     ]);
 
     await session.upload('[data-testid="project-file-input"]', projectPath);
@@ -42,12 +50,7 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         10_000,
     );
     await selectGraphNode(session, audio.id);
-    assert.equal(
-        (await session.state('[data-testid="audio-volume"]')).value,
-        '0.4',
-        'audio: volume must be editable and persisted in the node.',
-    );
-    await playGraphNode(session, audio.id);
+    await session.click('[data-testid="play-node-current"]');
     await session.waitForScript(
         `return ['✓', '!'].includes(document.querySelector(
             '[model-id="${audio.id}"] [joint-selector="statusText"]'
@@ -55,20 +58,126 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         [],
         10_000,
     );
-    const result = await session.evaluate<{ error: string; running: boolean; status: string }>(`
+    const instantPlayback = await session.evaluate<{ error: string; status: string }>(`
         return {
             error: document.querySelector('.node-execution-error')?.textContent?.trim() ?? '',
-            running: Boolean(document.querySelector('[data-testid="stop-preview-execution"]')),
             status: document.querySelector(
                 '[model-id="${audio.id}"] [joint-selector="statusText"]'
             )?.textContent ?? '',
         };
     `);
     assert.deepEqual(
-        result,
-        { error: '', running: false, status: '✓' },
-        'audio: playback must complete.',
+        instantPlayback,
+        { error: '', status: '✓' },
+        'audio: instant playback must receive the loaded audio input.',
     );
+    assert.equal(
+        (await session.state('[data-testid="audio-volume"]')).value,
+        '0.4',
+        'audio: volume must be editable and persisted in the node.',
+    );
+    await session.press('\uE011', '[data-testid="audio-volume"]');
+    assert.equal(
+        (await session.state('[data-testid="audio-volume"]')).value,
+        '0',
+        'audio: the volume slider must reach its minimum.',
+    );
+    await session.press('\uE010', '[data-testid="audio-volume"]');
+    assert.equal(
+        (await session.state('[data-testid="audio-volume"]')).value,
+        '1',
+        'audio: the volume slider must reach its maximum.',
+    );
+    assert.equal(
+        (await session.state('[data-testid="audio-file-name"]')).text,
+        'silence.wav',
+        'audio: properties must show the connected audio filename.',
+    );
+    await session.click('[data-testid="audio-envelope-editor"] svg');
+    await session.waitForCount('[data-testid="audio-envelope-point"]', 3, 5_000);
+    await session.drag(
+        '[data-testid="audio-envelope-point"][data-point-index="1"]',
+        '[data-testid="audio-envelope-point"][data-point-index="2"]',
+    );
+    const envelope = await session.evaluate<{
+        middle: number;
+        end: number;
+        selected: string;
+    }>(`
+        const points = document.querySelectorAll('[data-testid="audio-envelope-point"]');
+        return {
+            middle: Number(points[1].getAttribute('cx')),
+            end: Number(points[2].getAttribute('cx')),
+            selected: document.querySelector(
+                '.audio-envelope-editor__footer output'
+            )?.textContent?.trim() ?? '',
+        };
+    `);
+    assert.ok(
+        envelope.end - envelope.middle >= 15,
+        'audio: points must stop visibly before their right neighbor.',
+    );
+    assert.match(envelope.selected, /%/u, 'audio: the selected point must expose its values.');
+    await session.screenshot(join(outputDirectory, 'audio-envelope-editor.png'), true);
+    await session.click('[data-testid="play-workflow"]');
+    await session.waitForCount('[data-testid="stop-preview-execution"]', 1, 10_000);
+    await session.waitForCount('[data-testid="play-workflow"]', 1, 10_000);
+    await session.waitForScript(
+        `return document.querySelector(
+            '[model-id="${audio.id}"] [joint-selector="statusText"]'
+        )?.textContent === '■' && document.querySelector(
+            '[model-id="${merge.id}"] [joint-selector="statusText"]'
+        )?.textContent === '✓' && document.querySelector(
+            '[model-id="${visual.id}"] [joint-selector="statusText"]'
+        )?.textContent === '✓';`,
+        [],
+        10_000,
+    );
+    const result = await session.evaluate<{
+        audioStatus: string;
+        error: string;
+        running: boolean;
+        mergeStatus: string;
+        visualStatus: string;
+    }>(`
+        return {
+            audioStatus: document.querySelector(
+                '[model-id="${audio.id}"] [joint-selector="statusText"]'
+            )?.textContent ?? '',
+            error: document.querySelector('.node-execution-error')?.textContent?.trim() ?? '',
+            running: Boolean(document.querySelector('[data-testid="stop-preview-execution"]')),
+            mergeStatus: document.querySelector(
+                '[model-id="${merge.id}"] [joint-selector="statusText"]'
+            )?.textContent ?? '',
+            visualStatus: document.querySelector(
+                '[model-id="${visual.id}"] [joint-selector="statusText"]'
+            )?.textContent ?? '',
+        };
+    `);
+    assert.deepEqual(
+        result,
+        {
+            audioStatus: '■',
+            error: '',
+            running: false,
+            mergeStatus: '✓',
+            visualStatus: '✓',
+        },
+        'audio: wait-any must cancel the losing soundtrack branch and complete the merge.',
+    );
+    await session.setViewport(390, 844);
+    await session.click('[data-testid="mobile-editor-tab"]');
+    const mobileEnvelopeInsideViewport = await session.evaluate<boolean>(`
+        const editor = document.querySelector('[data-testid="audio-envelope-editor"]')
+            .getBoundingClientRect();
+        return editor.left >= 0 && editor.right <= innerWidth;
+    `);
+    assert.equal(
+        mobileEnvelopeInsideViewport,
+        true,
+        'audio: the envelope editor must fit the mobile properties view.',
+    );
+    await session.screenshot(join(outputDirectory, 'audio-envelope-editor-mobile.png'), true);
 
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);

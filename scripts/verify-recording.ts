@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { RemoteTestbench } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../src/ui/client/core/project-format.js';
-import { selectGraphNode } from './support/director-ui.js';
+import { playGraphNode, selectGraphNode } from './support/director-ui.js';
 
 const applicationUrl = process.env['DIRECTOR_UI_URL'] ?? 'http://127.0.0.1:5173/';
 const server = process.env['BROWSER_TESTBENCH_URL'] ?? 'http://127.0.0.1:55808';
@@ -59,7 +59,19 @@ project.nodes.push({
     name: 'Play recording audio',
     position: null,
     volume: 0.5,
+    envelope: [
+        { time: 0, gain: 1 },
+        { time: 1, gain: 1 },
+    ],
     waitForEnd: true,
+});
+project.nodes.push({
+    id: 'video-output',
+    type: 'video-output',
+    name: 'Recording output',
+    position: null,
+    targetId: '',
+    filename,
 });
 project.connections.unshift(
     { id: 'recording-audio--play', source: 'recording-audio', target: 'play-recording-audio' },
@@ -70,6 +82,11 @@ project.connections.push({
     id: 'website-root--play-recording-audio',
     source: 'website-root',
     target: 'play-recording-audio',
+});
+project.connections.push({
+    id: 'layer-1--video-output',
+    source: 'layer-1',
+    target: 'video-output',
 });
 const layer = project.nodes.find((node) => node.type === 'layer')!;
 layer.name = 'Recording marker';
@@ -128,7 +145,16 @@ try {
     await selectGraphNode(controller, 'recording-audio');
     await controller.waitForElement('[data-testid="project-input-recording-audio"]', 10_000);
     await controller.upload('[data-testid="project-input-recording-audio"]', audioPath);
-    await controller.waitForState('[data-testid="record-workflow"]', 'enabled', 30_000);
+    await selectGraphNode(controller, 'video-output');
+    await controller.waitForElement(
+        `[data-testid="video-output-target"] option[value="${recordingTarget}"]`,
+        30_000,
+    );
+    await controller.evaluate(`
+        const select = document.querySelector('[data-testid="video-output-target"]');
+        select.value = '${recordingTarget}';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
     await controller.evaluate(`
         window.__directorRecordingRequests = [];
         const originalFetch = window.fetch.bind(window);
@@ -140,20 +166,18 @@ try {
                     url,
                     status: response.status,
                     body: await response.clone().text(),
+                    requestBody: arguments_[1]?.body ?? null,
                 });
             }
             return response;
         };
     `);
-    await controller.click('[data-testid="record-workflow"]');
-    const targetSelector = `[data-testid="recording-target-${recordingTarget}"]`;
-    await controller.waitForElement(targetSelector, 5_000);
-    await controller.waitForState(targetSelector, 'enabled', 5_000);
     const recordingTargetKind = await controller.evaluate<'desktop' | 'mobile'>(`
-        const target = document.querySelector('${targetSelector}');
-        return target?.querySelector('.bi-display') ? 'desktop' : 'mobile';
+        const option = [...document.querySelectorAll('[data-testid="video-output-target"] option')]
+            .find(candidate => candidate.value === '${recordingTarget}');
+        return /desktop/iu.test(option?.textContent ?? '') ? 'desktop' : 'mobile';
     `);
-    await controller.click(targetSelector);
+    await playGraphNode(controller, 'video-output');
     let download: Awaited<ReturnType<typeof controller.waitForDownload>>;
 
     try {
@@ -197,6 +221,17 @@ try {
     const audioStream = probe.streams?.find((candidate) => candidate.codec_type === 'audio');
     assert.ok(stream?.width && stream.height, 'Recording must have video dimensions.');
     assert.equal(audioStream?.codec_name, 'aac', 'Recording must contain the mixed audio node.');
+
+    const sessionRequest = await controller.evaluate<string | null>(`
+        return window.__directorRecordingRequests.find(
+            request => request.url.endsWith('/browser-testbench-api/sessions')
+        )?.requestBody ?? null;
+    `);
+    assert.equal(
+        (JSON.parse(sessionRequest ?? '{}') as { headless?: boolean }).headless,
+        false,
+        'Desktop recording sessions must open visibly.',
+    );
 
     if (recordingTargetKind === 'desktop') {
         assert.deepEqual(

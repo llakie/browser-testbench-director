@@ -6,6 +6,9 @@ import {
     type ServerResponse,
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { connect as connectNet } from 'node:net';
+import type { Duplex } from 'node:stream';
+import { connect as connectTls } from 'node:tls';
 
 import { parse as parseJavaScript, type Identifier, type MemberExpression } from 'acorn';
 import { simple as walkJavaScript } from 'acorn-walk';
@@ -42,17 +45,14 @@ export class DirectorWebsiteProxy {
 
     async proxy(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const source = new URL(request.url ?? '/', 'http://director.local');
-        const match = /^\/director-website\/([^/]+)(\/.*)?$/u.exec(source.pathname);
-        const id = match?.[1] ? decodeURIComponent(match[1]) : '';
-        const registered = this.#targets.get(id);
+        const route = this.#route(source);
 
-        if (!registered) {
+        if (!route) {
             this.#json(response, 404, { error: 'Unknown website proxy.' });
             return;
         }
 
-        const target = new URL(`${match?.[2] || '/'}${source.search}`, registered.origin);
-        const prefix = `${DirectorWebsiteProxy.routePath}${encodeURIComponent(id)}`;
+        const { prefix, target } = route;
         const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
         await new Promise<void>((resolveProxy, reject) => {
@@ -110,6 +110,55 @@ export class DirectorWebsiteProxy {
         });
     }
 
+    upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
+        const source = new URL(request.url ?? '/', 'http://director.local');
+        const route = this.#route(source);
+
+        if (!route) {
+            return false;
+        }
+
+        const { target } = route;
+        const port = Number(target.port || (target.protocol === 'https:' ? 443 : 80));
+        const upstream =
+            target.protocol === 'https:'
+                ? connectTls({
+                      host: target.hostname,
+                      port,
+                      servername: this.#isLoopback(target.hostname) ? undefined : target.hostname,
+                      rejectUnauthorized: !this.#isLoopback(target.hostname),
+                  })
+                : connectNet({ host: target.hostname, port });
+
+        upstream.once('connect', () => {
+            const headers = this.#requestHeaders(request.headers, target);
+            const lines = [
+                `${request.method ?? 'GET'} ${target.pathname}${target.search} HTTP/${request.httpVersion}`,
+                ...Object.entries(headers).flatMap(([name, value]) => {
+                    if (value === undefined) {
+                        return [];
+                    }
+
+                    return Array.isArray(value)
+                        ? value.map((item) => `${name}: ${item}`)
+                        : [`${name}: ${value}`];
+                }),
+                '',
+                '',
+            ];
+            upstream.write(lines.join('\r\n'));
+
+            if (head.length > 0) {
+                upstream.write(head);
+            }
+
+            socket.pipe(upstream).pipe(socket);
+        });
+        upstream.once('error', () => socket.destroy());
+        socket.once('error', () => upstream.destroy());
+        return true;
+    }
+
     async #proxyText(
         upstream: IncomingMessage,
         response: ServerResponse,
@@ -131,6 +180,10 @@ export class DirectorWebsiteProxy {
                 /<script\b[^>]*\bsrc=["']\/@vite\/client["'][^>]*><\/script>\s*/iu,
                 '',
             );
+            html = html.replace(
+                /<head(\s[^>]*)?>/iu,
+                (head) => `${head}<meta name="google" content="notranslate">`,
+            );
             html = html.replace(/(\b(?:src|href|action)=["'])\/(?!\/)/giu, `$1${prefix}/`);
             html = /<base\b[^>]*>/iu.test(html)
                 ? html.replace(/<base\b[^>]*>/iu, `<base href="${base}">`)
@@ -143,7 +196,7 @@ export class DirectorWebsiteProxy {
         } else if (kind === 'javascript') {
             html = await this.#rewriteModuleSpecifiers(html, prefix);
         } else {
-            html = html.replace(/url\(\s*(["']?)\/(?!\/)/giu, `url($1${prefix}/`);
+            html = this.#rewriteCssUrls(html, prefix);
         }
 
         const headers = this.#responseHeaders(upstream.headers, prefix, target);
@@ -201,7 +254,11 @@ export class DirectorWebsiteProxy {
             rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`;
         }
 
-        return rewritten;
+        return this.#rewriteCssUrls(rewritten, prefix);
+    }
+
+    #rewriteCssUrls(source: string, prefix: string): string {
+        return source.replace(/(?<![\w$])url\(\s*(["']?)\/(?!\/)/giu, `url($1${prefix}/`);
     }
 
     #isWebsitePathname(node: MemberExpression): boolean {
@@ -283,6 +340,21 @@ export class DirectorWebsiteProxy {
         }
 
         return result;
+    }
+
+    #route(source: URL): { readonly prefix: string; readonly target: URL } | null {
+        const match = /^\/director-website\/([^/]+)(\/.*)?$/u.exec(source.pathname);
+        const id = match?.[1] ? decodeURIComponent(match[1]) : '';
+        const registered = this.#targets.get(id);
+
+        if (!registered) {
+            return null;
+        }
+
+        return {
+            prefix: `${DirectorWebsiteProxy.routePath}${encodeURIComponent(id)}`,
+            target: new URL(`${match?.[2] || '/'}${source.search}`, registered.origin),
+        };
     }
 
     #proxyUrl(id: string, target: URL): string {

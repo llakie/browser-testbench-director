@@ -16,7 +16,8 @@ export type CreatableNodeType =
     | 'browser-action'
     | 'browser-wait'
     | 'audio'
-    | 'merge';
+    | 'merge'
+    | 'video-output';
 
 export interface ViewportPreset {
     readonly id: PreviewPresetId;
@@ -29,6 +30,7 @@ export interface ViewportPreset {
 export interface PreviewRuntime {
     readonly ready: Promise<void>;
     run(steps: readonly unknown[], executionId?: number | null): Promise<void>;
+    setInputs(inputs: Readonly<Record<string, string>>): void;
     cancel(): void;
 }
 

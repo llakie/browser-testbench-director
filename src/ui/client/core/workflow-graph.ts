@@ -6,6 +6,7 @@ export type ConnectionIssue =
     | 'input-target'
     | 'capability-target'
     | 'audio-target'
+    | 'video-output-source'
     | 'target-occupied'
     | 'cycle';
 
@@ -83,6 +84,10 @@ export class WorkflowGraph {
 
         const targetNode = project.nodes.find((node) => node.id === target);
         const sourceNode = project.nodes.find((node) => node.id === source);
+
+        if (sourceNode?.type === 'video-output') {
+            throw new WorkflowConnectionError('video-output-source');
+        }
 
         if (
             targetNode?.type === 'website' &&
@@ -201,6 +206,10 @@ export class WorkflowGraph {
                 throw new TypeError('Capability nodes must connect to the website root.');
             }
 
+            if (sourceNode?.type === 'video-output') {
+                throw new TypeError('Video output nodes cannot have outgoing connections.');
+            }
+
             if (
                 targetNode?.type !== 'website' &&
                 targetNode?.type !== 'merge' &&
@@ -274,6 +283,21 @@ export class WorkflowGraph {
                 if (flow.length > 0 && inputs.length !== 1) {
                     throw new TypeError(
                         'A connected audio node must receive exactly one file input.',
+                    );
+                }
+            }
+
+            if (node.type === 'video-output') {
+                const incoming = project.connections.filter(
+                    (connection) => connection.target === node.id,
+                );
+                const outgoing = project.connections.filter(
+                    (connection) => connection.source === node.id,
+                );
+
+                if (incoming.length > 1 || outgoing.length !== 0) {
+                    throw new TypeError(
+                        'A video output node may have one input and must have no output.',
                     );
                 }
             }

@@ -9,6 +9,7 @@ import type {
     LayerNode,
     MergeNode,
     CapabilityNode,
+    VideoOutputNode,
 } from './project-format.js';
 
 export class ProjectNodes {
@@ -70,7 +71,22 @@ export class ProjectNodes {
             name,
             position: null,
             volume: 1,
+            envelope: [
+                { time: 0, gain: 1 },
+                { time: 1, gain: 1 },
+            ],
             waitForEnd: true,
+        };
+    }
+
+    static createVideoOutput(project: DirectorProject, name: string): VideoOutputNode {
+        return {
+            id: ProjectNodes.uniqueId(project, 'video-output'),
+            type: 'video-output',
+            name,
+            position: null,
+            targetId: '',
+            filename: 'video.mp4',
         };
     }
 
@@ -132,7 +148,13 @@ export class ProjectNodes {
         }
 
         if (node.type === 'audio') {
-            return { ...node, id, name, position };
+            return {
+                ...node,
+                id,
+                name,
+                position,
+                envelope: node.envelope.map((point) => ({ ...point })),
+            };
         }
 
         if (node.type === 'input') {

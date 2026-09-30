@@ -61,12 +61,21 @@ director.root.querySelector('#execution-state-test').dataset.completed = 'true';
     await session.waitForElement('[model-id="layer-1"]', 5_000);
     const running = await session.evaluate<{
         animation: string;
+        editorLocked: boolean;
+        nameDisabled: boolean;
+        opacity: number;
+        playIcon: string;
         ring: string;
     }>(`
         const node = document.querySelector('[model-id="layer-1"]');
         const ring = node.querySelector('circle.graph-node-status');
         return {
             animation: ring ? getComputedStyle(ring).animationName : 'missing',
+            editorLocked: document.querySelector('[data-testid="editor-properties-scroll"]')
+                ?.hasAttribute('inert') ?? false,
+            nameDisabled: document.querySelector('[data-testid="node-name"]')?.disabled ?? false,
+            opacity: Number(node.getAttribute('opacity') || getComputedStyle(node).opacity),
+            playIcon: node.querySelector('[joint-selector="playIcon"]')?.getAttribute('d') || '',
             ring: node.outerHTML,
         };
     `);
@@ -76,13 +85,41 @@ director.root.querySelector('#execution-state-test').dataset.completed = 'true';
         'none',
         'execution: active node needs an animated throbber.',
     );
+    assert.equal(running.editorLocked, true, 'execution: participating properties must lock.');
+    assert.equal(running.nameDisabled, true, 'execution: the participating node name must lock.');
+    assert.ok(running.opacity < 1, 'execution: participating graph nodes must be translucent.');
+    assert.equal(
+        running.playIcon,
+        'M5 5h6v6H5z',
+        'execution: the triggering node must expose a stop button.',
+    );
     await session.screenshot(join(outputDirectory, 'execution-running.png'), true);
-    await session.click('[data-testid="stop-preview-execution"]');
+    await playGraphNode(session, 'layer-1');
     await session.waitForElement(
         '[model-id="layer-1"] [joint-selector="statusRing"].is-cancelled',
         5_000,
     );
     await session.waitForCount('[data-testid="play-workflow"]', 1, 5_000);
+    const stable = await session.evaluate<{
+        editorLocked: boolean;
+        nameDisabled: boolean;
+        playIcon: string;
+    }>(`
+        const node = document.querySelector('[model-id="layer-1"]');
+        return {
+            editorLocked: document.querySelector('[data-testid="editor-properties-scroll"]')
+                ?.hasAttribute('inert') ?? false,
+            nameDisabled: document.querySelector('[data-testid="node-name"]')?.disabled ?? false,
+            playIcon: node.querySelector('[joint-selector="playIcon"]')?.getAttribute('d') || '',
+        };
+    `);
+    assert.equal(stable.editorLocked, false, 'execution: properties must unlock after stopping.');
+    assert.equal(
+        stable.nameDisabled,
+        false,
+        'execution: the node name must unlock after stopping.',
+    );
+    assert.notEqual(stable.playIcon, 'M5 5h6v6H5z');
 
     await session.click('#source-tab-javascript');
     await session.evaluate(`

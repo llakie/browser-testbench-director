@@ -14,9 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Content-addressed project inputs, project-owned preparation modules, and omitted wait intervals in video exports.
 - Director server, CLI, HTTPS development certificates, CSS selector picker, and stdio MCP server.
 - Parallel workflow branches and explicit merge nodes with `Wait all` and `Wait any` strategies.
-- Audio playback nodes with reusable file inputs, volume control, optional blocking playback, remote preview support, and synchronized audio mixing during video export.
+- Audio playback nodes with reusable file inputs, master volume, editable linear volume envelopes, optional blocking playback, GainNode-based local and remote playback, and synchronized audio mixing during video export.
+- Terminal video-output nodes with a recording target, configurable MP4 filename, and graph-local record control.
 
 ### Changed
 
-- Project format 12 rejects unknown persisted properties, removes redundant browser-action,
-  wait-condition, and input-asset fields, supports parallel workflow connections, and stores audio playback nodes.
+- Project format 15 rejects unknown persisted properties, removes redundant browser-action,
+  wait-condition, and input-asset fields, supports parallel workflow connections, and stores audio playback and terminal video-output nodes.

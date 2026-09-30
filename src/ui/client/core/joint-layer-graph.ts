@@ -1,13 +1,19 @@
 import { dia, shapes } from '@joint/core';
 
 import type { NodeExecutionState } from './execution-controller.js';
-import { GraphAutoLayout, type GraphNodePosition } from './graph-auto-layout.js';
+import {
+    GraphAutoLayout,
+    type GraphEdgePoint,
+    type GraphNodePosition,
+} from './graph-auto-layout.js';
 import type { DirectorNode, WorkflowConnection } from './project-format.js';
+
+const graphNodeSize = { width: 216, height: 112 } as const;
 
 const GraphNode = dia.Element.define(
     'director.Node',
     {
-        size: { width: 216, height: 112 },
+        size: graphNodeSize,
         attrs: {
             body: { width: 216, height: 112, rx: 12, ry: 12 },
             header: {
@@ -43,8 +49,9 @@ const GraphNode = dia.Element.define(
                 event: 'node:play',
             },
             playIcon: {
-                d: 'M 186 78 L 197 85 L 186 92 Z',
-                fill: 'var(--color-accent)',
+                d: 'M12.5 4a.5.5 0 0 0-1 0v3.248L5.233 3.612C4.693 3.3 4 3.678 4 4.308v7.384c0 .63.692 1.01 1.233.697L11.5 8.753V12a.5.5 0 0 0 1 0z',
+                transform: 'translate(180 75) scale(1.25)',
+                fill: 'var(--color-play)',
                 stroke: 'none',
                 cursor: 'pointer',
                 pointerEvents: 'none',
@@ -145,10 +152,16 @@ export class JointLayerGraph {
     #panX = 0;
     #panY = 0;
     #states: Readonly<Record<string, NodeExecutionState>> = {};
+    #lockedNodeIds: ReadonlySet<string> = new Set();
+    #playbackTriggerNodeId: string | null = null;
+    #recordingNodeId: string | null = null;
     #selectedConnectionId: string | null = null;
     #automaticPositions: ReadonlyMap<string, GraphNodePosition> = new Map();
+    #automaticRoutes: ReadonlyMap<string, readonly GraphEdgePoint[]> = new Map();
     #automaticLayoutKey = '';
+    #automaticRouteKey = '';
     #automaticLayoutRun = 0;
+    #preserveViewportOnNextRender = false;
     #dragStart: { readonly id: string; readonly x: number; readonly y: number } | null = null;
     readonly #deleteSelectedConnection = (event: KeyboardEvent): void => {
         if (!['Backspace', 'Delete'].includes(event.key) || !this.#selectedConnectionId) {
@@ -181,10 +194,15 @@ export class JointLayerGraph {
                 args: { color: 'var(--color-graph-grid)', thickness: 1 },
             },
             background: { color: 'transparent' },
-            interactive: { elementMove: true },
+            interactive: (view) => ({
+                elementMove: !this.#lockedNodeIds.has(String(view.model.id)),
+            }),
             defaultLink: () => JointLayerGraph.createLink(),
             linkPinning: false,
+            validateMagnet: (view) => !this.#lockedNodeIds.has(String(view.model.id)),
             validateConnection: (sourceView, sourceMagnet, targetView, targetMagnet) =>
+                !this.#lockedNodeIds.has(String(sourceView.model.id)) &&
+                !this.#lockedNodeIds.has(String(targetView.model.id)) &&
                 sourceView !== targetView &&
                 sourceMagnet?.getAttribute('port-group') === 'out' &&
                 targetMagnet?.getAttribute('port-group') === 'in',
@@ -210,6 +228,11 @@ export class JointLayerGraph {
             this.selectLink(view);
         });
         this.#paper.on('element:pointerdown', (view: dia.ElementView) => {
+            if (this.#lockedNodeIds.has(String(view.model.id))) {
+                this.#dragStart = null;
+                return;
+            }
+
             const position = view.model.position();
             this.#dragStart = { id: String(view.model.id), x: position.x, y: position.y };
         });
@@ -230,15 +253,33 @@ export class JointLayerGraph {
         });
         this.#paper.on('node:play', (view: dia.ElementView, event: Event) => {
             event.stopPropagation();
-            this.#callbacks.playNode(String(view.model.id));
+            const nodeId = String(view.model.id);
+
+            if (
+                this.#lockedNodeIds.has(nodeId) &&
+                nodeId !== this.#playbackTriggerNodeId &&
+                nodeId !== this.#recordingNodeId
+            ) {
+                return;
+            }
+
+            this.#callbacks.playNode(nodeId);
         });
         this.#paper.on('input:choose', (view: dia.ElementView, event: Event) => {
             event.stopPropagation();
-            this.#callbacks.chooseInputFile(String(view.model.id));
+            const nodeId = String(view.model.id);
+
+            if (!this.#lockedNodeIds.has(nodeId)) {
+                this.#callbacks.chooseInputFile(nodeId);
+            }
         });
         this.#paper.on('input:clear', (view: dia.ElementView, event: Event) => {
             event.stopPropagation();
-            this.#callbacks.clearInputFile(String(view.model.id));
+            const nodeId = String(view.model.id);
+
+            if (!this.#lockedNodeIds.has(nodeId)) {
+                this.#callbacks.clearInputFile(nodeId);
+            }
         });
         this.#paper.on('link:connect', (view: dia.LinkView) => {
             const source = String(view.model.source().id ?? '');
@@ -262,19 +303,38 @@ export class JointLayerGraph {
         staleNodeIds: ReadonlySet<string> = new Set(),
         inputFileNames: Readonly<Record<string, string>> = {},
         chooseFileLabel = 'Choose file',
+        recordingActive = false,
+        lockedNodeIds: ReadonlySet<string> = new Set(),
+        playbackTriggerNodeId: string | null = null,
     ): void {
+        const fitAutomaticLayout = !this.#preserveViewportOnNextRender;
+        this.#preserveViewportOnNextRender = false;
         this.#states = states;
+        this.#lockedNodeIds = lockedNodeIds;
+        this.#playbackTriggerNodeId = playbackTriggerNodeId;
+        this.#recordingNodeId = recordingActive
+            ? (nodes.find((node) => node.type === 'video-output')?.id ?? null)
+            : null;
         this.#selectedConnectionId = selectedConnectionId;
         this.#paper.freeze();
         this.#graph.clear();
         const incomingConnections = JointLayerGraph.incomingConnections(connections);
+        const outgoingConnections = JointLayerGraph.outgoingConnections(connections);
         const targetPorts = new Map<string, string>();
+        const sourcePorts = new Map<string, string>();
+        const routeKey = this.#layoutKey(nodes, connections);
+        const useAutomaticRoutes =
+            nodes.every((node) => node.position === null) && routeKey === this.#automaticRouteKey;
 
         for (const [index, node] of nodes.entries()) {
             const execution = states[node.id];
+            const locked = lockedNodeIds.has(node.id);
+            const stoppingPlayback = playbackTriggerNodeId === node.id;
+            const stoppingRecording = recordingActive && node.type === 'video-output';
             const connected = connectedNodeIds.has(node.id);
             const inputFileName = node.type === 'input' ? inputFileNames[node.id] : undefined;
             const incoming = incomingConnections.get(node.id) ?? [];
+            const outgoing = outgoingConnections.get(node.id) ?? [];
             const inputPorts =
                 node.type === 'audio'
                     ? [
@@ -296,14 +356,22 @@ export class JointLayerGraph {
                 }
             }
 
+            const outputPorts =
+                node.type === 'video-output'
+                    ? []
+                    : outgoing.length
+                      ? outgoing.map((connection, connectionIndex) => {
+                            const portId = outgoing.length === 1 ? 'out' : `out-${connectionIndex}`;
+                            sourcePorts.set(connection.id, portId);
+                            return { id: portId, group: 'out' };
+                        })
+                      : [{ id: 'out', group: 'out' }];
+
             const cell = new GraphNode({
                 id: node.id,
                 ports: {
                     groups: JointLayerGraph.portGroups(),
-                    items: [
-                        ...(node.type === 'input' ? [] : inputPorts),
-                        { id: 'out', group: 'out' },
-                    ],
+                    items: [...(node.type === 'input' ? [] : inputPorts), ...outputPorts],
                 },
             });
             const position =
@@ -312,7 +380,7 @@ export class JointLayerGraph {
                 JointLayerGraph.fallbackPosition(index);
             cell.position(position.x, position.y);
             cell.attr({
-                root: { cursor: 'pointer' },
+                root: { cursor: 'pointer', opacity: locked ? 0.62 : 1 },
                 body: {
                     fill: 'var(--color-node-surface)',
                     stroke: 'none',
@@ -342,11 +410,13 @@ export class JointLayerGraph {
                                     ? 'MERGE'
                                     : node.type === 'audio'
                                       ? 'AUDIO'
-                                      : node.type === 'javascript'
-                                        ? 'JS'
-                                        : node.type === 'browser-action'
-                                          ? 'ACTION'
-                                          : 'WAIT',
+                                      : node.type === 'video-output'
+                                        ? 'VIDEO'
+                                        : node.type === 'javascript'
+                                          ? 'JS'
+                                          : node.type === 'browser-action'
+                                            ? 'ACTION'
+                                            : 'WAIT',
                     fill: 'var(--color-node-header-text)',
                     fontFamily: 'ui-monospace, monospace',
                     fontSize: 10,
@@ -364,13 +434,34 @@ export class JointLayerGraph {
                 playButton: {
                     display: ['input', 'capability'].includes(node.type) ? 'none' : 'block',
                     class: staleNodeIds.has(node.id) ? 'is-stale' : '',
-                    stroke: staleNodeIds.has(node.id)
-                        ? 'var(--color-accent)'
-                        : 'var(--color-border-strong)',
+                    cursor:
+                        locked && !stoppingPlayback && !stoppingRecording
+                            ? 'not-allowed'
+                            : 'pointer',
+                    pointerEvents:
+                        locked && !stoppingPlayback && !stoppingRecording ? 'none' : 'auto',
+                    fill:
+                        node.type === 'video-output'
+                            ? 'var(--color-danger-soft)'
+                            : 'var(--color-node-control)',
+                    stroke:
+                        node.type === 'video-output'
+                            ? 'var(--color-recording-strong)'
+                            : 'var(--color-play)',
                     strokeWidth: staleNodeIds.has(node.id) ? 2.5 : 1,
                 },
                 playIcon: {
                     display: ['input', 'capability'].includes(node.type) ? 'none' : 'block',
+                    d:
+                        stoppingPlayback || stoppingRecording
+                            ? 'M5 5h6v6H5z'
+                            : node.type === 'video-output'
+                              ? 'M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8'
+                              : 'M12.5 4a.5.5 0 0 0-1 0v3.248L5.233 3.612C4.693 3.3 4 3.678 4 4.308v7.384c0 .63.692 1.01 1.233.697L11.5 8.753V12a.5.5 0 0 0 1 0z',
+                    fill:
+                        node.type === 'video-output'
+                            ? 'var(--color-recording-strong)'
+                            : 'var(--color-play)',
                 },
                 fileButton: {
                     display: node.type === 'input' && !inputFileName ? 'block' : 'none',
@@ -400,8 +491,14 @@ export class JointLayerGraph {
         }
 
         for (const connection of connections) {
-            const link = JointLayerGraph.createLink(connection.id);
-            link.source({ id: connection.source, port: 'out' });
+            const link = JointLayerGraph.createLink(
+                connection.id,
+                useAutomaticRoutes ? this.#automaticRoutes.get(connection.id) : undefined,
+            );
+            link.source({
+                id: connection.source,
+                port: sourcePorts.get(connection.id) ?? 'out',
+            });
             link.target({ id: connection.target, port: targetPorts.get(connection.id) ?? 'in' });
             link.addTo(this.#graph);
             link.toBack();
@@ -421,7 +518,7 @@ export class JointLayerGraph {
 
             if (key !== this.#automaticLayoutKey) {
                 this.#automaticLayoutKey = key;
-                void this.arrangeAutomatically(nodes, connections, true)
+                void this.arrangeAutomatically(nodes, connections, fitAutomaticLayout)
                     .then((zoom) => this.#callbacks.zoomChanged(zoom))
                     .catch(() => undefined);
             }
@@ -454,15 +551,17 @@ export class JointLayerGraph {
                         ? `Wait ${node.waitFor}`
                         : node.type === 'audio'
                           ? `${Math.round(node.volume * 100)} % · ${node.waitForEnd ? 'Wait' : 'Continue'}`
-                          : node.type === 'javascript'
-                            ? 'JavaScript'
-                            : node.type === 'browser-action'
-                              ? `Click · ${node.selector}`
-                              : node.condition === 'element'
-                                ? `Element · ${node.selector}`
-                                : node.condition === 'url'
-                                  ? `URL · ${node.value}`
-                                  : 'Script';
+                          : node.type === 'video-output'
+                            ? `${node.filename} · ${node.targetId || 'Select target'}`
+                            : node.type === 'javascript'
+                              ? 'JavaScript'
+                              : node.type === 'browser-action'
+                                ? `Click · ${node.selector}`
+                                : node.condition === 'element'
+                                  ? `Element · ${node.selector}`
+                                  : node.condition === 'url'
+                                    ? `URL · ${node.value}`
+                                    : 'Script';
         return `${JointLayerGraph.ellipsize(node.name, 27)}\n${JointLayerGraph.ellipsize(detail, 27)}`;
     }
 
@@ -538,21 +637,26 @@ export class JointLayerGraph {
         const run = ++this.#automaticLayoutRun;
         const height = this.#paper.el.clientHeight;
         const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
-        const positions = await GraphAutoLayout.positions(nodes, connections, aspectRatio);
+        const layout = await GraphAutoLayout.layout(nodes, connections, aspectRatio);
 
         if (run !== this.#automaticLayoutRun) {
             return this.#zoom;
         }
 
-        this.#automaticPositions = positions;
-        this.#automaticLayoutKey = this.#layoutKey(nodes, connections);
+        const layoutKey = this.#layoutKey(nodes, connections);
+        this.#automaticPositions = layout.positions;
+        this.#automaticRoutes = nodes.every((node) => node.position === null)
+            ? layout.routes
+            : new Map();
+        this.#automaticLayoutKey = layoutKey;
+        this.#automaticRouteKey = this.#automaticRoutes.size ? layoutKey : '';
 
         for (const node of nodes) {
             if (node.position !== null) {
                 continue;
             }
 
-            const position = positions.get(node.id);
+            const position = layout.positions.get(node.id);
             const cell = this.#graph.getCell(node.id);
 
             if (position && cell?.isElement()) {
@@ -560,6 +664,17 @@ export class JointLayerGraph {
             }
         }
 
+        if (this.#automaticRouteKey === layoutKey) {
+            for (const connection of connections) {
+                const link = this.#graph.getCell(connection.id);
+
+                if (link?.isLink()) {
+                    JointLayerGraph.applyRoute(link, layout.routes.get(connection.id));
+                }
+            }
+        }
+
+        this.#paper.updateViews();
         return fit ? this.fitToContent() : this.#zoom;
     }
 
@@ -567,6 +682,19 @@ export class JointLayerGraph {
         this.#panX += x;
         this.#panY += y;
         this.#paper.translate(this.#panX, this.#panY);
+    }
+
+    preserveViewportOnNextRender(): void {
+        this.#preserveViewportOnNextRender = true;
+    }
+
+    centeredNodePosition(): GraphNodePosition {
+        const centerX = (this.#paper.el.clientWidth / 2 - this.#panX) / this.#zoom;
+        const centerY = (this.#paper.el.clientHeight / 2 - this.#panY) / this.#zoom;
+        return {
+            x: Math.round(centerX - graphNodeSize.width / 2),
+            y: Math.round(centerY - graphNodeSize.height / 2),
+        };
     }
 
     dispose(): void {
@@ -593,15 +721,12 @@ export class JointLayerGraph {
         this.#callbacks.selectConnection(id);
     }
 
-    private static createLink(id?: string): shapes.standard.Link {
+    private static createLink(
+        id?: string,
+        route?: readonly GraphEdgePoint[],
+    ): shapes.standard.Link {
         const link = new shapes.standard.Link(id ? { id } : undefined);
-        link.router('manhattan', {
-            padding: 24,
-            step: 8,
-            maximumLoops: 20_000,
-            startDirections: ['right'],
-            endDirections: ['left'],
-        });
+        JointLayerGraph.applyRoute(link, route);
         link.connector('jumpover', { jump: 'gap', size: 7, radius: 8 });
         link.attr({
             line: {
@@ -610,7 +735,7 @@ export class JointLayerGraph {
                 pointerEvents: 'stroke',
                 cursor: 'pointer',
                 event: 'connection:select',
-                targetMarker: { type: 'path', d: 'M 8 -4 0 0 8 4 z' },
+                targetMarker: null,
             },
         });
         link.appendLabel({
@@ -630,6 +755,23 @@ export class JointLayerGraph {
         return link;
     }
 
+    private static applyRoute(link: dia.Link, route?: readonly GraphEdgePoint[]): void {
+        if (route?.length) {
+            link.unset('router');
+            link.vertices(route.map((point) => ({ x: point.x, y: point.y })));
+            return;
+        }
+
+        link.vertices([]);
+        link.router('manhattan', {
+            padding: 24,
+            step: 8,
+            maximumLoops: 20_000,
+            startDirections: ['right'],
+            endDirections: ['left'],
+        });
+    }
+
     private static incomingConnections(
         connections: readonly WorkflowConnection[],
     ): ReadonlyMap<string, readonly WorkflowConnection[]> {
@@ -642,6 +784,20 @@ export class JointLayerGraph {
         }
 
         return incoming;
+    }
+
+    private static outgoingConnections(
+        connections: readonly WorkflowConnection[],
+    ): ReadonlyMap<string, readonly WorkflowConnection[]> {
+        const outgoing = new Map<string, WorkflowConnection[]>();
+
+        for (const connection of connections) {
+            const entries = outgoing.get(connection.source) ?? [];
+            entries.push(connection);
+            outgoing.set(connection.source, entries);
+        }
+
+        return outgoing;
     }
 
     private static portGroups(): Record<string, dia.Element.PortGroup> {
@@ -720,6 +876,10 @@ export class JointLayerGraph {
 
         if (node.type === 'audio') {
             return 'var(--color-node-audio)';
+        }
+
+        if (node.type === 'video-output') {
+            return 'var(--color-recording-strong)';
         }
 
         if (node.type === 'javascript') {

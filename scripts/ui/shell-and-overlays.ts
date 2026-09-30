@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
-import { selectGraphNode } from '../support/director-ui.js';
+import { clickPreviewWebsiteElement, selectGraphNode } from '../support/director-ui.js';
 import { applicationUrl, outputDirectory, testbench } from '../support/ui-verification-context.js';
 
 export async function verifyMobileMenu(session: RemoteSession): Promise<void> {
@@ -307,7 +307,7 @@ export async function verifySelectorPicker(session: RemoteSession): Promise<void
         'picking',
         `selector picker: remote session did not enter picking mode (${JSON.stringify(pickerState)}).`,
     );
-    await pickerSession.click('#project-name');
+    await clickPreviewWebsiteElement(pickerSession, '#project-name');
     await session.waitForValue('[data-testid="browser-action-selector"]', '#project-name', 10_000);
     await pickerSession.close().catch(() => undefined);
     await session.click('[data-testid="new-project"]');

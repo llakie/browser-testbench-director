@@ -141,13 +141,37 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
         css: '#recording-ui { width: 10rem; height: 10rem; background: white; }',
         javascript: `director.root.dataset.recorded = 'true';`,
     };
+    project.nodes.push({
+        id: 'video-output',
+        type: 'video-output',
+        name: 'Video output',
+        position: null,
+        targetId: '',
+        filename: 'recording-ui.mp4',
+    });
+    project.connections.push({
+        id: 'layer-1--video-output',
+        source: 'layer-1',
+        target: 'video-output',
+    });
     const projectPath = join(outputDirectory, 'recording-ui.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
-    await session.waitForState('[data-testid="record-workflow"]', 'enabled', 10_000);
+    await selectGraphNode(session, 'video-output');
+    await session.waitForElement(
+        '[data-testid="video-output-target"] option:not([value=""])',
+        10_000,
+    );
+    await session.evaluate(`
+        const select = document.querySelector('[data-testid="video-output-target"]');
+        select.value = select.querySelector('option:not([value=""])').value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
     await session.evaluate(`
         window.__directorRecordingOriginalFetch = window.fetch;
         window.__directorRecordingRequests = [];
+        window.__directorRecordingCancelled = false;
+        window.__directorRecordingHold = false;
         const video = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]);
         window.fetch = async (input, init = {}) => {
             const url = String(input);
@@ -182,7 +206,39 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
                 return new Response(video, { headers: { 'Content-Type': 'video/mp4' } });
             }
             if (url.endsWith('/browser')) {
-                await new Promise(resolve => setTimeout(resolve, 1_200));
+                const action = JSON.parse(String(init.body || '{}'));
+
+                if (action.script?.includes('innerWidth, innerHeight')) {
+                    return new Response(JSON.stringify({
+                        innerWidth: 360,
+                        innerHeight: 640,
+                        outerWidth: 360,
+                        outerHeight: 640,
+                    }), { headers: { 'Content-Type': 'application/json' } });
+                }
+
+                if (action.script?.includes('window.__director.status')) {
+                    await new Promise(resolve => setTimeout(resolve, 1_200));
+                    const state = window.__directorRecordingCancelled
+                        ? 'cancelled'
+                        : window.__directorRecordingHold
+                          ? 'running'
+                          : 'success';
+                    return new Response(JSON.stringify({
+                        state,
+                        events: [
+                            { sequence: 1, nodeId: 'layer-1', status: 'running' },
+                            ...(state === 'success'
+                                ? [{ sequence: 2, nodeId: 'layer-1', status: 'success' }]
+                                : []),
+                        ],
+                    }), { headers: { 'Content-Type': 'application/json' } });
+                }
+
+                if (action.script?.includes('window.__director?.cancel')) {
+                    window.__directorRecordingCancelled = true;
+                }
+
                 return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
             }
             if (url.includes('/browser-testbench-api/sessions/')) {
@@ -191,34 +247,73 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
             return window.__directorRecordingOriginalFetch(input, init);
         };
     `);
-    await session.click('[data-testid="record-workflow"]');
-    await session.waitForElement('.recording-target-option:not(:disabled)', 5_000);
-    await session.click('.recording-target-option:not(:disabled)');
+    await playGraphNode(session, 'video-output');
     await session.waitForElement('[data-testid="recording-status"]', 5_000);
-    await session.waitForElement('[data-testid="stop-recording"]', 5_000);
+    await session.waitForScript(
+        `return document.querySelector('[model-id="video-output"] [joint-selector="playIcon"]')
+            ?.getAttribute('d') === 'M5 5h6v6H5z';`,
+        [],
+        5_000,
+    );
     const recordingIndicator = await session.evaluate<{
+        editorLocked: boolean;
+        icon: string;
         label: string;
+        nameDisabled: boolean;
+        opacity: number;
         tinted: boolean;
-        stopIcon: boolean;
     }>(`
         const header = document.querySelector('.topbar');
+        const node = document.querySelector('[model-id="video-output"]');
         return {
+            editorLocked: document.querySelector('[data-testid="editor-properties-scroll"]')
+                ?.hasAttribute('inert') ?? false,
+            icon: node?.querySelector('[joint-selector="playIcon"]')?.getAttribute('d') || '',
             label: document.querySelector('[data-testid="recording-status"]')?.textContent?.trim() || '',
+            nameDisabled: document.querySelector('[data-testid="node-name"]')?.disabled ?? false,
+            opacity: node
+                ? Number(node.getAttribute('opacity') || getComputedStyle(node).opacity)
+                : 1,
             tinted: header?.classList.contains('topbar--recording') || false,
-            stopIcon: Boolean(document.querySelector('[data-testid="stop-recording"] .bi-stop-fill')),
         };
     `);
     assert.match(recordingIndicator.label, /Aufnahme läuft|Recording/iu);
     assert.equal(recordingIndicator.tinted, true, 'recording: header must show the active state.');
-    assert.equal(recordingIndicator.stopIcon, true, 'recording: record control must become stop.');
+    assert.equal(recordingIndicator.icon, 'M5 5h6v6H5z', 'recording: output must show stop.');
+    assert.equal(recordingIndicator.editorLocked, true, 'recording: properties must lock.');
+    assert.equal(recordingIndicator.nameDisabled, true, 'recording: the node name must lock.');
+    assert.ok(recordingIndicator.opacity < 1, 'recording: participating nodes must fade.');
     await session.screenshot(join(outputDirectory, 'recording-active.png'), true);
     const download = await session.waitForDownload('recording-ui.mp4', 15_000);
     await session.waitForText('recording-ui.mp4', 5_000);
+    await session.waitForScript(
+        `const node = document.querySelector('[model-id="video-output"]');
+        return !document.querySelector('[data-testid="recording-status"]') &&
+            !document.querySelector('[data-testid="node-name"]')?.disabled &&
+            node.querySelector('[joint-selector="playIcon"]')?.getAttribute('d') !== 'M5 5h6v6H5z';`,
+        [],
+        5_000,
+    );
+    await session.evaluate(`
+        window.__directorRecordingCancelled = false;
+        window.__directorRecordingHold = true;
+    `);
+    await playGraphNode(session, 'video-output');
+    await session.waitForElement('[data-testid="recording-status"]', 5_000);
+    await playGraphNode(session, 'video-output');
+    await session.waitForScript(
+        `return !document.querySelector('[data-testid="recording-status"]') &&
+            /gestoppt|stopped/u.test(document.querySelector('.notice')?.textContent || '');`,
+        [],
+        10_000,
+    );
     const recording = await session.evaluate<{ urls: string[] }>(`
         const value = { urls: window.__directorRecordingRequests.map((request) => request.url) };
         window.fetch = window.__directorRecordingOriginalFetch;
         delete window.__directorRecordingOriginalFetch;
         delete window.__directorRecordingRequests;
+        delete window.__directorRecordingCancelled;
+        delete window.__directorRecordingHold;
         return value;
     `);
     const start = recording.urls.findIndex((url) => url.endsWith('/recording/start'));

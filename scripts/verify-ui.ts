@@ -8,7 +8,7 @@ import {
 } from './support/ui-verification-context.js';
 import { verifyEditableConnections, verifyJavaScriptNode } from './ui/graph-editing.js';
 import { verifyAudioPlayback } from './ui/audio-playback.js';
-import { verifyGraphAutoLayout } from './ui/graph-layout.js';
+import { verifyCenteredNodeInsertion, verifyGraphAutoLayout } from './ui/graph-layout.js';
 import { verifyPlacement } from './ui/layer-placement.js';
 import { verifyNodeEditing } from './ui/node-editing.js';
 import { verifyExecutionControls, verifyPlayback } from './ui/playback.js';
@@ -56,6 +56,7 @@ try {
     await verifySelectorPicker(browser);
     await verifyRecordingExport(browser);
     await verifyLayerSelectionAndZoom(browser);
+    await verifyCenteredNodeInsertion(browser);
     await verifyGraphAutoLayout(browser);
     await verifyJavaScriptNode(browser);
     await verifyResizableWorkspace(browser);

@@ -115,13 +115,11 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             }
 
             this.markDirty();
-            this.renderGraph();
-            this.graphZoom =
-                (await this.graph?.arrangeAutomatically(
-                    this.project.nodes,
-                    this.project.connections,
-                    true,
-                )) ?? this.graphZoom;
+            await this.graph?.arrangeAutomatically(
+                this.project.nodes,
+                this.project.connections,
+                false,
+            );
             this.showNotice(this.t('graph.autoLayoutCompleted'));
         } catch (error) {
             this.showNotice(`${this.t('graph.autoLayoutFailed')} ${this.errorMessage(error)}`);

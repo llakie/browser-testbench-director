@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
-import { playGraphNode, selectGraphNode } from '../support/director-ui.js';
+import {
+    clickPreviewWebsiteElement,
+    playGraphNode,
+    selectGraphNode,
+} from '../support/director-ui.js';
 import { exampleSiteUrl, outputDirectory, testbench } from '../support/ui-verification-context.js';
 
 export async function verifyPlacement(session: RemoteSession): Promise<void> {
@@ -308,7 +312,7 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         [],
         10_000,
     );
-    await pickerSession.click('#example-website');
+    await clickPreviewWebsiteElement(pickerSession, '#example-website');
     await session.waitForValue(
         '[data-testid="placement-dom-selector"]',
         '#example-website',

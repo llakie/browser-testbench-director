@@ -131,23 +131,38 @@ return button ? { cardName: 'Pikachu' } : false;`,
         `return document.querySelector('.notice')?.textContent?.trim() || '';`,
     );
     assert.match(notice, /geöffnet|Opened preview/u, `Remote preview failed: ${notice}`);
+    const previewUrl = new URL(await preview.url());
     assert.equal(
-        await preview.url(),
-        new URL('/example-site.html', applicationUrl).toString(),
-        'The remote preview must use the configured website as its main document.',
+        previewUrl.protocol,
+        'http:',
+        'Remote previews must not require trusting the Director development certificate.',
+    );
+    assert.match(
+        previewUrl.pathname,
+        /\/director-preview\/nodes\/preview-state\//u,
+        'The remote preview must run inside the Director player shell.',
     );
     await controller.click('[data-testid="play-workflow"]');
-    await preview.waitForState('body[data-remote-layer-result="Pikachu"]', 'present', 10_000);
+    await preview.waitForScript(
+        `const body = document.querySelector('.director-website')?.contentDocument?.body;
+        return body?.dataset.remoteLayerResult === 'Pikachu';`,
+        [],
+        10_000,
+    );
     await preview.waitForState('[data-director-node="layer-1"]', 'absent', 10_000);
-    await preview.waitForState(
-        'body[data-remote-runs="1"][data-remote-speed="live"][data-remote-action="clicked"]',
-        'present',
+    await preview.waitForScript(
+        `const body = document.querySelector('.director-website')?.contentDocument?.body;
+        return body?.dataset.remoteRuns === '1' &&
+            body.dataset.remoteSpeed === 'live' &&
+            body.dataset.remoteAction === 'clicked';`,
+        [],
         10_000,
     );
     await playGraphNode(controller, 'prepare-website');
-    await preview.waitForState(
-        'body[data-remote-runs="1"][data-remote-speed="live"]',
-        'present',
+    await preview.waitForScript(
+        `const body = document.querySelector('.director-website')?.contentDocument?.body;
+        return body?.dataset.remoteRuns === '1' && body.dataset.remoteSpeed === 'live';`,
+        [],
         10_000,
     );
     await controller.waitForScript(
@@ -156,7 +171,7 @@ return button ? { cardName: 'Pikachu' } : false;`,
         10_000,
     );
     const state = await preview.evaluate<{ runs: string; speed: string }>(`
-        const root = document.body;
+        const root = document.querySelector('.director-website').contentDocument.body;
         return { runs: root.dataset.remoteRuns, speed: root.dataset.remoteSpeed };
     `);
     assert.deepEqual(state, { runs: '1', speed: 'live' });
@@ -185,9 +200,10 @@ return button ? { cardName: 'Pikachu' } : false;`,
         /fehlgeschlagen|failed/iu,
         `Remote catch-up failed: ${playbackNotice}`,
     );
-    await preview.waitForState(
-        'body[data-remote-runs="1"][data-remote-speed="catchup"]',
-        'present',
+    await preview.waitForScript(
+        `const body = document.querySelector('.director-website')?.contentDocument?.body;
+        return body?.dataset.remoteRuns === '1' && body.dataset.remoteSpeed === 'live';`,
+        [],
         10_000,
     );
 
@@ -203,7 +219,7 @@ async function findNewSession(
     remote: RemoteTestbench,
     existing: ReadonlySet<string>,
 ): Promise<RemoteSession> {
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + 60_000;
 
     while (Date.now() < deadline) {
         const match = (await remote.sessions()).find((session) => !existing.has(session.id));

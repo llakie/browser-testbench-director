@@ -15,11 +15,19 @@ interface VideoInterval {
     readonly endMs: number;
 }
 
+interface AudioEnvelopePoint {
+    readonly time: number;
+    readonly gain: number;
+}
+
 export interface AudioTrack {
     readonly asset: string;
     readonly path: string;
     readonly startMs: number;
+    readonly endMs?: number;
     readonly volume: number;
+    readonly envelope: readonly AudioEnvelopePoint[];
+    readonly durationMs: number;
 }
 
 export class DirectorVideoExports {
@@ -33,7 +41,7 @@ export class DirectorVideoExports {
         intervals: readonly VideoInterval[] = [],
         audioTracks: readonly AudioTrack[] = [],
     ) {
-        const transform = `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x0d110f,setsar=1,fps=30`;
+        const transform = `scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x0d110f:eval=frame,setsar=1,fps=30`;
         const inputArguments = audioTracks.flatMap((track) => ['-i', track.path]);
         const audioFilter = DirectorVideoExports.audioFilter(audioTracks, intervals);
         const complexFilter = [
@@ -89,7 +97,14 @@ export class DirectorVideoExports {
             const input = trackIndex + 1;
             const segments = intervals.length
                 ? DirectorVideoExports.audioSegments(track, intervals)
-                : [{ sourceStartMs: 0, outputStartMs: track.startMs, durationMs: null }];
+                : [
+                      {
+                          sourceStartMs: 0,
+                          outputStartMs: track.startMs,
+                          durationMs:
+                              track.endMs !== undefined ? track.endMs - track.startMs : null,
+                      },
+                  ];
             const segmentInputs = segments.map((_segment, segmentIndex) =>
                 segments.length === 1 ? `[${input}:a]` : `[audio${trackIndex}split${segmentIndex}]`,
             );
@@ -104,8 +119,9 @@ export class DirectorVideoExports {
                     segment.durationMs === null
                         ? ''
                         : `:duration=${DirectorVideoExports.seconds(segment.durationMs)}`;
+                const volume = DirectorVideoExports.volumeFilter(track, segment.sourceStartMs);
                 filters.push(
-                    `${segmentInputs[segmentIndex]}atrim=start=${DirectorVideoExports.seconds(segment.sourceStartMs)}${duration},asetpts=PTS-STARTPTS,volume=${track.volume},adelay=${Math.round(segment.outputStartMs)}:all=1[${label}]`,
+                    `${segmentInputs[segmentIndex]}atrim=start=${DirectorVideoExports.seconds(segment.sourceStartMs)}${duration},asetpts=PTS-STARTPTS,${volume},adelay=${Math.round(segment.outputStartMs)}:all=1[${label}]`,
                 );
                 labels.push(`[${label}]`);
             }
@@ -121,6 +137,28 @@ export class DirectorVideoExports {
         return filters.join(';');
     }
 
+    private static volumeFilter(track: AudioTrack, sourceStartMs: number): string {
+        if (track.envelope.every((point) => point.gain === 1)) {
+            return `volume=${track.volume}`;
+        }
+
+        const duration = track.durationMs / 1_000;
+        const sourceStart = sourceStartMs / 1_000;
+        let expression = String(track.envelope.at(-1)!.gain);
+
+        for (let index = track.envelope.length - 2; index >= 0; index -= 1) {
+            const left = track.envelope[index]!;
+            const right = track.envelope[index + 1]!;
+            const leftTime = left.time * duration - sourceStart;
+            const rightTime = right.time * duration - sourceStart;
+            const slope = (right.gain - left.gain) / (rightTime - leftTime);
+            const interpolation = `${left.gain}+(${slope})*(t-(${leftTime}))`;
+            expression = `if(lt(t,${rightTime}),${interpolation},${expression})`;
+        }
+
+        return `volume='${track.volume}*(${expression})':eval=frame`;
+    }
+
     private static audioSegments(track: AudioTrack, intervals: readonly VideoInterval[]) {
         const segments: Array<{
             sourceStartMs: number;
@@ -128,15 +166,22 @@ export class DirectorVideoExports {
             durationMs: number;
         }> = [];
         let outputCursorMs = 0;
+        const trackEndMs = track.endMs ?? Number.POSITIVE_INFINITY;
 
         for (const interval of intervals) {
-            if (interval.endMs > track.startMs) {
+            const recordingEndMs = Math.min(interval.endMs, trackEndMs);
+
+            if (recordingEndMs > track.startMs) {
                 const recordingStartMs = Math.max(interval.startMs, track.startMs);
-                segments.push({
-                    sourceStartMs: recordingStartMs - track.startMs,
-                    outputStartMs: outputCursorMs + Math.max(0, track.startMs - interval.startMs),
-                    durationMs: interval.endMs - recordingStartMs,
-                });
+
+                if (recordingEndMs > recordingStartMs) {
+                    segments.push({
+                        sourceStartMs: recordingStartMs - track.startMs,
+                        outputStartMs:
+                            outputCursorMs + Math.max(0, track.startMs - interval.startMs),
+                        durationMs: recordingEndMs - recordingStartMs,
+                    });
+                }
             }
 
             outputCursorMs += interval.endMs - interval.startMs;
@@ -295,7 +340,10 @@ export class DirectorVideoExports {
                     throw new TypeError('Invalid audio track.');
                 }
 
-                const { asset, startMs, volume } = entry as Record<string, unknown>;
+                const { asset, startMs, endMs, volume, envelope, durationMs } = entry as Record<
+                    string,
+                    unknown
+                >;
 
                 if (
                     typeof asset !== 'string' ||
@@ -303,10 +351,18 @@ export class DirectorVideoExports {
                     typeof startMs !== 'number' ||
                     !Number.isFinite(startMs) ||
                     startMs < 0 ||
+                    (endMs !== undefined &&
+                        (typeof endMs !== 'number' ||
+                            !Number.isFinite(endMs) ||
+                            endMs <= startMs)) ||
                     typeof volume !== 'number' ||
                     !Number.isFinite(volume) ||
                     volume < 0 ||
-                    volume > 1
+                    volume > 1 ||
+                    typeof durationMs !== 'number' ||
+                    !Number.isFinite(durationMs) ||
+                    durationMs <= 0 ||
+                    !DirectorVideoExports.validEnvelope(envelope)
                 ) {
                     throw new TypeError('Invalid audio track.');
                 }
@@ -316,13 +372,43 @@ export class DirectorVideoExports {
                 return {
                     asset,
                     startMs,
+                    ...(typeof endMs === 'number' ? { endMs } : {}),
                     volume,
+                    envelope,
+                    durationMs,
                     path: resolve(this.assetDirectory, sha256!, name),
                 };
             });
         } catch {
             return null;
         }
+    }
+
+    private static validEnvelope(value: unknown): value is AudioEnvelopePoint[] {
+        if (!Array.isArray(value) || value.length < 2) {
+            return false;
+        }
+
+        return value.every((point, index) => {
+            if (!point || typeof point !== 'object') {
+                return false;
+            }
+
+            const { time, gain } = point as Record<string, unknown>;
+            const previous = value[index - 1] as Record<string, unknown> | undefined;
+            return (
+                typeof time === 'number' &&
+                Number.isFinite(time) &&
+                time >= 0 &&
+                time <= 1 &&
+                typeof gain === 'number' &&
+                Number.isFinite(gain) &&
+                gain >= 0 &&
+                gain <= 1 &&
+                (index === 0 ? time === 0 : time > Number(previous?.['time'])) &&
+                (index !== value.length - 1 || time === 1)
+            );
+        });
     }
 
     private json(response: ServerResponse, status: number, payload: unknown): void {

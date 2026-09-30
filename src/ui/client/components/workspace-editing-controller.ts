@@ -51,6 +51,9 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
                 ]),
             ),
             this.t('input.chooseFile'),
+            this.recordingActive,
+            this.executionLockedNodeIds,
+            this.playbackTriggerNodeId,
         );
     },
     connectNodes(source: string, target: string): boolean {
@@ -99,12 +102,15 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
 
         this.nodeMenuOpen = false;
         const node = this.createNode(type);
+        node.position = this.graph?.centeredNodePosition() ?? null;
         this.project.nodes.push(node);
         this.activeNodeId = node.id;
         this.activeConnectionId = null;
         this.activeSource = 'html';
         this.markExecutionDirty();
+        this.graph?.preserveViewportOnNextRender();
         this.renderGraph();
+        this.recenterNewNode(node);
         this.showNotice(this.t('node.created', { name: node.name }));
     },
     createNode(type: CreatableNodeType): DirectorNode {
@@ -145,6 +151,13 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             return ProjectNodes.createAudio(this.project, this.t('node.defaultAudioName'));
         }
 
+        if (type === 'video-output') {
+            return ProjectNodes.createVideoOutput(
+                this.project,
+                this.t('node.defaultVideoOutputName'),
+            );
+        }
+
         return ProjectNodes.createBrowserWait(this.project, this.t('node.defaultBrowserWaitName'));
     },
     duplicateActiveNode(): void {
@@ -163,12 +176,25 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             return;
         }
 
+        duplicate.position = this.graph?.centeredNodePosition() ?? null;
         this.project.nodes.push(duplicate);
         this.activeNodeId = duplicate.id;
         this.activeConnectionId = null;
         this.markExecutionDirty();
+        this.graph?.preserveViewportOnNextRender();
         this.renderGraph();
+        this.recenterNewNode(duplicate);
         this.showNotice(this.t('node.duplicated', { name: duplicate.name }));
+    },
+    recenterNewNode(node: DirectorNode): void {
+        void nextTick(() => {
+            if (!this.project.nodes.some((candidate: DirectorNode) => candidate.id === node.id)) {
+                return;
+            }
+
+            node.position = this.graph?.centeredNodePosition() ?? node.position;
+            this.renderGraph();
+        });
     },
     deleteActiveNode(): void {
         if (!this.activeNodeId || this.executionRunning) {
@@ -853,36 +879,6 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
 
         this.nodeMenuOpen = false;
     },
-    toggleRecordingMenu(): void {
-        this.recordingMenuOpen = !this.recordingMenuOpen;
-
-        if (this.recordingMenuOpen) {
-            this.positionFlyout('recordingFlyout');
-        }
-    },
-    closeRecordingMenu(event: PointerEvent): void {
-        const flyout = this.workspaceElement('recordingFlyout');
-
-        if (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) {
-            return;
-        }
-
-        this.recordingMenuOpen = false;
-    },
-    startRecordingOnTarget(target: BrowserTestbenchTarget): void {
-        if (
-            !this.isCompatibleRecordingTarget(target) ||
-            !target.ready ||
-            (target.busy && target.id !== this.selectedBrowserTargetId) ||
-            this.recordingWorkflow
-        ) {
-            return;
-        }
-
-        this.selectedRecordingTargetId = target.id;
-        this.recordingMenuOpen = false;
-        void this.recordWorkflow();
-    },
     selectViewportPreset(preset: ViewportPreset): void {
         const presetChanged = preset.id !== this.project.preview.preset;
         this.deviceMenuOpen = false;
@@ -945,19 +941,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             return false;
         }
 
-        if (this.audioInputIds.size > 0 && !target.capabilities.mediaPlayback.autoplay) {
-            return false;
-        }
-
-        if (!this.cameraInputId) {
-            return true;
-        }
-
-        return (
-            target.capabilities.mediaInjection.cameraImage ||
-            (target.kind === 'desktop' &&
-                ['chrome', 'edge', 'firefox'].includes(target.browser ?? ''))
-        );
+        return true;
     },
     isCompatibleRecordingTarget(target: BrowserTestbenchTarget): boolean {
         return target.capabilities.recording.viewport && this.isCompatiblePreviewTarget(target);

@@ -1,13 +1,16 @@
 import template from '../templates/node-editor-panel.html?raw';
+import { AudioEnvelopeEditor } from './audio-envelope-editor.js';
 import { defineWorkspaceSection } from './workspace-section.js';
 
 export const NodeEditorPanel = defineWorkspaceSection({
     name: 'NodeEditorPanel',
     template,
+    components: { AudioEnvelopeEditor },
     bindings: [
         'activeBrowserAction',
         'activeBrowserWait',
         'activeAudio',
+        'activeAudioFileName',
         'activeCapability',
         'activeInput',
         'activeInputAcceptId',
@@ -16,8 +19,13 @@ export const NodeEditorPanel = defineWorkspaceSection({
         'activeMerge',
         'activeNode',
         'activeNodeError',
+        'activeNodeLocked',
         'activeSource',
         'activeWebsite',
+        'activeVideoOutput',
+        'availableRecordingTargets',
+        'browserTargetLabel',
+        'recordingTargetStatus',
         'addInputAccept',
         'addInputPreparation',
         'availableParentLayers',

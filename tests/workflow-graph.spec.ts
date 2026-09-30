@@ -61,6 +61,26 @@ test('Workflow-Graph verhindert Rückverbindungen und Website-Root als Ziel', ()
     );
 });
 
+test('Workflow-Graph behandelt den Video-Output als terminale Node', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push({
+        id: 'video-output',
+        type: 'video-output',
+        name: 'Video export',
+        position: null,
+        targetId: '',
+        filename: 'video.mp4',
+    });
+    project.connections.push(WorkflowGraph.createConnection(project, 'layer-1', 'video-output'));
+
+    assert.throws(
+        () => WorkflowGraph.createConnection(project, 'video-output', 'layer-1'),
+        (error) =>
+            error instanceof WorkflowConnectionError && error.issue === 'video-output-source',
+    );
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
+});
+
 test('Workflow-Graph erlaubt mehrere Input-Nodes vor der Website-Root', () => {
     const project = ProjectFormat.create();
     project.nodes.unshift(
@@ -145,6 +165,10 @@ test('Workflow-Graph trennt Datei- und Ablauf-Eingang einer Audio-Node', () => {
             name: 'Soundtrack abspielen',
             position: null,
             volume: 0.8,
+            envelope: [
+                { time: 0, gain: 1 },
+                { time: 1, gain: 1 },
+            ],
             waitForEnd: false,
         },
     );

@@ -2,7 +2,7 @@ import { WorkflowGraph } from './workflow-graph.js';
 import { PREVIEW_PRESET_IDS, type PreviewPresetId } from './media-presets.js';
 
 export const DIRECTOR_PROJECT_FORMAT = 'browser-testbench-director' as const;
-export const DIRECTOR_PROJECT_VERSION = 12 as const;
+export const DIRECTOR_PROJECT_VERSION = 15 as const;
 
 export interface Point {
     readonly x: number;
@@ -81,7 +81,22 @@ export interface AudioNode {
     name: string;
     position: Point | null;
     volume: number;
+    envelope: AudioEnvelopePoint[];
     waitForEnd: boolean;
+}
+
+export interface AudioEnvelopePoint {
+    readonly time: number;
+    readonly gain: number;
+}
+
+export interface VideoOutputNode {
+    readonly id: string;
+    readonly type: 'video-output';
+    name: string;
+    position: Point | null;
+    targetId: string;
+    filename: string;
 }
 
 export interface InputFileReference {
@@ -123,7 +138,8 @@ export type BrowserWaitNode =
 
 export type ExecutableNode =
     LayerNode | JavaScriptNode | BrowserActionNode | BrowserWaitNode | MergeNode | AudioNode;
-export type DirectorNode = InputNode | CapabilityNode | WebsiteNode | ExecutableNode;
+export type DirectorNode =
+    InputNode | CapabilityNode | WebsiteNode | VideoOutputNode | ExecutableNode;
 
 export interface WorkflowConnection {
     readonly id: string;
@@ -379,6 +395,11 @@ export class ProjectFormat {
             return;
         }
 
+        if (value['type'] === 'video-output') {
+            ProjectFormat.assertVideoOutputNode(value);
+            return;
+        }
+
         if (value['type'] === 'javascript') {
             ProjectFormat.assertJavaScriptNode(value);
             return;
@@ -395,6 +416,26 @@ export class ProjectFormat {
         }
 
         ProjectFormat.assertLayerNode(value);
+    }
+
+    private static assertVideoOutputNode(
+        value: Record<string, unknown>,
+    ): asserts value is Record<string, unknown> & VideoOutputNode {
+        ProjectFormat.assertCommonExecutable(value, 'Video output');
+
+        if (
+            typeof value['targetId'] !== 'string' ||
+            typeof value['filename'] !== 'string' ||
+            !/^[^\\/]+\.mp4$/iu.test(value['filename'])
+        ) {
+            throw new TypeError(`Video output node ${value['id']} contains invalid settings.`);
+        }
+
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'targetId', 'filename'],
+            'Video output node',
+        );
     }
 
     private static assertWebsiteNode(
@@ -626,9 +667,36 @@ export class ProjectFormat {
             throw new TypeError(`Audio node ${value['id']} contains invalid playback settings.`);
         }
 
+        if (!Array.isArray(value['envelope']) || value['envelope'].length < 2) {
+            throw new TypeError(`Audio node ${value['id']} must contain an envelope.`);
+        }
+
+        for (const [index, point] of value['envelope'].entries()) {
+            if (
+                !ProjectFormat.isRecord(point) ||
+                typeof point['time'] !== 'number' ||
+                !Number.isFinite(point['time']) ||
+                point['time'] < 0 ||
+                point['time'] > 1 ||
+                typeof point['gain'] !== 'number' ||
+                !Number.isFinite(point['gain']) ||
+                point['gain'] < 0 ||
+                point['gain'] > 1 ||
+                (index > 0 && point['time'] <= value['envelope'][index - 1]['time'])
+            ) {
+                throw new TypeError(`Audio node ${value['id']} contains an invalid envelope.`);
+            }
+
+            ProjectFormat.assertOnlyKeys(point, ['time', 'gain'], 'Audio envelope point');
+        }
+
+        if (value['envelope'][0]['time'] !== 0 || value['envelope'].at(-1)?.['time'] !== 1) {
+            throw new TypeError(`Audio node ${value['id']} envelope must span the whole file.`);
+        }
+
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'volume', 'waitForEnd'],
+            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd'],
             'Audio node',
         );
     }

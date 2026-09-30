@@ -5,6 +5,15 @@
     background: var(--color-surface-header);
 }
 
+.editor-panel__body {
+    transition: opacity 120ms ease;
+}
+
+.editor-panel__body--locked {
+    opacity: 0.56;
+    cursor: not-allowed;
+}
+
 .source-tabs {
     display: flex;
     min-width: 0;
@@ -124,12 +133,95 @@
     gap: var(--space-3);
 }
 
-.audio-volume-field input[type='range'] {
-    width: min(20rem, 100%);
+.automation-properties .audio-volume-field input[type='range'] {
+    min-width: 0;
+    min-height: var(--control-size);
+    flex: 1 1 auto;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 .audio-volume-field output {
-    min-width: 3.5rem;
+    width: 3.5rem;
+    flex: 0 0 3.5rem;
+    text-align: right;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.audio-envelope-field {
+    min-width: 0;
+}
+
+.audio-envelope-editor {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface-inset);
+}
+
+.audio-envelope-editor__canvas {
+    display: block;
+    width: 100%;
+    min-height: 112px;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+.audio-envelope-editor__fill {
+    fill: color-mix(in srgb, var(--color-node-audio) 18%, transparent);
+    pointer-events: none;
+}
+
+.audio-envelope-editor__line {
+    fill: none;
+    stroke: var(--color-node-audio);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+.audio-envelope-editor__point-hit-area {
+    fill: transparent;
+    outline: none;
+    stroke: transparent;
+    cursor: grab;
+}
+
+.audio-envelope-editor__point {
+    fill: var(--color-node-audio);
+    stroke: var(--color-node-audio);
+    stroke-width: 1;
+    pointer-events: none;
+    transition: r 120ms ease;
+}
+
+.audio-envelope-editor__point-hit-area:hover + .audio-envelope-editor__point,
+.audio-envelope-editor__point-hit-area:focus-visible + .audio-envelope-editor__point,
+.audio-envelope-editor__point.is-selected {
+    r: 4.5px;
+}
+
+.audio-envelope-editor__point-hit-area:active {
+    cursor: grabbing;
+}
+
+.audio-envelope-editor__footer {
+    display: flex;
+    min-height: calc(var(--control-size) + var(--space-2) * 2);
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2);
+    border-top: 1px solid var(--color-border);
+}
+
+.audio-envelope-editor__footer output {
     color: var(--color-text-muted);
     font-variant-numeric: tabular-nums;
 }
@@ -137,6 +229,12 @@
 .property-hint {
     margin: 0;
     color: var(--color-text-muted);
+}
+
+.audio-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .layer-placement-properties input:hover,

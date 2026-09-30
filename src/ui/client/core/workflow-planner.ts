@@ -1,7 +1,7 @@
 import type { DirectorProject, ExecutableNode, InputNode, WebsiteNode } from './project-format.js';
 import { WorkflowGraph } from './workflow-graph.js';
 
-export type PlaybackMode = 'root' | 'node' | 'current' | 'workflow';
+export type PlaybackMode = 'root' | 'node' | 'prepare' | 'current' | 'workflow';
 export type PlaybackSpeed = 'catchup' | 'live';
 
 export interface WorkflowStep {
@@ -117,7 +117,7 @@ export class WorkflowPlanner {
                     WorkflowPlanner.step(
                         project,
                         node,
-                        index < selectedIndex ? 'catchup' : 'live',
+                        mode === 'prepare' && index < selectedIndex ? 'catchup' : 'live',
                         included,
                     ),
                 ),

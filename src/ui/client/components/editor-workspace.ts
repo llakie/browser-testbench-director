@@ -45,6 +45,7 @@ import {
     type LayerNode,
     type MergeNode,
     type VerticalAlignment,
+    type VideoOutputNode,
     type WebsiteNode,
 } from '../core/project-format.js';
 import { Translator } from '../core/translator.js';
@@ -95,7 +96,6 @@ export const EditorWorkspace = defineComponent({
             mobileActivePanel: 'graph' as WorkspacePanel,
             deviceMenuOpen: false,
             nodeMenuOpen: false,
-            recordingMenuOpen: false,
             viewportPresets,
             browserTargets: [] as BrowserTestbenchTarget[],
             inputFiles: {} as Record<string, File>,
@@ -111,7 +111,6 @@ export const EditorWorkspace = defineComponent({
             browserTestbenchState: 'checking' as BrowserTestbenchState,
             browserTestbenchManaged: false,
             remotePreviewSessionId: null as string | null,
-            remotePreviewDirect: false,
             remotePreviewError: '',
             recordingWorkflow: false,
             recordingActive: false,
@@ -119,6 +118,7 @@ export const EditorWorkspace = defineComponent({
             recordingStartedAt: 0,
             recordingTimer: undefined as ReturnType<typeof setInterval> | undefined,
             recordingStopRequested: false,
+            playbackTriggerNodeId: null as string | null,
             selectorPicking: false,
             mcpSetupOpen: false,
             mobileMenuOpen: false,
@@ -159,6 +159,28 @@ export const EditorWorkspace = defineComponent({
         activeAudio(): AudioNode | null {
             return this.activeNode?.type === 'audio' ? this.activeNode : null;
         },
+        activeVideoOutput(): VideoOutputNode | null {
+            return this.activeNode?.type === 'video-output' ? this.activeNode : null;
+        },
+        activeAudioFileName(): string {
+            if (!this.activeAudio) {
+                return '';
+            }
+
+            const inputId = this.project.connections.find(
+                (connection) =>
+                    connection.target === this.activeAudio?.id &&
+                    this.project.nodes.some(
+                        (node) => node.id === connection.source && node.type === 'input',
+                    ),
+            )?.source;
+            const input = this.project.nodes.find(
+                (node): node is InputNode => node.id === inputId && node.type === 'input',
+            );
+            return (
+                (inputId ? this.inputFiles[inputId]?.name : undefined) ?? input?.file?.name ?? ''
+            );
+        },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');
         },
@@ -187,6 +209,22 @@ export const EditorWorkspace = defineComponent({
         },
         executionRunning(): boolean {
             return this.executionState.running;
+        },
+        executionLockedNodeIds(): ReadonlySet<string> {
+            const nodeIds = new Set(
+                this.executionRunning ? Object.keys(this.executionState.nodes) : [],
+            );
+
+            if (this.recordingWorkflow) {
+                for (const nodeId of WorkflowGraph.connectedNodeIds(this.project)) {
+                    nodeIds.add(nodeId);
+                }
+            }
+
+            return nodeIds;
+        },
+        activeNodeLocked(): boolean {
+            return Boolean(this.activeNodeId && this.executionLockedNodeIds.has(this.activeNodeId));
         },
         recordingElapsedLabel(): string {
             const seconds = Math.floor(this.recordingElapsedMs / 1000);
@@ -318,9 +356,6 @@ export const EditorWorkspace = defineComponent({
 
                 return 0;
             });
-        },
-        recordingTargetsAvailable(): boolean {
-            return this.availableRecordingTargets.length > 0;
         },
         browserSessionInputsReady(): boolean {
             return this.workflowInputNodes.every(

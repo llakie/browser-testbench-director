@@ -155,7 +155,7 @@ root.dataset.speed = director.speed;`,
         const website = preview?.querySelector('.director-website')?.contentDocument;
         return Boolean(
             preview?.querySelector('.director-layer') &&
-            website?.querySelector('#example-website[data-runs="1"][data-speed="catchup"]')
+            website?.querySelector('#example-website[data-runs="1"][data-speed="live"]')
         );`,
         [],
         5_000,

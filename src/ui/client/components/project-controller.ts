@@ -106,7 +106,6 @@ export const projectMethods: WorkspaceMethodMap = {
     setProject(project: DirectorProject, filename: string, dirty: boolean): void {
         const previousRemoteSessionId = this.remotePreviewSessionId;
         this.remotePreviewSessionId = null;
-        this.remotePreviewDirect = false;
         this.selectedBrowserTargetId = '';
         this.remotePreviewError = '';
 

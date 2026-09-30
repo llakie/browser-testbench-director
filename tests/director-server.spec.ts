@@ -40,6 +40,8 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
     try {
         await server.start();
         const origin = server.origin();
+        const player = await fetch(`${origin}/director-api/player-origin`);
+        assert.deepEqual(await player.json(), { origin });
         const client = await fetch(`${origin}/workflow/deep-link`);
         assert.equal(client.status, 200);
         assert.match(await client.text(), /Director standalone/u);
@@ -101,7 +103,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         if (request.url === '/main.js') {
             response.setHeader('Content-Type', 'text/javascript');
             response.end(
-                'const root = "/"; const pattern = /["\']\\//gu; import "/@fs/module.js"; const lazy = import("/lazy.js"); const path = window.location.pathname; window.websiteLoaded = true;',
+                'const root = "/"; const pattern = /["\']\\//gu; const componentCss = ".price::before{mask:url(/price-splash.svg)}"; router.navigateByUrl("/price-check/value"); import "/@fs/module.js"; const lazy = import("/lazy.js"); const path = window.location.pathname; window.websiteLoaded = true;',
             );
             return;
         }
@@ -158,9 +160,12 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         assert.equal(page.headers.get('content-security-policy'), null);
         assert.equal(page.headers.get('x-frame-options'), null);
         assert.doesNotMatch(html, /@vite\/client/u);
+        assert.match(html, /<meta name="google" content="notranslate">/u);
         assert.match(html, /<base href="\/director-website\/[^/]+\/">/u);
         assert.match(html, /Element\.prototype\.setAttribute/u);
         assert.match(html, /new MutationObserver/u);
+        assert.match(html, /history\.pushState/u);
+        assert.match(html, /DirectorWebSocket/u);
         assert.match(
             html,
             /url\.pathname === prefix \|\| url\.pathname\.startsWith/u,
@@ -171,13 +176,18 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
             /__directorPreviewCameraStream/u,
             'The preview camera bridge must run before application scripts.',
         );
+        assert.match(
+            html,
+            /Object\.defineProperty\(window, 'isSecureContext'/u,
+            'The synthetic camera must also work in certificate-free mobile HTTP players.',
+        );
 
         const prefix = url.slice(0, url.indexOf('/price-check/scan'));
         const asset = await fetch(`${server.origin()}${prefix}/main.js`);
         const script = await asset.text();
         assert.equal(
             script,
-            `const root = "/"; const pattern = /["']\\//gu; import "${prefix}/@fs/module.js"; const lazy = import("${prefix}/lazy.js"); const path = globalThis.__directorWebsitePathname(); window.websiteLoaded = true;`,
+            `const root = "/"; const pattern = /["']\\//gu; const componentCss = ".price::before{mask:url(${prefix}/price-splash.svg)}"; router.navigateByUrl("/price-check/value"); import "${prefix}/@fs/module.js"; const lazy = import("${prefix}/lazy.js"); const path = globalThis.__directorWebsitePathname(); window.websiteLoaded = true;`,
         );
         const module = await fetch(`${server.origin()}${prefix}/@fs/module.js`);
         assert.equal(await module.text(), 'window.moduleLoaded = true;');

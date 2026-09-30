@@ -13,9 +13,20 @@
     try {
         const previewCamera =
             window.parent !== window ? window.parent.__directorPreviewCameraStream : undefined;
-        const mediaDevices = navigator.mediaDevices;
 
-        if (previewCamera && mediaDevices) {
+        if (previewCamera) {
+            if (!window.isSecureContext) {
+                Object.defineProperty(window, 'isSecureContext', {
+                    configurable: true,
+                    value: true,
+                });
+            }
+
+            const mediaDevices = navigator.mediaDevices ?? {};
+            Object.defineProperty(navigator, 'mediaDevices', {
+                configurable: true,
+                value: mediaDevices,
+            });
             const nativeGetUserMedia = mediaDevices.getUserMedia?.bind(mediaDevices);
             Object.defineProperty(mediaDevices, 'getUserMedia', {
                 configurable: true,
@@ -65,6 +76,37 @@
     XMLHttpRequest.prototype.open = function (method, url, ...rest) {
         return nativeOpen.call(this, method, rewrite(url), ...rest);
     };
+
+    const nativePushState = history.pushState.bind(history);
+    history.pushState = (state, unused, url) =>
+        nativePushState(state, unused, url === undefined || url === null ? url : rewrite(url));
+    const nativeReplaceState = history.replaceState.bind(history);
+    history.replaceState = (state, unused, url) =>
+        nativeReplaceState(state, unused, url === undefined || url === null ? url : rewrite(url));
+
+    const NativeWebSocket = window.WebSocket;
+
+    if (NativeWebSocket) {
+        const target = new URL(targetOrigin);
+        const rewriteWebSocket = (value) => {
+            const url = new URL(String(value), targetOrigin);
+
+            if (url.host !== target.host) {
+                return String(value);
+            }
+
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${location.host}${prefix}${url.pathname}${url.search}${url.hash}`;
+        };
+        const DirectorWebSocket = function (url, protocols) {
+            return protocols === undefined
+                ? new NativeWebSocket(rewriteWebSocket(url))
+                : new NativeWebSocket(rewriteWebSocket(url), protocols);
+        };
+        DirectorWebSocket.prototype = NativeWebSocket.prototype;
+        Object.setPrototypeOf(DirectorWebSocket, NativeWebSocket);
+        window.WebSocket = DirectorWebSocket;
+    }
 
     const urlAttributes = new Set(['action', 'href', 'poster', 'src']);
     const nativeSetAttribute = Element.prototype.setAttribute;

@@ -151,7 +151,7 @@ test('Planer leitet die virtuelle Kamera aus der Capability-Verbindung ab', () =
     );
 });
 
-test('Node-Wiedergabe rekonstruiert Vorgänger und stoppt an der gewählten Node', () => {
+test('Node-Wiedergabe spielt die Timeline bis zur gewählten Node vollständig live', () => {
     const project = projectWithScript();
     project.nodes.push({
         id: 'after-reveal',
@@ -169,6 +169,18 @@ test('Node-Wiedergabe rekonstruiert Vorgänger und stoppt an der gewählten Node
     const plan = WorkflowPlanner.plan(project, 'node', 'reveal-price');
 
     assert.equal(plan.resetWebsite, true);
+    assert.deepEqual(
+        plan.steps.map((step) => [step.node.id, step.speed]),
+        [
+            ['layer-1', 'live'],
+            ['reveal-price', 'live'],
+        ],
+    );
+});
+
+test('Zustandsvorbereitung beschleunigt nur die Vorgänger der gewählten Node', () => {
+    const plan = WorkflowPlanner.plan(projectWithScript(), 'prepare', 'reveal-price');
+
     assert.deepEqual(
         plan.steps.map((step) => [step.node.id, step.speed]),
         [
@@ -224,6 +236,10 @@ test('Planer ordnet einer Audio-Node ihren Datei-Input zu', () => {
             name: 'Soundtrack abspielen',
             position: null,
             volume: 0.75,
+            envelope: [
+                { time: 0, gain: 1 },
+                { time: 1, gain: 1 },
+            ],
             waitForEnd: false,
         },
     );

@@ -8,6 +8,7 @@
                         v-model="activeNode.name"
                         type="text"
                         data-testid="node-name"
+                        :disabled="activeNodeLocked"
                         :aria-label="t('node.name')"
                         @input="markDirty(); renderGraph()"
                     />
@@ -32,10 +33,7 @@
                         aria-hidden="true"
                         focusable="false"
                     >
-                        <path
-                            class="direct-run-icon__play"
-                            d="M3.25 4.25v11.5L11 10 3.25 4.25Z"
-                        />
+                        <path class="direct-run-icon__play" d="M3.25 4.25v11.5L11 10 3.25 4.25Z" />
                         <path
                             class="direct-run-icon__bolt"
                             d="m15.35 1.5-4.1 6.65h3.05l-1.15 5.65 4.6-7.45h-3.1l2.05-4.85h-1.35Z"
@@ -77,10 +75,13 @@
                         {
                             'editor-panel__body--layer': activeLayer,
                             'editor-panel__body--javascript': activeJavaScript,
+                            'editor-panel__body--locked': activeNodeLocked,
                             'editor-panel__body--wait-script':
                                 activeBrowserWait?.condition === 'script',
                         },
                     ]"
+            :aria-disabled="activeNodeLocked"
+            :inert="activeNodeLocked"
             data-testid="editor-properties-scroll"
             tabindex="0"
         >
@@ -659,6 +660,15 @@
                         <output>{{ Math.round(activeAudio.volume * 100) }} %</output>
                     </span>
                 </label>
+                <label class="audio-envelope-field">
+                    <span>{{ t('audio.envelope') }}</span>
+                    <audio-envelope-editor
+                        v-model="activeAudio.envelope"
+                        :label="t('audio.envelope')"
+                        :delete-label="t('audio.deleteEnvelopePoint')"
+                        @change="markActiveNodeStale"
+                    ></audio-envelope-editor>
+                </label>
                 <label class="automation-properties__toggle">
                     <input
                         v-model="activeAudio.waitForEnd"
@@ -668,7 +678,43 @@
                     />
                     <span>{{ t('audio.waitForEnd') }}</span>
                 </label>
-                <p class="property-hint">{{ t('audio.inputHint') }}</p>
+                <p
+                    class="property-hint"
+                    :class="{ 'audio-file-name': activeAudioFileName }"
+                    :title="activeAudioFileName"
+                    data-testid="audio-file-name"
+                >
+                    {{ activeAudioFileName || t('audio.inputHint') }}
+                </p>
+            </div>
+            <div v-else-if="activeVideoOutput" class="automation-properties">
+                <label>
+                    <span>{{ t('videoOutput.target') }}</span>
+                    <select
+                        v-model="activeVideoOutput.targetId"
+                        data-testid="video-output-target"
+                        @change="markDirty(); renderGraph()"
+                    >
+                        <option value="">{{ t('videoOutput.selectTarget') }}</option>
+                        <option
+                            v-for="target in availableRecordingTargets"
+                            :key="target.id"
+                            :value="target.id"
+                        >
+                            {{ browserTargetLabel(target) }} · {{ recordingTargetStatus(target) }}
+                        </option>
+                    </select>
+                </label>
+                <label>
+                    <span>{{ t('videoOutput.filename') }}</span>
+                    <input
+                        v-model.trim="activeVideoOutput.filename"
+                        type="text"
+                        data-testid="video-output-filename"
+                        placeholder="video.mp4"
+                        @input="markDirty(); renderGraph()"
+                    />
+                </label>
             </div>
         </div>
     </section>

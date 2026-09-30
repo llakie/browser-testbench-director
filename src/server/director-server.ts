@@ -57,6 +57,7 @@ export class DirectorServer {
     readonly #websiteProxy = new DirectorWebsiteProxy();
     readonly #browserTestbenchLifecycle: BrowserTestbenchLifecycle;
     readonly #server: HttpServer | HttpsServer;
+    readonly #playerServer?: HttpServer;
 
     constructor(private readonly options: DirectorServerOptions) {
         const handler = (request: IncomingMessage, response: ServerResponse): void => {
@@ -65,6 +66,13 @@ export class DirectorServer {
         this.#server = options.https
             ? createHttpsServer({ cert: options.https.cert, key: options.https.key }, handler)
             : createHttpServer(handler);
+        this.#playerServer = options.https ? createHttpServer(handler) : undefined;
+        this.#server.on('upgrade', (request, socket, head) => {
+            this.#websiteProxy.upgrade(request, socket, head);
+        });
+        this.#playerServer?.on('upgrade', (request, socket, head) => {
+            this.#websiteProxy.upgrade(request, socket, head);
+        });
         this.#inputPreparations = new DirectorInputPreparations(
             resolve(options.projectDirectory, 'projects'),
         );
@@ -79,36 +87,27 @@ export class DirectorServer {
     }
 
     async start(): Promise<void> {
-        await new Promise<void>((resolveStarted, reject) => {
-            this.#server.once('error', reject);
-            this.#server.listen(this.options.port, this.options.host, () => {
-                this.#server.off('error', reject);
-                resolveStarted();
-            });
-        });
+        await this.#listen(this.#server, this.options.port);
+
+        if (this.#playerServer) {
+            await this.#listen(this.#playerServer, 0);
+        }
     }
 
     async close(): Promise<void> {
         await this.#browserTestbenchLifecycle.close();
 
-        if (!this.#server.listening) {
-            return;
+        if (this.#playerServer?.listening) {
+            await this.#closeServer(this.#playerServer);
         }
 
-        await new Promise<void>((resolveClosed, reject) => {
-            this.#server.close((error) => (error ? reject(error) : resolveClosed()));
-        });
+        if (this.#server.listening) {
+            await this.#closeServer(this.#server);
+        }
     }
 
     origin(): string {
-        const address = this.#server.address() as AddressInfo | null;
-
-        if (!address) {
-            throw new Error('Director server is not listening.');
-        }
-
-        const host = address.address.includes(':') ? `[${address.address}]` : address.address;
-        return `${this.options.https ? 'https' : 'http'}://${host}:${address.port}`;
+        return this.#origin(this.#server, this.options.https ? 'https' : 'http');
     }
 
     listener(): HttpServer | HttpsServer {
@@ -121,6 +120,15 @@ export class DirectorServer {
 
             if (pathname === '/director-api/browser-testbench') {
                 await this.#browserTestbenchLifecycle.handle(request, response);
+                return;
+            }
+
+            if (pathname === '/director-api/player-origin') {
+                this.#json(response, 200, {
+                    origin: this.#playerServer
+                        ? this.#origin(this.#playerServer, 'http')
+                        : this.origin(),
+                });
                 return;
             }
 
@@ -289,6 +297,33 @@ export class DirectorServer {
         } catch {
             return false;
         }
+    }
+
+    async #listen(server: HttpServer | HttpsServer, port: number): Promise<void> {
+        await new Promise<void>((resolveStarted, reject) => {
+            server.once('error', reject);
+            server.listen(port, this.options.host, () => {
+                server.off('error', reject);
+                resolveStarted();
+            });
+        });
+    }
+
+    async #closeServer(server: HttpServer | HttpsServer): Promise<void> {
+        await new Promise<void>((resolveClosed, reject) => {
+            server.close((error) => (error ? reject(error) : resolveClosed()));
+        });
+    }
+
+    #origin(server: HttpServer | HttpsServer, protocol: 'http' | 'https'): string {
+        const address = server.address() as AddressInfo | null;
+
+        if (!address) {
+            throw new Error('Director server is not listening.');
+        }
+
+        const host = address.address.includes(':') ? `[${address.address}]` : address.address;
+        return `${protocol}://${host}:${address.port}`;
     }
 
     #json(response: ServerResponse, status: number, payload: unknown): void {
