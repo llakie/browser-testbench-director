@@ -66,11 +66,12 @@ try {
             window.fetch = async (...arguments_) => {
                 const response = await originalFetch(...arguments_);
                 const url = String(arguments_[0]);
-                if (!response.ok || /recording|sessions|execution/u.test(url)) {
+                if (!response.ok || /recording|sessions|execution|video-exports/u.test(url)) {
                     window.__gtpRequests.push({
                         url,
                         status: response.status,
-                        body: await response.clone().text(),
+                        body: url.includes('video-exports') ? null : await response.clone().text(),
+                        intervals: arguments_[1]?.headers?.['x-director-video-intervals'] ?? null,
                     });
                 }
                 return response;
@@ -98,6 +99,17 @@ try {
         }
 
         const probe = await inspectVideo(download.path);
+        const intervals = await controller.evaluate<Array<{ startMs: number; endMs: number }>>(`
+            const exported = window.__gtpRequests.find((request) =>
+                request.url.includes('/director-api/video-exports')
+            );
+            return JSON.parse(exported?.intervals ?? '[]');
+        `);
+        assert.ok(intervals.length > 0, `${target}: no recording segments were retained.`);
+        process.stdout.write(
+            `${target}: ${intervals.length} retained segments, ` +
+                `${intervals.reduce((total, interval) => total + interval.endMs - interval.startMs, 0)} ms\n`,
+        );
         const video = probe.streams.find((stream) => stream.codec_type === 'video');
         const audio = probe.streams.find((stream) => stream.codec_type === 'audio');
         assert.ok(video?.width && video.height, `${target}: missing video stream.`);
