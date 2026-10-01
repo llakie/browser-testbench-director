@@ -4,6 +4,27 @@ All notable changes to Browser Testbench Director are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-01
+
+### Added
+
+- Audio file inputs and playback nodes with volume envelopes and branch-aware playback.
+- Source formatting for layer HTML, CSS, and JavaScript.
+- Recording controls on video-output nodes and their properties panel.
+
+### Changed
+
+- Preview and recording now use the same Browser Testbench runtime; Director preserves captured audio instead of mixing replacement tracks.
+- Workflow planning and graph routing handle parallel branches, merge cancellation, and playback-to-node more consistently.
+- Node editing, status indicators, and recording controls were refined for active runs.
+- The bundled Axios version is pinned to a patched release across Browser Testbench's Appium dependencies.
+
+### Fixed
+
+- Input assets are restored for immediate node playback after a project is reopened.
+- Audio playback is unlocked before a remote workflow starts, including Firefox recording.
+- Recording output retains synchronized captured audio when omitted intervals are removed.
+
 ## [0.1.0] - 2026-09-29
 
 ### Added

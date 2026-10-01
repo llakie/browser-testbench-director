@@ -1,6 +1,6 @@
 {
     "name": "browser-testbench-director",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Visual workflow editor and video renderer for Browser Testbench",
     "author": "Lars-Erich Kiefer",
     "license": "MIT",
@@ -97,6 +97,7 @@
         "zod": "^4.6.5"
     },
     "overrides": {
+        "axios": "1.20.0",
         "morgan": "1.12.1"
     }
 }
