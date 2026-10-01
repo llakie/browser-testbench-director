@@ -779,18 +779,30 @@ test('Remote-Audio kann für einen einzelnen Branch gestoppt werden', async () =
 
 for (const kind of ['desktop', 'mobile'] as const) {
     for (const ready of [true, false]) {
-        test(`${kind} audio unlock validates readiness (${ready}) and removes its temporary control`, async () => {
+        test(`${kind} audio unlock waits for readiness (${ready}) and removes its temporary control`, async () => {
             const originalFetch = globalThis.fetch;
             const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
             globalThis.fetch = async (input, init = {}) => {
                 const body = JSON.parse(String(init.body)) as Record<string, unknown>;
                 requests.push({ url: String(input), body });
                 const script = String(body['script']);
+                const waitingForAudio =
+                    String(input).endsWith('/wait') && script.includes('.audioReady()');
                 const result = script.includes('.prepareAudio()')
                     ? { x: 180, y: 320 }
                     : script.includes('.audioReady()')
-                      ? ready
+                      ? waitingForAudio
+                          ? { ready }
+                          : false
                       : {};
+
+                if (waitingForAudio && !ready) {
+                    return new Response(JSON.stringify({ error: 'wait.script timed out' }), {
+                        status: 408,
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+
                 return new Response(JSON.stringify(result), {
                     headers: { 'Content-Type': 'application/json' },
                 });
@@ -812,6 +824,15 @@ for (const kind of ['desktop', 'mobile'] as const) {
                         kind === 'mobile'
                             ? { type: 'tap', x: 180, y: 320 }
                             : { selector: '#director-audio-unlock' },
+                });
+                assert.deepEqual(requests[2], {
+                    url: `/browser-testbench-api/sessions/${kind}/wait`,
+                    body: {
+                        type: 'script',
+                        script: 'return window.__director.audioReady();',
+                        arguments: [],
+                        timeoutMs: 5_000,
+                    },
                 });
                 assert.match(String(requests.at(-1)?.body['script']), /remove\(\)/u);
             } finally {

@@ -490,14 +490,28 @@ export class BrowserTestbenchPreview {
                 });
             }
 
-            const ready = await this.browserAction<boolean>(sessionId, {
-                action: 'evaluate',
-                script: 'return window.__director.audioReady();',
-                arguments: [],
-            });
+            try {
+                await this.request(`/sessions/${encodeURIComponent(sessionId)}/wait`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        type: 'script',
+                        script: 'return window.__director.audioReady();',
+                        arguments: [],
+                        timeoutMs: 5_000,
+                    }),
+                });
+            } catch (error) {
+                const ready = await this.browserAction<boolean>(sessionId, {
+                    action: 'evaluate',
+                    script: 'return window.__director.audioReady();',
+                    arguments: [],
+                });
 
-            if (!ready) {
-                throw new Error('Audio playback could not be enabled on this device.');
+                if (!ready) {
+                    throw new Error('Audio playback could not be enabled on this device.', {
+                        cause: error,
+                    });
+                }
             }
         } finally {
             await this.browserAction(sessionId, {
