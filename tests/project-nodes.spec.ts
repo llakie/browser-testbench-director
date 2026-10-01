@@ -17,6 +17,9 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     const action = ProjectNodes.createBrowserAction(project, 'Klick');
     project.nodes.push(action);
     const wait = ProjectNodes.createBrowserWait(project, 'Warten');
+    const merge = ProjectNodes.createMerge(project, 'Zusammenführen');
+    const audio = ProjectNodes.createAudio(project, 'Ton');
+    const output = ProjectNodes.createVideoOutput(project, 'Video');
 
     assert.equal(layer.id, 'layer-2');
     assert.equal(input.id, 'input-1');
@@ -30,6 +33,18 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     assert.equal(wait.condition, 'element');
     assert.equal(wait.timeoutMs, 30_000);
     assert.equal(wait.omitFromRecording, true);
+    assert.equal(merge.id, 'merge-1');
+    assert.equal(merge.waitFor, 'all');
+    assert.equal(audio.id, 'audio-1');
+    assert.equal(audio.volume, 1);
+    assert.deepEqual(audio.envelope, [
+        { time: 0, gain: 1 },
+        { time: 1, gain: 1 },
+    ]);
+    assert.equal(audio.waitForEnd, true);
+    assert.equal(output.type, 'video-output');
+    assert.equal(output.targetId, '');
+    assert.equal(output.filename, 'video.mp4');
 });
 
 test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
@@ -38,12 +53,35 @@ test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
     const duplicate = ProjectNodes.duplicate(project, original, 'Kopie')!;
 
     assert.equal(duplicate.type, 'layer');
-    if (duplicate.type !== 'layer') throw new Error('Expected a layer duplicate.');
+
+    if (duplicate.type !== 'layer') {
+        throw new Error('Expected a layer duplicate.');
+    }
+
     assert.equal(duplicate.position, null);
     duplicate.source.html = 'changed';
     duplicate.playback.removeAfter = true;
     assert.notEqual(original.source.html, duplicate.source.html);
     assert.equal(original.playback.removeAfter, false);
+});
+
+test('Projekt-Nodes dupliziert Audio-Hüllkurven ohne gemeinsame Referenzen', () => {
+    const project = ProjectFormat.create();
+    const original = ProjectNodes.createAudio(project, 'Audio');
+    original.envelope = [
+        { time: 0, gain: 0 },
+        { time: 1, gain: 1 },
+    ];
+    const duplicate = ProjectNodes.duplicate(project, original, 'Audio copy');
+
+    assert.equal(duplicate?.type, 'audio');
+
+    if (duplicate?.type !== 'audio') {
+        return;
+    }
+
+    duplicate.envelope[0] = { time: 0, gain: 1 };
+    assert.equal(original.envelope[0]?.gain, 0);
 });
 
 test('Projekt-Nodes löscht eine Node samt Verbindungen, aber niemals die Website-Root', () => {

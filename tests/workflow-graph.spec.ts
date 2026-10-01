@@ -15,7 +15,7 @@ test('Workflow-Graph erstellt eine lineare Verbindung', () => {
     });
 });
 
-test('Workflow-Graph verhindert mehrere Nachfolger und Vorgänger', () => {
+test('Workflow-Graph erlaubt parallele Nachfolger und führt sie nur über Merge zusammen', () => {
     const project = ProjectFormat.create();
     project.nodes.push({
         id: 'second-layer',
@@ -30,15 +30,26 @@ test('Workflow-Graph verhindert mehrere Nachfolger und Vorgänger', () => {
         playback: { durationMs: 0, removeAfter: false },
         source: { html: '', css: '', javascript: '' },
     });
+    project.nodes.push({
+        id: 'merge',
+        type: 'merge',
+        name: 'Merge',
+        position: null,
+        waitFor: 'all',
+    });
 
-    assert.throws(
-        () => WorkflowGraph.createConnection(project, 'website-root', 'second-layer'),
-        (error) => error instanceof WorkflowConnectionError && error.issue === 'source-occupied',
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'website-root', 'second-layer'),
     );
     assert.throws(
         () => WorkflowGraph.createConnection(project, 'second-layer', 'layer-1'),
         (error) => error instanceof WorkflowConnectionError && error.issue === 'target-occupied',
     );
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'layer-1', 'merge'),
+        WorkflowGraph.createConnection(project, 'second-layer', 'merge'),
+    );
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
 });
 
 test('Workflow-Graph verhindert Rückverbindungen und Website-Root als Ziel', () => {
@@ -48,6 +59,26 @@ test('Workflow-Graph verhindert Rückverbindungen und Website-Root als Ziel', ()
         () => WorkflowGraph.createConnection(project, 'layer-1', 'website-root'),
         (error) => error instanceof WorkflowConnectionError && error.issue === 'website-target',
     );
+});
+
+test('Workflow-Graph behandelt den Video-Output als terminale Node', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push({
+        id: 'video-output',
+        type: 'video-output',
+        name: 'Video export',
+        position: null,
+        targetId: '',
+        filename: 'video.mp4',
+    });
+    project.connections.push(WorkflowGraph.createConnection(project, 'layer-1', 'video-output'));
+
+    assert.throws(
+        () => WorkflowGraph.createConnection(project, 'video-output', 'layer-1'),
+        (error) =>
+            error instanceof WorkflowConnectionError && error.issue === 'video-output-source',
+    );
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
 });
 
 test('Workflow-Graph erlaubt mehrere Input-Nodes vor der Website-Root', () => {
@@ -115,4 +146,41 @@ test('Workflow-Graph verbindet einen Datei-Input über die Kamera-Capability mit
         ['website-root', 'layer-1', 'camera', 'camera-image'],
     );
     assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
+});
+
+test('Workflow-Graph trennt Datei- und Ablauf-Eingang einer Audio-Node', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push(
+        {
+            id: 'soundtrack',
+            type: 'input',
+            name: 'Soundtrack',
+            position: null,
+            accept: 'audio/*',
+            required: true,
+        },
+        {
+            id: 'play-soundtrack',
+            type: 'audio',
+            name: 'Soundtrack abspielen',
+            position: null,
+            volume: 0.8,
+            envelope: [
+                { time: 0, gain: 1 },
+                { time: 1, gain: 1 },
+            ],
+            waitForEnd: false,
+        },
+    );
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'soundtrack', 'play-soundtrack'),
+        WorkflowGraph.createConnection(project, 'layer-1', 'play-soundtrack'),
+    );
+
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
+    assert.ok(WorkflowGraph.connectedNodeIds(project).has('soundtrack'));
+    assert.throws(
+        () => WorkflowGraph.createConnection(project, 'website-root', 'play-soundtrack'),
+        (error) => error instanceof WorkflowConnectionError && error.issue === 'audio-target',
+    );
 });

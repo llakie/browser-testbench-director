@@ -13,7 +13,6 @@
     --color-success: #22c55e;
     --color-success-soft: #e9f8f1;
     --color-warning: #a76508;
-    --color-warning-soft: #fff5df;
     --color-danger: #bd3d4a;
     --color-danger-soft: #fff0f1;
     --color-on-primary: #ffffff;
@@ -23,7 +22,6 @@
     --color-topbar-surface: rgb(255 255 255 / 84%);
     --color-primary-divider: rgb(79 70 229 / 14%);
     --color-danger-border: #f4c5ca;
-    --color-success-border: #b8e6d2;
 
     --color-surface-raised: var(--color-surface);
     --color-surface-soft: var(--color-surface-muted);
@@ -48,6 +46,7 @@
     --color-css: var(--color-success);
     --color-js: var(--color-warning);
     --color-status-running: var(--color-warning);
+    --color-status-pending: var(--color-status-running);
     --color-status-success: var(--color-success);
     --color-status-error: var(--color-danger);
     --color-status-cancelled: var(--color-ink-muted);
@@ -62,13 +61,16 @@
     --color-graph-grid: var(--color-line);
     --color-node-surface: var(--color-surface);
     --color-node-control: var(--color-surface-muted);
-    --color-node-website: var(--color-primary-border);
-    --color-node-input: var(--color-success-border);
-    --color-node-capability: var(--color-success-soft);
-    --color-node-javascript: var(--color-primary-soft);
-    --color-node-action: var(--color-success-soft);
-    --color-node-wait: var(--color-warning-soft);
-    --color-node-layer: var(--color-primary-soft);
+    --color-node-header-text: #151923;
+    --color-node-website: #5f8fff;
+    --color-node-input: #43b5d4;
+    --color-node-capability: #56c7b2;
+    --color-node-javascript: #9d7aff;
+    --color-node-action: #55c2a3;
+    --color-node-wait: #f0b84b;
+    --color-node-layer: #ff6d38;
+    --color-node-merge: #ec70a8;
+    --color-node-audio: #5db7ef;
     --space-1: 4px;
     --space-2: 6px;
     --space-3: 8px;
@@ -76,9 +78,6 @@
     --space-5: 12px;
     --space-6: 14px;
     --space-7: 16px;
-    --space-8: 18px;
-    --space-9: 22px;
-    --space-10: 24px;
     --radius-small: 8px;
     --radius-medium: 14px;
     --radius-pill: 999px;
@@ -92,7 +91,6 @@
     --shadow-brand: 0 8px 20px rgb(79 70 229 / 24%);
     --shadow-preview: 0 28px 80px rgb(31 43 61 / 14%);
     --shadow-overlay: 0 24px 80px rgb(31 43 61 / 18%);
-    --focus-ring: 0 0 0 3px rgb(79 70 229 / 13%);
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m3.5 5.75 4.5 4.5 4.5-4.5' stroke='%23617086' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     font-family:
         Inter,

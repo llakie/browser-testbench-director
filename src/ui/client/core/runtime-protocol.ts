@@ -1,9 +1,10 @@
-import type { BrowserWaitNode, LayerNode } from './project-format.js';
+import type { AudioEnvelopePoint, BrowserWaitNode, LayerNode } from './project-format.js';
 
 export interface RuntimeStep {
     readonly id: string;
-    readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait';
+    readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait' | 'merge' | 'audio';
     readonly speed: 'catchup' | 'live';
+    readonly after?: readonly string[];
     readonly source: string;
     readonly html?: string;
     readonly css?: string;
@@ -15,6 +16,11 @@ export interface RuntimeStep {
     readonly script?: string;
     readonly timeoutMs?: number;
     readonly omitFromRecording?: boolean;
+    readonly waitFor?: 'all' | 'any';
+    readonly inputId?: string;
+    readonly volume?: number;
+    readonly envelope?: readonly AudioEnvelopePoint[];
+    readonly waitForEnd?: boolean;
 }
 
 export class DirectorRuntimeScript {

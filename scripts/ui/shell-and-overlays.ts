@@ -5,10 +5,40 @@ import { join } from 'node:path';
 import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
-import { selectGraphNode } from '../support/director-ui.js';
-import { applicationUrl, outputDirectory, testbench } from '../support/ui-verification-context.js';
+import { clickPreviewWebsiteElement, selectGraphNode } from '../support/director-ui.js';
+import {
+    applicationUrl,
+    outputDirectory,
+    server,
+    testbench,
+} from '../support/ui-verification-context.js';
 
 export async function verifyMobileMenu(session: RemoteSession): Promise<void> {
+    await session.setViewport(1440, 1000);
+    await session.waitForElement('[data-testid="open-browser-testbench"]', 5_000);
+    const desktopLink = await session.evaluate<{
+        href: string;
+        target: string;
+        rel: string;
+        centerDelta: number;
+    }>(`
+        const link = document.querySelector('[data-testid="open-browser-testbench"]');
+        const toggle = document.querySelector('[data-testid="toggle-browser-testbench"]');
+        const linkRect = link.getBoundingClientRect();
+        const toggleRect = toggle.getBoundingClientRect();
+        return {
+            href: link.href,
+            target: link.target,
+            rel: link.rel,
+            centerDelta: Math.abs((linkRect.top + linkRect.bottom) / 2 -
+                (toggleRect.top + toggleRect.bottom) / 2),
+        };
+    `);
+    assert.equal(desktopLink.href, `${new URL(server).origin}/`);
+    assert.equal(desktopLink.target, '_blank');
+    assert.match(desktopLink.rel, /noopener/u);
+    assert.ok(desktopLink.centerDelta <= 1, 'testbench link: align with the power button.');
+
     await session.setViewport(390, 844);
     const header = await session.evaluate<{
         desktopActionsWidth: number;
@@ -63,6 +93,9 @@ export async function verifyMobileMenu(session: RemoteSession): Promise<void> {
         };
     `);
     assert.equal(menu.labels.length, 6, 'mobile menu: all project actions must be available.');
+    const mobileLink = await session.state('[data-testid="mobile-open-browser-testbench"]');
+    assert.equal(mobileLink.attributes['href'], new URL(server).origin);
+    assert.equal(mobileLink.attributes['target'], '_blank');
     assert.ok(menu.width > 0 && menu.left >= 0 && menu.right <= menu.viewportWidth);
     assert.ok(menu.top >= 0 && menu.bottom <= menu.viewportHeight);
     await session.screenshot(join(outputDirectory, 'mobile-menu.png'), true);
@@ -266,13 +299,16 @@ export async function verifySelectorPicker(session: RemoteSession): Promise<void
     await session.click('[data-testid="pick-browser-action-selector"]');
 
     let pickerSession: RemoteSession | undefined;
+
     for (let attempt = 0; attempt < 80 && !pickerSession; attempt += 1) {
         await new Promise((resolveWait) => setTimeout(resolveWait, 250));
         pickerSession = (await testbench.sessions()).find(
             (candidate) => !existingSessions.has(candidate.id),
         );
     }
+
     assert.ok(pickerSession, 'selector picker: a remote picking session must open.');
+
     try {
         await pickerSession.waitForScript(
             `return window.__directorSelectorPicker?.status === 'picking';`,
@@ -287,6 +323,7 @@ export async function verifySelectorPicker(session: RemoteSession): Promise<void
             cause: error,
         });
     }
+
     const pickerState = await pickerSession.evaluate<{
         status: string | null;
         url: string;
@@ -303,7 +340,7 @@ export async function verifySelectorPicker(session: RemoteSession): Promise<void
         'picking',
         `selector picker: remote session did not enter picking mode (${JSON.stringify(pickerState)}).`,
     );
-    await pickerSession.click('#project-name');
+    await clickPreviewWebsiteElement(pickerSession, '#project-name');
     await session.waitForValue('[data-testid="browser-action-selector"]', '#project-name', 10_000);
     await pickerSession.close().catch(() => undefined);
     await session.click('[data-testid="new-project"]');

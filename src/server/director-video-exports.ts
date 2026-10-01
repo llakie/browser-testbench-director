@@ -22,16 +22,24 @@ export class DirectorVideoExports {
         width: number,
         height: number,
         intervals: readonly VideoInterval[] = [],
-    ) {
-        const transform = `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x0d110f,setsar=1,fps=30`;
-        const filterArguments = intervals.length
-            ? [
-                  '-filter_complex',
-                  DirectorVideoExports.intervalFilter(intervals, transform),
-                  '-map',
-                  '[video]',
-              ]
-            : ['-vf', transform];
+    ): string[] {
+        const transform = `scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x0d110f:eval=frame,setsar=1,fps=30`;
+        const filters = intervals.flatMap((interval, index) => {
+            const start = interval.startMs / 1000;
+            const end = interval.endMs / 1000;
+            // Both streams retain the same time origin. Never reconstruct or realign audio.
+            return [
+                `[0:v]fps=30,trim=start=${start}:end=${end},setpts=PTS-${start}/TB[v${index}]`,
+                `[0:a]atrim=start=${start}:end=${end},asetpts=PTS-${start}/TB[a${index}]`,
+            ];
+        });
+
+        if (intervals.length) {
+            const streams = intervals.map((_, index) => `[v${index}][a${index}]`).join('');
+            filters.push(`${streams}concat=n=${intervals.length}:v=1:a=1[cut][audio]`);
+            filters.push(`[cut]${transform}[video]`);
+        }
+
         return [
             '-hide_banner',
             '-loglevel',
@@ -39,7 +47,9 @@ export class DirectorVideoExports {
             '-y',
             '-i',
             inputPath,
-            ...filterArguments,
+            ...(intervals.length
+                ? ['-filter_complex', filters.join(';'), '-map', '[video]', '-map', '[audio]']
+                : ['-vf', transform, '-map', '0:v:0', '-map', '0:a:0']),
             '-c:v',
             'libx264',
             '-preset',
@@ -50,22 +60,12 @@ export class DirectorVideoExports {
             'yuv420p',
             '-movflags',
             '+faststart',
-            '-an',
+            '-c:a',
+            'aac',
+            '-b:a',
+            '192k',
             outputPath,
-        ] as const;
-    }
-
-    private static intervalFilter(intervals: readonly VideoInterval[], transform: string): string {
-        const trims = intervals.map((interval, index) => {
-            const duration = DirectorVideoExports.seconds(interval.endMs - interval.startMs);
-            return `[0:v]trim=start=${DirectorVideoExports.seconds(interval.startMs)}:end=${DirectorVideoExports.seconds(interval.endMs)},setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS[interval${index}]`;
-        });
-        const inputs = intervals.map((_interval, index) => `[interval${index}]`).join('');
-        return `${trims.join(';')};${inputs}concat=n=${intervals.length}:v=1:a=0[cut];[cut]${transform}[video]`;
-    }
-
-    private static seconds(milliseconds: number): string {
-        return (milliseconds / 1_000).toFixed(6).replace(/0+$/u, '').replace(/\.$/u, '');
+        ];
     }
 
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -73,13 +73,17 @@ export class DirectorVideoExports {
             this.json(response, 405, { error: 'Method not allowed.' });
             return;
         }
+
         const width = this.dimension(request.headers['x-director-video-width']);
         const height = this.dimension(request.headers['x-director-video-height']);
+
         if (!width || !height) {
             this.json(response, 400, { error: 'Valid video width and height are required.' });
             return;
         }
+
         const intervals = this.intervals(request.headers['x-director-video-intervals']);
+
         if (intervals === null) {
             this.json(response, 400, { error: 'Video intervals are invalid.' });
             return;
@@ -88,15 +92,18 @@ export class DirectorVideoExports {
         const directory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-export-'));
         const inputPath = join(directory, 'recording.mp4');
         const outputPath = join(directory, 'export.mp4');
+
         try {
             let size = 0;
             const limiter = new Transform({
                 transform(chunk: Buffer, _encoding, callback) {
                     size += chunk.byteLength;
+
                     if (size > maximumUploadBytes) {
                         callback(new Error('The recording exceeds the 2 GB limit.'));
                         return;
                     }
+
                     callback(null, chunk);
                 },
             });
@@ -134,13 +141,24 @@ export class DirectorVideoExports {
     }
 
     private intervals(value: string | string[] | undefined): VideoInterval[] | null {
-        if (value === undefined) return [];
+        if (value === undefined) {
+            return [];
+        }
+
         try {
             const parsed = JSON.parse(Array.isArray(value) ? value[0]! : value) as unknown;
-            if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 500) return null;
+
+            if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 500) {
+                return null;
+            }
+
             const intervals = parsed.map((interval) => {
-                if (!interval || typeof interval !== 'object') return null;
+                if (!interval || typeof interval !== 'object') {
+                    return null;
+                }
+
                 const { startMs, endMs } = interval as Record<string, unknown>;
+
                 if (
                     typeof startMs !== 'number' ||
                     typeof endMs !== 'number' ||
@@ -148,8 +166,10 @@ export class DirectorVideoExports {
                     !Number.isFinite(endMs) ||
                     startMs < 0 ||
                     endMs <= startMs
-                )
+                ) {
                     return null;
+                }
+
                 return { startMs, endMs };
             });
             return intervals.every((interval) => interval !== null)

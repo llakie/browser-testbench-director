@@ -39,11 +39,19 @@ export class ProjectFiles {
     static async open(): Promise<OpenedProjectFile | null> {
         const openFilePicker = (window as Window & { showOpenFilePicker?: OpenFilePicker })
             .showOpenFilePicker;
-        if (!openFilePicker) return null;
+
+        if (!openFilePicker) {
+            return null;
+        }
+
         const [handle] = await openFilePicker({
             types: [this.fileType()],
         });
-        if (!handle) throw new DOMException('No project selected.', 'AbortError');
+
+        if (!handle) {
+            throw new DOMException('No project selected.', 'AbortError');
+        }
+
         return { file: await handle.getFile(), handle };
     }
 
@@ -54,12 +62,15 @@ export class ProjectFiles {
     ): Promise<SavedProjectFile> {
         const filename = ProjectFiles.filename(preferredName ?? project.name);
         const content = ProjectFormat.stringify(project);
+
         if (existingHandle) {
             await this.write(existingHandle, content);
             return { filename, handle: existingHandle };
         }
+
         const saveFilePicker = (window as Window & { showSaveFilePicker?: SaveFilePicker })
             .showSaveFilePicker;
+
         if (saveFilePicker) {
             const handle = await saveFilePicker({
                 suggestedName: filename,

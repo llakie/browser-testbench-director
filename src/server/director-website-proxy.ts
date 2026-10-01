@@ -6,10 +6,15 @@ import {
     type ServerResponse,
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { connect as connectNet } from 'node:net';
+import type { Duplex } from 'node:stream';
+import { connect as connectTls } from 'node:tls';
 
 import { parse as parseJavaScript, type Identifier, type MemberExpression } from 'acorn';
 import { simple as walkJavaScript } from 'acorn-walk';
 import { init, parse } from 'es-module-lexer/minimal';
+
+import { renderDirectorWebsiteBridge } from './director-website-bridge-renderer.js';
 
 const moduleLexerReady = init();
 
@@ -24,26 +29,30 @@ export class DirectorWebsiteProxy {
             this.#json(response, 405, { error: 'Method not allowed.' });
             return;
         }
+
         const registration = JSON.parse(await this.#body(request)) as { readonly url?: unknown };
         const target = this.#targetUrl(registration.url);
         const existing = [...this.#targets].find(([, value]) => value.href === target.href);
         const id = existing?.[0] ?? randomUUID();
         this.#targets.set(id, target);
-        while (this.#targets.size > 32) this.#targets.delete(this.#targets.keys().next().value!);
+
+        while (this.#targets.size > 32) {
+            this.#targets.delete(this.#targets.keys().next().value!);
+        }
+
         this.#json(response, 201, { url: this.#proxyUrl(id, target) });
     }
 
     async proxy(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const source = new URL(request.url ?? '/', 'http://director.local');
-        const match = /^\/director-website\/([^/]+)(\/.*)?$/u.exec(source.pathname);
-        const id = match?.[1] ? decodeURIComponent(match[1]) : '';
-        const registered = this.#targets.get(id);
-        if (!registered) {
+        const route = this.#route(source);
+
+        if (!route) {
             this.#json(response, 404, { error: 'Unknown website proxy.' });
             return;
         }
-        const target = new URL(`${match?.[2] || '/'}${source.search}`, registered.origin);
-        const prefix = `${DirectorWebsiteProxy.routePath}${encodeURIComponent(id)}`;
+
+        const { prefix, target } = route;
         const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
         await new Promise<void>((resolveProxy, reject) => {
@@ -59,6 +68,7 @@ export class DirectorWebsiteProxy {
                 },
                 (proxyResponse) => {
                     const contentType = String(proxyResponse.headers['content-type'] ?? '');
+
                     if (contentType.toLowerCase().includes('text/html')) {
                         void this.#proxyText(proxyResponse, response, prefix, target, 'html').then(
                             resolveProxy,
@@ -66,6 +76,7 @@ export class DirectorWebsiteProxy {
                         );
                         return;
                     }
+
                     if (contentType.toLowerCase().includes('javascript')) {
                         void this.#proxyText(
                             proxyResponse,
@@ -76,6 +87,7 @@ export class DirectorWebsiteProxy {
                         ).then(resolveProxy, reject);
                         return;
                     }
+
                     if (contentType.toLowerCase().includes('text/css')) {
                         void this.#proxyText(proxyResponse, response, prefix, target, 'css').then(
                             resolveProxy,
@@ -83,6 +95,7 @@ export class DirectorWebsiteProxy {
                         );
                         return;
                     }
+
                     response.writeHead(
                         proxyResponse.statusCode ?? 502,
                         this.#responseHeaders(proxyResponse.headers, prefix, target),
@@ -97,6 +110,55 @@ export class DirectorWebsiteProxy {
         });
     }
 
+    upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
+        const source = new URL(request.url ?? '/', 'http://director.local');
+        const route = this.#route(source);
+
+        if (!route) {
+            return false;
+        }
+
+        const { target } = route;
+        const port = Number(target.port || (target.protocol === 'https:' ? 443 : 80));
+        const upstream =
+            target.protocol === 'https:'
+                ? connectTls({
+                      host: target.hostname,
+                      port,
+                      servername: this.#isLoopback(target.hostname) ? undefined : target.hostname,
+                      rejectUnauthorized: !this.#isLoopback(target.hostname),
+                  })
+                : connectNet({ host: target.hostname, port });
+
+        upstream.once('connect', () => {
+            const headers = this.#requestHeaders(request.headers, target);
+            const lines = [
+                `${request.method ?? 'GET'} ${target.pathname}${target.search} HTTP/${request.httpVersion}`,
+                ...Object.entries(headers).flatMap(([name, value]) => {
+                    if (value === undefined) {
+                        return [];
+                    }
+
+                    return Array.isArray(value)
+                        ? value.map((item) => `${name}: ${item}`)
+                        : [`${name}: ${value}`];
+                }),
+                '',
+                '',
+            ];
+            upstream.write(lines.join('\r\n'));
+
+            if (head.length > 0) {
+                upstream.write(head);
+            }
+
+            socket.pipe(upstream).pipe(socket);
+        });
+        upstream.once('error', () => socket.destroy());
+        socket.once('error', () => upstream.destroy());
+        return true;
+    }
+
     async #proxyText(
         upstream: IncomingMessage,
         response: ServerResponse,
@@ -105,13 +167,22 @@ export class DirectorWebsiteProxy {
         kind: 'html' | 'javascript' | 'css',
     ): Promise<void> {
         const chunks: Buffer[] = [];
-        for await (const chunk of upstream) chunks.push(Buffer.from(chunk));
+
+        for await (const chunk of upstream) {
+            chunks.push(Buffer.from(chunk));
+        }
+
         const base = `${prefix}/`;
         let html = Buffer.concat(chunks).toString('utf8');
+
         if (kind === 'html') {
             html = html.replace(
                 /<script\b[^>]*\bsrc=["']\/@vite\/client["'][^>]*><\/script>\s*/iu,
                 '',
+            );
+            html = html.replace(
+                /<head(\s[^>]*)?>/iu,
+                (head) => `${head}<meta name="google" content="notranslate">`,
             );
             html = html.replace(/(\b(?:src|href|action)=["'])\/(?!\/)/giu, `$1${prefix}/`);
             html = /<base\b[^>]*>/iu.test(html)
@@ -119,13 +190,15 @@ export class DirectorWebsiteProxy {
                 : html.replace(/<head(\s[^>]*)?>/iu, (head) => `${head}<base href="${base}">`);
             html = html.replace(
                 /<head(\s[^>]*)?>/iu,
-                (head) => `${head}${this.#requestBridge(prefix, target.origin)}`,
+                (head) =>
+                    `${head}${renderDirectorWebsiteBridge({ prefix, targetOrigin: target.origin })}`,
             );
         } else if (kind === 'javascript') {
             html = await this.#rewriteModuleSpecifiers(html, prefix);
         } else {
-            html = html.replace(/url\(\s*(["']?)\/(?!\/)/giu, `url($1${prefix}/`);
+            html = this.#rewriteCssUrls(html, prefix);
         }
+
         const headers = this.#responseHeaders(upstream.headers, prefix, target);
         delete headers['content-length'];
         delete headers['content-encoding'];
@@ -151,6 +224,7 @@ export class DirectorWebsiteProxy {
                     value: imported.d >= 0 ? JSON.stringify(specifier) : specifier,
                 };
             });
+
         try {
             const syntax = parseJavaScript(source, {
                 allowHashBang: true,
@@ -159,7 +233,10 @@ export class DirectorWebsiteProxy {
             });
             walkJavaScript(syntax, {
                 MemberExpression: (node) => {
-                    if (!this.#isWebsitePathname(node)) return;
+                    if (!this.#isWebsitePathname(node)) {
+                        return;
+                    }
+
                     replacements.push({
                         start: node.start,
                         end: node.end,
@@ -170,16 +247,27 @@ export class DirectorWebsiteProxy {
         } catch {
             // A non-standard module can still be proxied without virtualizing its pathname access.
         }
+
         let rewritten = source;
+
         for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
             rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`;
         }
-        return rewritten;
+
+        return this.#rewriteCssUrls(rewritten, prefix);
+    }
+
+    #rewriteCssUrls(source: string, prefix: string): string {
+        return source.replace(/(?<![\w$])url\(\s*(["']?)\/(?!\/)/giu, `url($1${prefix}/`);
     }
 
     #isWebsitePathname(node: MemberExpression): boolean {
-        if (node.computed || !this.#isIdentifier(node.property, 'pathname')) return false;
+        if (node.computed || !this.#isIdentifier(node.property, 'pathname')) {
+            return false;
+        }
+
         const location = node.object;
+
         if (
             location.type !== 'MemberExpression' ||
             location.computed ||
@@ -187,6 +275,7 @@ export class DirectorWebsiteProxy {
         ) {
             return false;
         }
+
         return (
             this.#isIdentifier(location.object, 'window') ||
             this.#isIdentifier(location.object, 'globalThis') ||
@@ -205,100 +294,19 @@ export class DirectorWebsiteProxy {
         );
     }
 
-    #requestBridge(prefix: string, targetOrigin: string): string {
-        const configuration = JSON.stringify({ prefix, targetOrigin }).replace(/</gu, '\\u003c');
-        return `<script>(() => {
-            const { prefix, targetOrigin } = ${configuration};
-            Object.defineProperty(globalThis, '__directorWebsitePathname', {
-                value: () => location.pathname.startsWith(prefix + '/')
-                    ? location.pathname.slice(prefix.length)
-                    : location.pathname === prefix ? '/' : location.pathname,
-            });
-            try {
-                const previewCamera = window.parent !== window &&
-                    window.parent.__directorPreviewCameraStream;
-                const mediaDevices = navigator.mediaDevices;
-                if (typeof previewCamera === 'function' && mediaDevices) {
-                    const nativeGetUserMedia = mediaDevices.getUserMedia?.bind(mediaDevices);
-                    Object.defineProperty(mediaDevices, 'getUserMedia', {
-                        configurable: true,
-                        value: async (constraints = {}) => {
-                            if (!constraints.video && nativeGetUserMedia) {
-                                return nativeGetUserMedia(constraints);
-                            }
-                            const stream = await previewCamera();
-                            return new MediaStream(
-                                stream.getVideoTracks().map((track) => track.clone()),
-                            );
-                        },
-                    });
-                }
-            } catch {}
-            const rewrite = (value) => {
-                const source = String(value);
-                const url = new URL(source, location.href);
-                if (url.origin === location.origin &&
-                    (url.pathname === prefix || url.pathname.startsWith(prefix + '/'))) {
-                    return source;
-                }
-                if (url.origin === targetOrigin ||
-                    (url.origin === location.origin && !url.pathname.startsWith(prefix + '/'))) {
-                    return prefix + url.pathname + url.search + url.hash;
-                }
-                return source;
-            };
-            const nativeFetch = window.fetch.bind(window);
-            window.fetch = (input, init) => nativeFetch(
-                input instanceof Request ? new Request(rewrite(input.url), input) : rewrite(input),
-                init,
-            );
-            const nativeOpen = XMLHttpRequest.prototype.open;
-            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                return nativeOpen.call(this, method, rewrite(url), ...rest);
-            };
-            const urlAttributes = new Set(['action', 'href', 'poster', 'src']);
-            const nativeSetAttribute = Element.prototype.setAttribute;
-            Element.prototype.setAttribute = function(name, value) {
-                const rewritten = urlAttributes.has(String(name).toLowerCase())
-                    ? rewrite(value)
-                    : value;
-                return nativeSetAttribute.call(this, name, rewritten);
-            };
-            const rewriteElementUrls = (element) => {
-                for (const name of urlAttributes) {
-                    if (!element.hasAttribute(name)) continue;
-                    const value = element.getAttribute(name);
-                    const rewritten = rewrite(value);
-                    if (rewritten !== value) nativeSetAttribute.call(element, name, rewritten);
-                }
-            };
-            new MutationObserver((records) => {
-                for (const record of records) {
-                    if (record.type === 'attributes') {
-                        rewriteElementUrls(record.target);
-                        continue;
-                    }
-                    for (const node of record.addedNodes) {
-                        if (!(node instanceof Element)) continue;
-                        rewriteElementUrls(node);
-                        for (const element of node.querySelectorAll('*')) rewriteElementUrls(element);
-                    }
-                }
-            }).observe(document.documentElement, {
-                attributes: true,
-                attributeFilter: [...urlAttributes],
-                childList: true,
-                subtree: true,
-            });
-        })();</script>`;
-    }
-
     #requestHeaders(headers: IncomingHttpHeaders, target: URL): IncomingHttpHeaders {
         const result = { ...headers };
         result.host = target.host;
         result['accept-encoding'] = 'identity';
-        if (result.origin) result.origin = target.origin;
-        if (result.referer) result.referer = new URL(target.pathname, target.origin).href;
+
+        if (result.origin) {
+            result.origin = target.origin;
+        }
+
+        if (result.referer) {
+            result.referer = new URL(target.pathname, target.origin).href;
+        }
+
         delete result.connection;
         return result;
     }
@@ -314,12 +322,15 @@ export class DirectorWebsiteProxy {
         delete result['content-security-policy-report-only'];
         delete result['x-frame-options'];
         delete result['transfer-encoding'];
+
         if (result.location) {
             const location = new URL(String(result.location), target);
+
             if (location.origin === target.origin) {
                 result.location = `${prefix}${location.pathname}${location.search}${location.hash}`;
             }
         }
+
         if (result['set-cookie']) {
             result['set-cookie'] = result['set-cookie'].map((cookie) =>
                 cookie
@@ -327,7 +338,23 @@ export class DirectorWebsiteProxy {
                     .replace(/;\s*Path=[^;]*/giu, `; Path=${prefix}/`),
             );
         }
+
         return result;
+    }
+
+    #route(source: URL): { readonly prefix: string; readonly target: URL } | null {
+        const match = /^\/director-website\/([^/]+)(\/.*)?$/u.exec(source.pathname);
+        const id = match?.[1] ? decodeURIComponent(match[1]) : '';
+        const registered = this.#targets.get(id);
+
+        if (!registered) {
+            return null;
+        }
+
+        return {
+            prefix: `${DirectorWebsiteProxy.routePath}${encodeURIComponent(id)}`,
+            target: new URL(`${match?.[2] || '/'}${source.search}`, registered.origin),
+        };
     }
 
     #proxyUrl(id: string, target: URL): string {
@@ -335,14 +362,20 @@ export class DirectorWebsiteProxy {
     }
 
     #targetUrl(value: unknown): URL {
-        if (typeof value !== 'string') throw new TypeError('Website URL must be a string.');
+        if (typeof value !== 'string') {
+            throw new TypeError('Website URL must be a string.');
+        }
+
         const url = new URL(value);
+
         if (!['http:', 'https:'].includes(url.protocol)) {
             throw new TypeError('Website URL must use HTTP or HTTPS.');
         }
+
         if (url.username || url.password) {
             throw new TypeError('Website URL must not contain credentials.');
         }
+
         return url;
     }
 
@@ -353,12 +386,18 @@ export class DirectorWebsiteProxy {
     async #body(request: IncomingMessage): Promise<string> {
         const chunks: Buffer[] = [];
         let size = 0;
+
         for await (const chunk of request) {
             const buffer = Buffer.from(chunk);
             size += buffer.length;
-            if (size > 64 * 1_024) throw new Error('Request body is too large.');
+
+            if (size > 64 * 1_024) {
+                throw new Error('Request body is too large.');
+            }
+
             chunks.push(buffer);
         }
+
         return Buffer.concat(chunks).toString('utf8');
     }
 

@@ -93,9 +93,15 @@ export async function verifyLayout(
             maximizeButtonsEndRows: [...document.querySelectorAll('[data-testid^="maximize-"]')]
                 .every((button) => {
                     const buttonBounds = button.getBoundingClientRect();
-                    if (buttonBounds.width === 0) return true;
-                    const rowBounds = button.parentElement.getBoundingClientRect();
-                    return Math.abs(buttonBounds.right - rowBounds.right) < 1;
+
+                    if (buttonBounds.width === 0) {
+                        return true;
+                    }
+
+                    const row = button.parentElement;
+                    const rowBounds = row.getBoundingClientRect();
+                    const rightPadding = Number.parseFloat(getComputedStyle(row).paddingRight) || 0;
+                    return Math.abs(rowBounds.right - buttonBounds.right - rightPadding) < 1;
                 }),
             sourceCountBadges: document.querySelectorAll('.source-count').length,
         };
@@ -116,7 +122,7 @@ export async function verifyLayout(
     assert.equal(
         layout.maximizeButtonsEndRows,
         true,
-        `${name}: every visible maximize button must end its action row.`,
+        `${name}: every visible maximize button must end its padded action row.`,
     );
     assert.ok(
         layout.previewViewport.top >= layout.previewStage.top &&
@@ -278,6 +284,7 @@ export async function verifyLayout(
         await session.screenshot(join(outputDirectory, 'mobile-editor.png'), true);
         await session.click('[data-testid="mobile-preview-tab"]');
     }
+
     await session.screenshot(join(outputDirectory, `${name}.png`), true);
 }
 
@@ -297,6 +304,7 @@ export async function verifyResizableWorkspace(session: RemoteSession): Promise<
     for (const panel of ['preview', 'editor', 'graph'] as const) {
         await verifyPanelMaximization(session, panel);
     }
+
     const restored = await panelWidths(session);
     assert.ok(
         Math.abs(restored.graph - afterResize.graph) < 2,
@@ -360,6 +368,7 @@ export async function verifyPanelMaximization(
         `${panel}: maximized panel must begin at the workspace edge.`,
     );
     assert.equal(maximized.exitIcon, true, `${panel}: button must switch to fullscreen exit.`);
+
     if (panel === 'graph') {
         await session.click('[data-testid="graph-canvas"]');
         const staysMaximized = await session.evaluate<boolean>(`
@@ -371,6 +380,7 @@ export async function verifyPanelMaximization(
             'graph: deselecting on the empty paper must preserve fullscreen.',
         );
     }
+
     await session.screenshot(join(outputDirectory, `${panel}-maximized.png`), true);
     await session.click(`[data-testid="maximize-${panel}"]`);
 }

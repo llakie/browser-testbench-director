@@ -30,12 +30,18 @@ export class DirectorProjectService {
         options: { readonly name: string; readonly websiteUrl?: string },
     ): Promise<DirectorProject> {
         const target = this.#resolve(path);
+
         if (await stat(target).catch(() => undefined)) {
             throw new Error(`Project already exists: ${path}`);
         }
+
         const project = ProjectFormat.create(options.name);
         const website = project.nodes.find((node) => node.type === 'website');
-        if (website) website.url = options.websiteUrl ?? '';
+
+        if (website) {
+            website.url = options.websiteUrl ?? '';
+        }
+
         await this.write(path, project);
         return project;
     }
@@ -57,21 +63,35 @@ export class DirectorProjectService {
 
     async upsertNode(path: string, value: unknown): Promise<DirectorProject> {
         const project = await this.read(path);
+
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
             throw new TypeError('Node must be an object.');
         }
+
         const node = value as DirectorNode;
         const index = project.nodes.findIndex((candidate) => candidate.id === node.id);
-        if (index >= 0) project.nodes.splice(index, 1, node);
-        else project.nodes.push(node);
+
+        if (index >= 0) {
+            project.nodes.splice(index, 1, node);
+        } else {
+            project.nodes.push(node);
+        }
+
         return this.write(path, project);
     }
 
     async removeNode(path: string, nodeId: string): Promise<DirectorProject> {
         const project = await this.read(path);
         const node = project.nodes.find((candidate) => candidate.id === nodeId);
-        if (!node) throw new Error(`Unknown node: ${nodeId}`);
-        if (node.type === 'website') throw new Error('The website root cannot be removed.');
+
+        if (!node) {
+            throw new Error(`Unknown node: ${nodeId}`);
+        }
+
+        if (node.type === 'website') {
+            throw new Error('The website root cannot be removed.');
+        }
+
         project.nodes = project.nodes.filter((candidate) => candidate.id !== nodeId);
         project.connections = project.connections.filter(
             (connection) => connection.source !== nodeId && connection.target !== nodeId,
@@ -83,10 +103,12 @@ export class DirectorProjectService {
         const project = await this.read(path);
         let id = `${source}--${target}`;
         let suffix = 2;
+
         while (project.connections.some((connection) => connection.id === id)) {
             id = `${source}--${target}-${suffix}`;
             suffix += 1;
         }
+
         project.connections.push({ id, source, target });
         return this.write(path, project);
     }
@@ -99,19 +121,24 @@ export class DirectorProjectService {
         if (!path.trim() || isAbsolute(path) || !path.endsWith('.btd.json')) {
             throw new Error('Project paths must be relative .btd.json files.');
         }
+
         const target = resolve(this.#workspace, path);
         const workspaceRelative = relative(this.#workspace, target);
+
         if (workspaceRelative.startsWith('..') || isAbsolute(workspaceRelative)) {
             throw new Error('Project path is outside the Director workspace.');
         }
+
         return target;
     }
 
     async #collectProjects(directory: string, output: string[]): Promise<void> {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
             const path = resolve(directory, entry.name);
-            if (entry.isDirectory()) await this.#collectProjects(path, output);
-            else if (entry.isFile() && entry.name.endsWith('.btd.json')) {
+
+            if (entry.isDirectory()) {
+                await this.#collectProjects(path, output);
+            } else if (entry.isFile() && entry.name.endsWith('.btd.json')) {
                 output.push(relative(this.#workspace, path).split(sep).join('/'));
             }
         }

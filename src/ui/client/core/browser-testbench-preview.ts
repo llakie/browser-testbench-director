@@ -1,4 +1,4 @@
-import { DirectorRuntimeScript, type RuntimeStep } from './runtime-protocol.js';
+import type { RuntimeStep } from './runtime-protocol.js';
 import type { BrowserSessionConfiguration, ProjectFileInput } from './project-format.js';
 
 interface MessageDescriptor {
@@ -34,6 +34,7 @@ interface BrowserTestbenchCapabilities {
 export interface BrowserTestbenchStatus {
     readonly running: boolean;
     readonly managed: boolean;
+    readonly url: string;
 }
 
 interface BrowserTestbenchError {
@@ -47,6 +48,10 @@ interface PublishedPreview {
 
 interface ProxiedWebsite {
     readonly url: string;
+}
+
+interface PlayerOrigin {
+    readonly origin: string;
 }
 
 interface StartedSession {
@@ -66,7 +71,7 @@ interface RecordingArtifact {
     readonly marks: readonly RecordingMark[];
 }
 
-interface RecordingMark {
+export interface RecordingMark {
     readonly name: string;
     readonly data?: Readonly<Record<string, unknown>>;
     readonly recordingTimeMs?: number;
@@ -90,12 +95,18 @@ interface ExportViewport {
     readonly height: number;
 }
 
-interface UploadedAsset {
-    readonly id: string;
-    readonly name: string;
-    readonly contentType: string;
-    readonly size: number;
-    readonly sha256: string;
+export interface RemoteRuntimeEvent {
+    readonly sequence: number;
+    readonly nodeId: string;
+    readonly status: 'idle' | 'running' | 'success' | 'error' | 'cancelled';
+    readonly error?: string;
+}
+
+interface RemoteRuntimeStatus {
+    readonly state: 'missing' | 'running' | 'success' | 'error' | 'cancelled';
+    readonly error?: string;
+    readonly events: readonly RemoteRuntimeEvent[];
+    readonly marks?: readonly RecordingMark[];
 }
 
 export class BrowserTestbenchPreview {
@@ -103,6 +114,7 @@ export class BrowserTestbenchPreview {
     private static readonly lifecycleUrl = '/director-api/browser-testbench';
     private static readonly inputChunkSize = 256 * 1024;
     private static readonly sessionLeaseTimeoutMs = 15 * 60 * 1_000;
+    private static readonly sessionKinds = new Map<string, BrowserTestbenchTarget['kind']>();
 
     static async targets(): Promise<BrowserTestbenchTarget[]> {
         const [targets, capabilities] = await Promise.all([
@@ -123,7 +135,10 @@ export class BrowserTestbenchPreview {
     }
 
     static proxyWebsite(url: string): Promise<string> {
-        if (!url.trim()) throw new TypeError('Website URL must not be empty.');
+        if (!url.trim()) {
+            throw new TypeError('Website URL must not be empty.');
+        }
+
         return this.fetch<ProxiedWebsite>('/director-api/website-proxies', {
             method: 'POST',
             body: JSON.stringify({ url: this.absoluteUrl(url) }),
@@ -146,9 +161,14 @@ export class BrowserTestbenchPreview {
         inputs: readonly ProjectFileInput[] = [],
         headless = false,
         configuration?: BrowserSessionConfiguration,
+        recording = false,
     ): Promise<string> {
-        const preview = await this.publish(nodeId, document);
-        const previewUrl = new URL(preview.url, globalThis.location.origin);
+        const runtimeInputs = await this.prepareRuntimeInputs(inputFiles, inputs);
+        const [preview, player] = await Promise.all([
+            this.publish(nodeId, document),
+            this.playerOrigin(),
+        ]);
+        const previewUrl = new URL(preview.url, player.origin);
         const targetId = typeof target === 'string' ? target : target.id;
         const localHttps = this.isLocalHttps(previewUrl.toString());
         const capabilities =
@@ -161,123 +181,70 @@ export class BrowserTestbenchPreview {
             name,
             origin: previewUrl.origin,
         }));
+        const localReverse =
+            typeof target !== 'string' &&
+            target.kind === 'mobile' &&
+            this.isLocalOrigin(previewUrl.toString()) &&
+            target.capabilities.localOrigins.reverse;
         const session = await this.request<StartedSession>('/sessions', {
             method: 'POST',
             body: JSON.stringify({
                 target: targetId,
                 url: previewUrl.toString(),
                 headless,
+                ...(recording
+                    ? { require: { recording: { viewport: true, explicitLifecycle: true } } }
+                    : {}),
                 leaseTimeoutMs: this.sessionLeaseTimeoutMs,
+                ...(localReverse ? { localOrigins: 'reverse' } : {}),
                 ...(permissions.length ? { permissions } : {}),
                 ...(Object.keys(capabilities).length ? { capabilities } : {}),
             }),
         });
-        await this.waitForDirectorRuntime(session.id);
-        return session.id;
-    }
 
-    static async openWebsite(
-        target: BrowserTestbenchTarget,
-        url: string,
-        configuration?: BrowserSessionConfiguration,
-        inputFiles: Readonly<Record<string, File>> = {},
-        inputs: readonly ProjectFileInput[] = [],
-        cameraInputId: string | null = null,
-        headless = false,
-    ): Promise<string> {
-        const absoluteUrl = this.absoluteUrl(url);
-        const cameraInput = inputs.find((input) => input.id === cameraInputId);
-        const cameraFile = cameraInput ? inputFiles[cameraInput.id] : undefined;
-        if (cameraInput && !cameraFile) {
-            throw new Error(`Missing project input: ${cameraInput.id}`);
+        try {
+            await this.waitForDirectorRuntime(session.id);
+
+            if (Object.keys(runtimeInputs).length > 0) {
+                await this.setRuntimeInputs(session.id, runtimeInputs);
+            }
+
+            if (typeof target !== 'string') {
+                this.sessionKinds.set(session.id, target.kind);
+            }
+
+            return session.id;
+        } catch (error) {
+            await this.close(session.id).catch(() => undefined);
+            throw error;
         }
-        const runtimeInputs = await this.prepareRuntimeInputs(inputFiles, inputs, cameraInput?.id);
-        const preparedCameraFile = cameraFile
-            ? await this.prepareInput(cameraFile, cameraInput?.prepare)
-            : undefined;
-        const nativeCamera = Boolean(
-            preparedCameraFile && target.capabilities.mediaInjection.cameraImage,
-        );
-        if (preparedCameraFile && !nativeCamera) {
-            throw new Error('Desktop camera previews must use the Director preview shell.');
-        }
-        const cameraAsset = nativeCamera ? await this.uploadAsset(preparedCameraFile!) : undefined;
-        const configuredPermissions = [
-            ...(configuration?.permissions ?? []),
-            ...(nativeCamera ? (['camera'] as const) : []),
-        ];
-        const permissions = [...new Set(configuredPermissions)].map((name) => ({
-            name,
-            origin: new URL(absoluteUrl).origin,
-        }));
-        const localHttps = this.isLocalHttps(absoluteUrl);
-        const androidLocalOrigin =
-            target.browser === 'chrome-android' &&
-            this.isLocalOrigin(absoluteUrl) &&
-            target.capabilities.localOrigins.reverse;
-        const sessionCapabilities = this.sessionCapabilities(
-            target,
-            configuration,
-            headless,
-            localHttps,
-        );
-        const session = await this.request<StartedSession>('/sessions', {
-            method: 'POST',
-            body: JSON.stringify({
-                target: target.id,
-                url: absoluteUrl,
-                headless,
-                leaseTimeoutMs: this.sessionLeaseTimeoutMs,
-                ...(androidLocalOrigin ? { localOrigins: 'reverse' } : {}),
-                ...(permissions?.length ? { permissions } : {}),
-                ...(cameraAsset
-                    ? { media: { camera: { facing: 'back', source: cameraAsset } } }
-                    : {}),
-                ...(nativeCamera
-                    ? {
-                          require: {
-                              localOrigins: { reverse: true },
-                              permissions: { native: ['camera'], origin: ['camera'] },
-                              mediaInjection: { cameraImage: true },
-                          },
-                      }
-                    : {}),
-                ...(Object.keys(sessionCapabilities).length
-                    ? { capabilities: sessionCapabilities }
-                    : {}),
-            }),
-        });
-        if (androidLocalOrigin) {
-            await this.navigateWebsite(session.id, absoluteUrl);
-        }
-        if (Object.keys(runtimeInputs).length > 0) {
-            await this.setRuntimeInputs(session.id, runtimeInputs);
-        }
-        return session.id;
     }
 
     static async navigate(sessionId: string, nodeId: string, document: string): Promise<void> {
-        const preview = await this.publish(nodeId, document);
+        const [preview, player] = await Promise.all([
+            this.publish(nodeId, document),
+            this.playerOrigin(),
+        ]);
         await this.request(`/sessions/${encodeURIComponent(sessionId)}/navigate`, {
             method: 'POST',
             body: JSON.stringify({
-                url: new URL(preview.url, globalThis.location.origin).toString(),
+                url: new URL(preview.url, player.origin).toString(),
             }),
         });
         await this.waitForDirectorRuntime(sessionId);
-    }
-
-    static async navigateWebsite(sessionId: string, url: string): Promise<void> {
-        await this.request(`/sessions/${encodeURIComponent(sessionId)}/navigate`, {
-            method: 'POST',
-            body: JSON.stringify({ url: this.absoluteUrl(url) }),
-        });
     }
 
     static startRecording(sessionId: string, filename: string): Promise<unknown> {
         return this.request(`/sessions/${encodeURIComponent(sessionId)}/recording/start`, {
             method: 'POST',
             body: JSON.stringify({ outputPath: filename, scope: 'viewport' }),
+        });
+    }
+
+    static discardRecording(sessionId: string): Promise<unknown> {
+        return this.request(`/sessions/${encodeURIComponent(sessionId)}/recording/stop`, {
+            method: 'POST',
+            body: '{}',
         });
     }
 
@@ -305,7 +272,11 @@ export class BrowserTestbenchPreview {
         const scale = Math.max(1, rect.innerWidth / viewport.width);
         const innerWidth = Math.round(viewport.width * scale);
         const innerHeight = Math.round(viewport.height * scale);
-        if (rect.innerWidth === innerWidth && rect.innerHeight === innerHeight) return;
+
+        if (rect.innerWidth === innerWidth && rect.innerHeight === innerHeight) {
+            return;
+        }
+
         await this.browserAction(sessionId, {
             action: 'viewport',
             width: innerWidth + Math.max(0, rect.outerWidth - rect.innerWidth),
@@ -317,6 +288,7 @@ export class BrowserTestbenchPreview {
         sessionId: string,
         filename: string,
         outputSize?: ExportViewport,
+        marks: readonly RecordingMark[] = [],
     ): Promise<RecordingExport> {
         const recording = await this.request<RecordingArtifact>(
             `/sessions/${encodeURIComponent(sessionId)}/recording/stop`,
@@ -325,21 +297,34 @@ export class BrowserTestbenchPreview {
         const response = await fetch(
             `${this.apiBase}/sessions/${encodeURIComponent(sessionId)}/recording/artifacts/${encodeURIComponent(recording.artifactId)}`,
         );
-        if (!response.ok) throw await this.responseError(response);
+
+        if (!response.ok) {
+            throw await this.responseError(response);
+        }
+
         const content = await response.arrayBuffer();
+
         if (content.byteLength !== recording.size) {
             throw new Error('Recording artifact size does not match its metadata.');
         }
+
         const digest = await crypto.subtle.digest('SHA-256', content);
         const sha256 = [...new Uint8Array(digest)]
             .map((value) => value.toString(16).padStart(2, '0'))
             .join('');
+
         if (sha256 !== recording.sha256) {
             throw new Error('Recording artifact integrity verification failed.');
         }
+
         const original = new Blob([content], { type: recording.mimeType });
-        const intervals = this.layerIntervals(recording);
-        const output = outputSize ?? { width: recording.width, height: recording.height };
+        const timeline = { ...recording, marks };
+        const intervals = this.layerIntervals(timeline);
+        const requestedOutput = outputSize ?? {
+            width: recording.width,
+            height: recording.height,
+        };
+        const output = this.evenViewport(requestedOutput);
         const blob = await this.normalizeRecording(original, filename, output, intervals);
         return {
             blob,
@@ -383,301 +368,230 @@ export class BrowserTestbenchPreview {
                     : {}),
             },
         });
-        if (!response.ok) throw await this.responseError(response);
+
+        if (!response.ok) {
+            throw await this.responseError(response);
+        }
+
         return response.blob();
+    }
+
+    private static evenViewport(viewport: ExportViewport): ExportViewport {
+        return {
+            width: Math.ceil(viewport.width / 2) * 2,
+            height: Math.ceil(viewport.height / 2) * 2,
+        };
     }
 
     static async execute(
         sessionId: string,
         steps: readonly RuntimeStep[],
         markIntervals = false,
-    ): Promise<void> {
-        for (const step of steps) {
-            if (markIntervals && step.type === 'layer') {
-                const playback = step.playback!;
-                await this.executeRuntimeStep(sessionId, {
-                    ...step,
-                    playback: { durationMs: 0, removeAfter: false },
-                });
-                await this.mark(sessionId, 'director.layer.start', { nodeId: step.id });
-                try {
-                    if (step.speed === 'live' && playback.durationMs > 0) {
-                        await new Promise((resolve) => setTimeout(resolve, playback.durationMs));
-                    }
-                } finally {
-                    await this.mark(sessionId, 'director.layer.end', { nodeId: step.id });
-                    if (playback.removeAfter) await this.removeRuntimeLayer(sessionId, step.id);
-                }
-                continue;
+        executionSignal?: AbortSignal,
+        onEvent: (event: RemoteRuntimeEvent) => void = () => undefined,
+    ): Promise<readonly RecordingMark[]> {
+        const executionId = crypto.randomUUID();
+        await this.setRuntimePlan(sessionId, steps);
+
+        if (steps.some((step) => step.type === 'audio' && step.speed === 'live')) {
+            await this.prepareAudio(sessionId);
+        }
+
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: `window.__director.start(
+                JSON.parse(window.__directorPlan),
+                arguments[0],
+                arguments[1]
+            );
+            return true;`,
+            arguments: [
+                executionId,
+                {
+                    recording: markIntervals,
+                    clockUrl: markIntervals
+                        ? `${this.apiBase}/sessions/${encodeURIComponent(sessionId)}/recording/clock`
+                        : '',
+                },
+            ],
+        });
+
+        let sequence = 0;
+
+        while (true) {
+            if (executionSignal?.aborted) {
+                await this.cancelRuntime(sessionId).catch(() => undefined);
+                throw new DOMException('The execution was stopped.', 'AbortError');
             }
-            const includeInterval =
-                markIntervals && step.type === 'browser-wait' && !step.omitFromRecording;
-            if (includeInterval) {
-                await this.mark(sessionId, 'director.wait.start', {
-                    nodeId: step.id,
-                });
+
+            const status = await this.browserAction<RemoteRuntimeStatus>(sessionId, {
+                action: 'evaluate',
+                script: 'return window.__director.status(arguments[0], arguments[1]);',
+                arguments: [executionId, sequence],
+            });
+
+            for (const event of status.events) {
+                sequence = Math.max(sequence, event.sequence);
+                onEvent(event);
             }
-            try {
-                await this.executeRuntimeStep(sessionId, step);
-            } finally {
-                if (includeInterval) {
-                    await this.mark(sessionId, 'director.wait.end', { nodeId: step.id });
-                }
+
+            if (status.state === 'success') {
+                return status.marks ?? [];
             }
+
+            if (status.state === 'error') {
+                throw new Error(status.error || 'Remote runtime failed.');
+            }
+
+            if (status.state === 'cancelled') {
+                throw new DOMException('The execution was stopped.', 'AbortError');
+            }
+
+            if (status.state === 'missing') {
+                throw new Error('Remote runtime state is unavailable.');
+            }
+
+            await this.delay(200, executionSignal ?? new AbortController().signal);
         }
     }
 
-    static async executeOnWebsite(
+    static cancelRuntime(sessionId: string): Promise<unknown> {
+        return this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.cancel();',
+            arguments: [],
+        });
+    }
+
+    static async prepareAudio(
         sessionId: string,
-        steps: readonly RuntimeStep[],
-        markLayerIntervals = false,
-        inputs: Readonly<Record<string, string>> = {},
-        excludedInputId: string | null = null,
+        kind = this.sessionKinds.get(sessionId) ?? 'desktop',
     ): Promise<void> {
-        for (const step of steps) {
-            if (step.source.includes('director.inputs')) {
-                await this.setRuntimeInputs(sessionId, inputs, excludedInputId);
-            }
-            if (step.type === 'browser-action') {
-                await this.clearResult(sessionId, step.id);
-                await this.click(sessionId, step.selector!);
-                continue;
-            }
-            if (step.type === 'browser-wait') {
-                await this.clearResult(sessionId, step.id);
-                const includeWait = markLayerIntervals && !step.omitFromRecording;
-                if (includeWait)
-                    await this.mark(sessionId, 'director.wait.start', { nodeId: step.id });
-                try {
-                    const result = await this.wait(sessionId, step);
-                    if (result !== undefined) await this.storeResult(sessionId, step.id, result);
-                } finally {
-                    if (includeWait)
-                        await this.mark(sessionId, 'director.wait.end', { nodeId: step.id });
-                }
-                continue;
-            }
-            if (step.type === 'layer') {
-                await this.mountLayerOnWebsite(sessionId, step);
-                await this.executeSourceOnWebsite(sessionId, step, {
-                    durationMs: 0,
-                    removeAfter: false,
-                });
-                if (markLayerIntervals)
-                    await this.mark(sessionId, 'director.layer.start', { nodeId: step.id });
-                try {
-                    if (step.speed === 'live' && step.playback!.durationMs > 0) {
-                        await new Promise((resolve) =>
-                            setTimeout(resolve, step.playback!.durationMs),
-                        );
-                    }
-                } finally {
-                    if (markLayerIntervals)
-                        await this.mark(sessionId, 'director.layer.end', { nodeId: step.id });
-                    if (step.playback!.removeAfter) await this.removeLayer(sessionId, step.id);
-                }
-                continue;
-            }
-            await this.executeSourceOnWebsite(sessionId, step);
+        const point = await this.browserAction<{ x: number; y: number } | null>(sessionId, {
+            action: 'evaluate',
+            script: 'return window.__director.prepareAudio();',
+            arguments: [],
+        });
+
+        if (!point) {
+            return;
         }
+
+        try {
+            if (kind === 'mobile') {
+                await this.request(`/sessions/${encodeURIComponent(sessionId)}/gesture`, {
+                    method: 'POST',
+                    body: JSON.stringify({ type: 'tap', ...point }),
+                });
+            } else {
+                await this.request(`/sessions/${encodeURIComponent(sessionId)}/click`, {
+                    method: 'POST',
+                    body: JSON.stringify({ selector: '#director-audio-unlock' }),
+                });
+            }
+
+            const ready = await this.browserAction<boolean>(sessionId, {
+                action: 'evaluate',
+                script: 'return window.__director.audioReady();',
+                arguments: [],
+            });
+
+            if (!ready) {
+                throw new Error('Audio playback could not be enabled on this device.');
+            }
+        } finally {
+            await this.browserAction(sessionId, {
+                action: 'evaluate',
+                script: 'document.getElementById("director-audio-unlock")?.remove();',
+                arguments: [],
+            });
+        }
+    }
+
+    static async stopAudio(sessionId: string, nodeId?: string): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.stopAudio?.(arguments[0]);',
+            arguments: [nodeId],
+        });
     }
 
     static layerIntervals(recording: RecordingArtifact): RecordingInterval[] {
-        const starts = new Map<string, number>();
+        const starts = new Map<string, { timeMs: number; durationMs?: number }>();
         const intervals: RecordingInterval[] = [];
 
         for (const mark of recording.marks ?? []) {
             const nodeId = typeof mark.data?.['nodeId'] === 'string' ? mark.data['nodeId'] : null;
-            if (!nodeId || !Number.isFinite(mark.recordingTimeMs)) continue;
+
+            if (!nodeId || !Number.isFinite(mark.recordingTimeMs)) {
+                continue;
+            }
+
             const timeMs = Math.max(0, Math.min(recording.durationMs, mark.recordingTimeMs!));
+
             if (mark.name === 'director.layer.start' || mark.name === 'director.wait.start') {
-                starts.set(nodeId, timeMs);
+                const durationMs = Number(mark.data?.['durationMs']);
+                starts.set(nodeId, {
+                    timeMs,
+                    ...(Number.isFinite(durationMs) && durationMs > 0 ? { durationMs } : {}),
+                });
             } else if (mark.name === 'director.layer.end' || mark.name === 'director.wait.end') {
-                const startMs = starts.get(nodeId);
+                const start = starts.get(nodeId);
                 starts.delete(nodeId);
-                if (startMs !== undefined && timeMs > startMs) {
-                    intervals.push({ startMs, endMs: timeMs });
+
+                if (start && timeMs > start.timeMs) {
+                    intervals.push({
+                        startMs: start.timeMs,
+                        endMs: Math.min(
+                            timeMs,
+                            start.durationMs === undefined
+                                ? timeMs
+                                : start.timeMs + start.durationMs,
+                        ),
+                    });
                 }
             }
         }
-        return intervals.sort((left, right) => left.startMs - right.startMs);
-    }
 
-    private static async mountLayerOnWebsite(sessionId: string, step: RuntimeStep): Promise<void> {
-        await this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: `
-                const step = arguments[0];
-                const anchoring = window.__directorAnchoring ??= (() => {
-                    const rects = new Map();
-                    const valid = rect => rect && rect.width > 0 && rect.height > 0;
-                    const remember = (key, rect) => {
-                        if (!valid(rect)) return null;
-                        const value = {
-                            left: rect.left, top: rect.top,
-                            width: rect.width, height: rect.height,
-                        };
-                        rects.set(key, value);
-                        return value;
-                    };
-                    const rememberLayer = nodeId => {
-                        const content = document.querySelector(
-                            '[data-director-node="' + CSS.escape(nodeId) + '"] ' +
-                            '.director-layer__content'
-                        );
-                        return content
-                            ? remember('layer:' + nodeId, content.getBoundingClientRect())
-                            : null;
-                    };
-                    const referenceRect = reference => {
-                        if (reference.type === 'viewport') {
-                            return {
-                                left: 0, top: 0,
-                                width: window.innerWidth, height: window.innerHeight,
-                            };
-                        }
-                        if (reference.type === 'layer') {
-                            const rect = rememberLayer(reference.nodeId) ||
-                                rects.get('layer:' + reference.nodeId);
-                            if (rect) return rect;
-                            throw new Error(
-                                'Parent layer has no measurable content: ' + reference.nodeId
-                            );
-                        }
-                        const key = 'dom:' + reference.selector;
-                        const element = document.querySelector(reference.selector);
-                        const rect = (element && remember(key, element.getBoundingClientRect())) ||
-                            rects.get(key);
-                        if (rect) return rect;
-                        throw new Error(
-                            'DOM anchor not found or not measurable: ' + reference.selector
-                        );
-                    };
-                    const place = (placement, anchor) => {
-                        const rect = referenceRect(placement.reference);
-                        Object.assign(anchor.style, {
-                            left: rect.left + 'px', top: rect.top + 'px',
-                            width: rect.width + 'px', height: rect.height + 'px',
-                        });
-                    };
-                    return { place, rememberLayer };
-                })();
-                anchoring.rememberLayer(step.id);
-                document
-                    .querySelectorAll('[data-director-node="' + CSS.escape(step.id) + '"]')
-                    .forEach((element) => element.remove());
-                const layer = document.createElement('div');
-                layer.className = 'director-layer';
-                layer.dataset.directorNode = step.id;
-                Object.assign(layer.style, {
-                    position: 'fixed', inset: '0', zIndex: '2147483646',
-                    width: '100vw', height: '100vh', overflow: 'hidden', pointerEvents: 'none',
-                });
-                const style = document.createElement('style');
-                style.dataset.directorNode = step.id;
-                style.textContent = step.css;
-                const anchor = document.createElement('div');
-                anchor.className = 'director-layer__anchor';
-                const horizontal = { left: 'start', center: 'center', right: 'end' };
-                const vertical = { top: 'start', center: 'center', bottom: 'end' };
-                Object.assign(anchor.style, {
-                    position: 'fixed', display: 'grid', pointerEvents: 'none',
-                    justifyItems: horizontal[step.placement.horizontal],
-                    alignItems: vertical[step.placement.vertical],
-                });
-                const content = document.createElement('div');
-                content.className = 'director-layer__content';
-                content.style.position = 'relative';
-                content.style.maxWidth = '100vw';
-                content.style.maxHeight = '100vh';
-                content.innerHTML = step.html;
-                anchoring.place(step.placement, anchor);
-                anchor.append(content);
-                layer.append(anchor);
-                document.documentElement.append(style, layer);
-                anchoring.rememberLayer(step.id);
-                const track = () => {
-                    if (!layer.isConnected) return;
-                    try { anchoring.place(step.placement, anchor); } catch {}
-                    anchoring.rememberLayer(step.id);
-                    requestAnimationFrame(track);
+        const sorted = intervals.sort((left, right) => left.startMs - right.startMs);
+        const merged: RecordingInterval[] = [];
+
+        for (const interval of sorted) {
+            const previous = merged.at(-1);
+
+            if (previous && interval.startMs <= previous.endMs) {
+                merged[merged.length - 1] = {
+                    startMs: previous.startMs,
+                    endMs: Math.max(previous.endMs, interval.endMs),
                 };
-                requestAnimationFrame(track);
-            `,
-            arguments: [step],
-        });
+            } else {
+                merged.push(interval);
+            }
+        }
+
+        return merged;
     }
 
-    private static async executeSourceOnWebsite(
-        sessionId: string,
-        step: RuntimeStep,
-        playback = step.type === 'layer' ? step.playback! : { durationMs: 0, removeAfter: false },
-    ): Promise<void> {
-        const rootExpression =
-            step.type === 'layer'
-                ? `document.querySelector('[data-director-node="' + CSS.escape(arguments[1]) + '"] .director-layer__content')`
-                : 'null';
-        await this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: `${DirectorRuntimeScript.apiFactory()}
-                return (async () => {
-                    window.__directorResults ??= {};
-                    delete window.__directorResults[arguments[1]];
-                    const root = ${rootExpression};
-                    const director = createDirectorRuntime(
-                        arguments[0], root, document, undefined, window.__directorResults,
-                        window.__directorInputs ?? {}
-                    );
-                    const result = await (async (director, document, window) => {
-                        ${step.source}
-                    })(director, document, window);
-                    if (arguments[2].durationMs > 0) {
-                        await director.wait(arguments[2].durationMs);
-                    }
-                    if (arguments[2].removeAfter) {
-                        window.__directorAnchoring?.rememberLayer?.(arguments[1]);
-                        document
-                            .querySelectorAll('[data-director-node="' + CSS.escape(arguments[1]) + '"]')
-                            .forEach((element) => element.remove());
-                    }
-                    if (result !== undefined) window.__directorResults[arguments[1]] = result;
-                    return result;
-                })();`,
-            arguments: [step.speed, step.id, playback],
-        });
-    }
-
-    private static removeLayer(sessionId: string, nodeId: string): Promise<unknown> {
-        return this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: `
-                window.__directorAnchoring?.rememberLayer?.(arguments[0]);
-                document
-                    .querySelectorAll('[data-director-node="' + CSS.escape(arguments[0]) + '"]')
-                    .forEach((element) => element.remove());
-            `,
-            arguments: [nodeId],
-        });
-    }
-
-    private static async executeRuntimeStep(sessionId: string, step: RuntimeStep): Promise<void> {
-        await this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: 'return window.__director.run(arguments[0]);',
-            arguments: [[step]],
-        });
-    }
-
-    private static removeRuntimeLayer(sessionId: string, nodeId: string): Promise<unknown> {
-        return this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: 'window.__director.remove(arguments[0]);',
-            arguments: [nodeId],
+    private static delay(milliseconds: number, signal: AbortSignal): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(resolve, milliseconds);
+            signal.addEventListener(
+                'abort',
+                () => {
+                    clearTimeout(timeout);
+                    reject(new DOMException('The execution was stopped.', 'AbortError'));
+                },
+                { once: true },
+            );
         });
     }
 
     static async close(sessionId: string): Promise<void> {
-        await this.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        try {
+            await this.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        } finally {
+            this.sessionKinds.delete(sessionId);
+        }
     }
 
     static async setRuntimeInputs(
@@ -691,8 +605,12 @@ export class BrowserTestbenchPreview {
                 window.__directorInputChunks = {};`,
             arguments: [],
         });
+
         for (const [inputId, value] of Object.entries(inputs)) {
-            if (inputId === excludedInputId) continue;
+            if (inputId === excludedInputId) {
+                continue;
+            }
+
             for (let offset = 0; offset < value.length; offset += this.inputChunkSize) {
                 const chunk = value.slice(offset, offset + this.inputChunkSize);
                 const complete = offset + this.inputChunkSize >= value.length;
@@ -709,6 +627,32 @@ export class BrowserTestbenchPreview {
                     arguments: [inputId, chunk, complete],
                 });
             }
+        }
+
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.setInputs(window.__directorInputs);',
+            arguments: [],
+        });
+    }
+
+    private static async setRuntimePlan(
+        sessionId: string,
+        steps: readonly RuntimeStep[],
+    ): Promise<void> {
+        const plan = JSON.stringify(steps);
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__directorPlan = "";',
+            arguments: [],
+        });
+
+        for (let offset = 0; offset < plan.length; offset += this.inputChunkSize) {
+            await this.browserAction(sessionId, {
+                action: 'evaluate',
+                script: 'window.__directorPlan += arguments[0];',
+                arguments: [plan.slice(offset, offset + this.inputChunkSize)],
+            });
         }
     }
 
@@ -866,6 +810,14 @@ export class BrowserTestbenchPreview {
         );
     }
 
+    private static playerOrigin(): Promise<PlayerOrigin> {
+        if (globalThis.location.protocol === 'http:') {
+            return Promise.resolve({ origin: globalThis.location.origin });
+        }
+
+        return this.fetch<PlayerOrigin>('/director-api/player-origin', { method: 'GET' });
+    }
+
     private static waitForDirectorRuntime(sessionId: string): Promise<unknown> {
         return this.request(`/sessions/${encodeURIComponent(sessionId)}/wait`, {
             method: 'POST',
@@ -885,70 +837,6 @@ export class BrowserTestbenchPreview {
         });
     }
 
-    private static mark(
-        sessionId: string,
-        name: string,
-        data: Readonly<Record<string, unknown>>,
-    ): Promise<unknown> {
-        return this.request(`/sessions/${encodeURIComponent(sessionId)}/marks`, {
-            method: 'POST',
-            body: JSON.stringify({ name, data }),
-        });
-    }
-
-    private static click(sessionId: string, selector: string): Promise<unknown> {
-        return this.request(`/sessions/${encodeURIComponent(sessionId)}/click`, {
-            method: 'POST',
-            body: JSON.stringify({ selector }),
-        });
-    }
-
-    private static async wait(sessionId: string, step: RuntimeStep): Promise<unknown> {
-        const condition =
-            step.condition === 'url'
-                ? { type: 'url', value: step.value, timeoutMs: step.timeoutMs }
-                : step.condition === 'script'
-                  ? {
-                        type: 'script',
-                        script: step.script,
-                        arguments: [],
-                        timeoutMs: step.timeoutMs,
-                    }
-                  : { type: 'element', selector: step.selector, timeoutMs: step.timeoutMs };
-        await this.request(`/sessions/${encodeURIComponent(sessionId)}/wait`, {
-            method: 'POST',
-            body: JSON.stringify(condition),
-        });
-        if (step.condition !== 'script') return undefined;
-        return this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: step.script,
-            arguments: [],
-        });
-    }
-
-    private static storeResult(
-        sessionId: string,
-        nodeId: string,
-        result: unknown,
-    ): Promise<unknown> {
-        return this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: `window.__directorResults ??= {};
-                window.__directorResults[arguments[0]] = arguments[1];`,
-            arguments: [nodeId, result],
-        });
-    }
-
-    private static clearResult(sessionId: string, nodeId: string): Promise<unknown> {
-        return this.browserAction(sessionId, {
-            action: 'evaluate',
-            script: `window.__directorResults ??= {};
-                delete window.__directorResults[arguments[0]];`,
-            arguments: [nodeId],
-        });
-    }
-
     private static sessionCapabilities(
         target: BrowserTestbenchTarget,
         configuration: BrowserSessionConfiguration | undefined,
@@ -960,27 +848,40 @@ export class BrowserTestbenchPreview {
         const capabilities: Record<string, unknown> = {
             ...(localHttps ? { acceptInsecureCerts: true } : {}),
         };
+
         if (target.kind === 'mobile') {
             const mobileLanguage = configuration?.language.trim();
             const mobileLocale = configuration?.locale.trim().toUpperCase();
+
             if (mobileLanguage) {
                 capabilities['appium:language'] = locale?.language ?? mobileLanguage;
             }
+
             if (mobileLocale || locale?.region) {
                 capabilities['appium:locale'] = mobileLocale || locale!.region;
             }
-            if (localHttps && target.browser === 'chrome-android') {
+
+            if (target.browser === 'chrome-android') {
+                const args = ['--disable-translate', '--disable-features=Translate,TranslateUI'];
+
+                if (localHttps) {
+                    args.unshift('--allow-insecure-localhost');
+                }
+
                 capabilities['goog:chromeOptions'] = {
-                    args: [
-                        '--allow-insecure-localhost',
-                        '--disable-features=Translate,TranslateUI',
-                    ],
+                    args,
                 };
             }
+
             return capabilities;
         }
-        if (!language) return capabilities;
+
+        if (!language) {
+            return capabilities;
+        }
+
         const acceptLanguages = locale?.language ? `${language},${locale.language}` : language;
+
         if (target.browser === 'chrome') {
             capabilities['goog:chromeOptions'] = {
                 args: [
@@ -1008,13 +909,18 @@ export class BrowserTestbenchPreview {
                 prefs: { 'intl.accept_languages': acceptLanguages },
             };
         }
+
         return capabilities;
     }
 
     private static browserLanguage(configuration: BrowserSessionConfiguration | undefined): string {
         const language = configuration?.language.trim().replaceAll('_', '-');
         const region = configuration?.locale.trim().toUpperCase();
-        if (!language) return '';
+
+        if (!language) {
+            return '';
+        }
+
         try {
             const parsed = new Intl.Locale(language);
             return new Intl.Locale(
@@ -1043,34 +949,20 @@ export class BrowserTestbenchPreview {
         return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname.toLowerCase());
     }
 
-    private static async uploadAsset(file: File): Promise<UploadedAsset> {
-        const content = await file.arrayBuffer();
-        const digest = await crypto.subtle.digest('SHA-256', content);
-        const sha256 = [...new Uint8Array(digest)]
-            .map((value) => value.toString(16).padStart(2, '0'))
-            .join('');
-        return this.request<UploadedAsset>('/assets', {
-            method: 'POST',
-            body: content,
-            headers: {
-                'Content-Type': 'application/octet-stream',
-                'x-browser-testbench-asset-name': encodeURIComponent(file.name),
-                'x-browser-testbench-asset-size': String(file.size),
-                'x-browser-testbench-asset-sha256': sha256,
-                'x-browser-testbench-asset-content-type': file.type || 'application/octet-stream',
-            },
-        });
-    }
-
     private static async prepareInput(
         file: File,
         preparation: ProjectFileInput['prepare'],
     ): Promise<File> {
-        if (!preparation) return file;
+        if (!preparation) {
+            return file;
+        }
+
         let prepared = file;
+
         for (const module of preparation.modules) {
             prepared = await this.prepareInputWithModule(prepared, module);
         }
+
         return prepared;
     }
 
@@ -1081,7 +973,11 @@ export class BrowserTestbenchPreview {
             body: file,
             headers: { 'Content-Type': file.type || 'application/octet-stream' },
         });
-        if (!response.ok) throw await this.responseError(response);
+
+        if (!response.ok) {
+            throw await this.responseError(response);
+        }
+
         const filename = decodeURIComponent(
             response.headers.get('x-director-file-name') ?? 'prepared-input',
         );
@@ -1123,17 +1019,26 @@ export class BrowserTestbenchPreview {
         const bytes = new Uint8Array(await file.arrayBuffer());
         let binary = '';
         const chunkSize = 32_768;
+
         for (let offset = 0; offset < bytes.length; offset += chunkSize) {
             binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
         }
+
         return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`;
     }
 
     static label(target: BrowserTestbenchTarget): string {
-        if (typeof target.label === 'string') return target.label;
+        if (typeof target.label === 'string') {
+            return target.label;
+        }
+
         const deviceName = target.label.parameters?.['deviceName'];
         const version = target.label.parameters?.['version'];
-        if (deviceName) return version ? `${deviceName} · ${version}` : String(deviceName);
+
+        if (deviceName) {
+            return version ? `${deviceName} · ${version}` : String(deviceName);
+        }
+
         return target.id;
     }
 
@@ -1155,7 +1060,10 @@ export class BrowserTestbenchPreview {
                 ...options.headers,
             },
         });
-        if (response.ok) return (await response.json()) as T;
+
+        if (response.ok) {
+            return (await response.json()) as T;
+        }
 
         throw await this.responseError(response);
     }

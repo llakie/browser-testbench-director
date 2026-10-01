@@ -8,6 +8,21 @@ export async function playGraphNode(session: RemoteSession, nodeId: string): Pro
     await dispatchGraphControl(session, nodeId, 'playButton');
 }
 
+export async function clickPreviewWebsiteElement(
+    session: RemoteSession,
+    selector: string,
+): Promise<void> {
+    await session.waitForScript(
+        `const frame = document.querySelector('.director-website');
+        const element = frame?.contentDocument?.querySelector(arguments[0]);
+        if (!element) return false;
+        element.click();
+        return true;`,
+        [selector],
+        10_000,
+    );
+}
+
 async function dispatchGraphControl(
     session: RemoteSession,
     nodeId: string,

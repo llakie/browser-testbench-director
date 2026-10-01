@@ -41,8 +41,18 @@ export function positionFlyout(element: HTMLElement): void {
 
 function axisShift(start: number, end: number, viewportSize: number, margin: number): number {
     const availableSize = Math.max(0, viewportSize - margin * 2);
-    if (end - start >= availableSize) return margin - start;
-    if (start < margin) return margin - start;
-    if (end > viewportSize - margin) return viewportSize - margin - end;
+
+    if (end - start >= availableSize) {
+        return margin - start;
+    }
+
+    if (start < margin) {
+        return margin - start;
+    }
+
+    if (end > viewportSize - margin) {
+        return viewportSize - margin - end;
+    }
+
     return 0;
 }

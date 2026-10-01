@@ -103,14 +103,21 @@ export class McpClientIntegration {
 
     async connect(id: string): Promise<McpClientStatus> {
         const definition = this.#definition(id);
+
         if (!definition.automatic || !definition.binary || !definition.addArgs) {
             throw new Error(`${definition.label} requires manual setup.`);
         }
+
         const current = await this.#status(definition);
-        if (!current.installed) throw new Error(`${definition.label} is not installed.`);
+
+        if (!current.installed) {
+            throw new Error(`${definition.label} is not installed.`);
+        }
+
         if (current.registered && definition.removeArgs) {
             await execute(definition.binary, [...definition.removeArgs], { timeout: 15_000 });
         }
+
         await execute(definition.binary, [...definition.addArgs], { timeout: 15_000 });
         return this.#status(definition);
     }
@@ -120,11 +127,13 @@ export class McpClientIntegration {
             this.#json(response, 200, await this.statuses());
             return;
         }
+
         if (request.method === 'POST') {
             const body = JSON.parse(await readBody(request)) as { client?: string };
             this.#json(response, 200, await this.connect(body.client ?? ''));
             return;
         }
+
         this.#json(response, 405, { error: 'Method not allowed.' });
     }
 
@@ -132,6 +141,7 @@ export class McpClientIntegration {
         if (!definition.binary || !definition.statusArgs) {
             return publicStatus(definition, true, false);
         }
+
         try {
             const output = await execute(definition.binary, [...definition.statusArgs], {
                 timeout: 8_000,
@@ -149,7 +159,11 @@ export class McpClientIntegration {
 
     #definition(id: string): ClientDefinition {
         const definition = this.#definitions.find((candidate) => candidate.id === id);
-        if (!definition) throw new Error(`Unknown MCP client: ${id}`);
+
+        if (!definition) {
+            throw new Error(`Unknown MCP client: ${id}`);
+        }
+
         return definition;
     }
 
@@ -163,7 +177,11 @@ export class McpClientIntegration {
 
 async function readBody(request: IncomingMessage): Promise<string> {
     const chunks: Buffer[] = [];
-    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+
+    for await (const chunk of request) {
+        chunks.push(Buffer.from(chunk));
+    }
+
     return Buffer.concat(chunks).toString('utf8');
 }
 
@@ -172,7 +190,10 @@ function shellCommand(values: readonly string[]): string {
 }
 
 function shellQuote(value: string): string {
-    if (/^[A-Za-z0-9_./:@=-]+$/u.test(value)) return value;
+    if (/^[A-Za-z0-9_./:@=-]+$/u.test(value)) {
+        return value;
+    }
+
     return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 

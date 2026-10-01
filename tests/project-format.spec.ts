@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { ProjectFiles } from '../src/ui/client/core/project-files.js';
 import { ProjectFormat, type BrowserWaitNode } from '../src/ui/client/core/project-format.js';
 import { ProjectNodes } from '../src/ui/client/core/project-nodes.js';
+import { WorkflowGraph } from '../src/ui/client/core/workflow-graph.js';
 import { PreviewDocument } from '../src/ui/client/core/preview-document.js';
 import { previewOutputSize, previewPreset } from '../src/ui/client/core/media-presets.js';
 import de from '../src/i18n/de.json' with { type: 'json' };
@@ -96,6 +97,46 @@ test('Director-Projektformat speichert typisierte Browser-Aktionen und Wartebedi
 
     const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
     assert.deepEqual(loaded.nodes.slice(-2), project.nodes.slice(-2));
+});
+
+test('Director-Projektformat speichert Merge-Nodes mit expliziter Strategie', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push({
+        id: 'merge',
+        type: 'merge',
+        name: 'Merge',
+        position: null,
+        waitFor: 'any',
+    });
+
+    const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
+    assert.deepEqual(loaded.nodes.at(-1), project.nodes.at(-1));
+});
+
+test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen', () => {
+    const project = ProjectFormat.create();
+    const audio = ProjectNodes.createAudio(project, 'Intro-Musik');
+    audio.volume = 0.65;
+    audio.envelope = [
+        { time: 0, gain: 0 },
+        { time: 0.2, gain: 1 },
+        { time: 1, gain: 0.5 },
+    ];
+    audio.waitForEnd = false;
+    project.nodes.push(audio);
+
+    const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
+    assert.deepEqual(loaded.nodes.at(-1), audio);
+
+    audio.volume = 1.1;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /playback settings/u);
+
+    audio.volume = 0.65;
+    audio.envelope = [
+        { time: 0, gain: 1 },
+        { time: 0, gain: 0 },
+    ];
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /invalid envelope/u);
 });
 
 test('Director-Projektformat verlangt eine explizite Exportentscheidung für Warte-Nodes', () => {
@@ -193,11 +234,23 @@ test('Director-Projektformat speichert mehrere Prepare-Module pro Datei-Input', 
 });
 
 test('Director-Projektformat lehnt unbekannte Versionen ab', () => {
-    const project = { ...ProjectFormat.create(), version: 11 };
+    const project = { ...ProjectFormat.create(), version: 16 };
     assert.throws(
         () => ProjectFormat.parse(JSON.stringify(project)),
         /Unsupported project version/u,
     );
+});
+
+test('Director-Projektformat speichert das Aufnahmeziel als terminale Node', () => {
+    const project = ProjectFormat.create();
+    const output = ProjectNodes.createVideoOutput(project, 'Video export');
+    output.targetId = 'chrome-desktop';
+    output.filename = 'episode-01.mp4';
+    project.nodes.push(output);
+    project.connections.push(WorkflowGraph.createConnection(project, 'layer-1', output.id));
+
+    const parsed = ProjectFormat.parse(ProjectFormat.stringify(project));
+    assert.deepEqual(parsed.nodes.at(-1), output);
 });
 
 test('Director-Projektformat lehnt versteckte und inaktive Eigenschaften ab', () => {
@@ -344,6 +397,7 @@ test('Vorschau setzt den Layer auf eine transparente Vollbildfläche', () => {
     );
     assert.match(preview, /content\.className = 'director-layer__content'/u);
     assert.match(preview, /class="director-website"/u);
+    assert.match(preview, /<meta name="google" content="notranslate"/u);
     assert.match(preview, /https:\/\/example\.com\/\?a=1&amp;b=2/u);
     assert.doesNotMatch(preview, /preview-card|Binderium Scan/u);
 });
@@ -374,5 +428,7 @@ test('Lokale Vorschau verwendet den konfigurierten Datei-Input als virtuelle Kam
 
     assert.match(preview, /const cameraInputId = "camera";/u);
     assert.match(preview, /createPreviewCameraStream\(inputs\[cameraInputId\]\)/u);
+    assert.match(preview, /Object\.defineProperty\(websiteWindow, 'isSecureContext'/u);
+    assert.match(preview, /Object\.defineProperty\(websiteWindow\.navigator, 'mediaDevices'/u);
     assert.match(preview, /Object\.defineProperty\(mediaDevices, 'getUserMedia'/u);
 });

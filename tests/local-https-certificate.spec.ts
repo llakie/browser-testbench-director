@@ -9,6 +9,7 @@ import { LocalHttpsCertificate } from '../src/server/local-https-certificate.js'
 
 test('Lokales HTTPS-Zertifikat wird erzeugt und wiederverwendet', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'director-certificate-'));
+
     try {
         const first = await LocalHttpsCertificate.resolve(directory);
         const second = await LocalHttpsCertificate.resolve(directory);
@@ -17,6 +18,7 @@ test('Lokales HTTPS-Zertifikat wird erzeugt und wiederverwendet', async () => {
         assert.equal(second.cert.toString(), first.cert.toString());
         assert.match(certificate.subjectAltName ?? '', /DNS:localhost/u);
         assert.match(certificate.subjectAltName ?? '', /IP Address:127\.0\.0\.1/u);
+
         if (process.platform !== 'win32') {
             assert.equal(
                 (await stat(join(directory, '.certs/director-local.key'))).mode & 0o777,

@@ -19,23 +19,36 @@ export const projectMethods: WorkspaceMethodMap = {
     async openProject(): Promise<void> {
         try {
             const selected = await ProjectFiles.open();
+
             if (!selected) {
                 const input = this.workspaceElement('projectFileInput');
-                if (input instanceof HTMLInputElement) input.click();
+
+                if (input instanceof HTMLInputElement) {
+                    input.click();
+                }
+
                 return;
             }
+
             this.setProject(await ProjectFiles.read(selected.file), selected.file.name, false);
             this.projectFileHandle = markRaw(selected.handle);
             await this.restoreProjectInputs();
             this.showNotice(this.t('project.loaded', { name: selected.file.name }));
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return;
+            }
+
             this.showNotice(`${this.t('project.loadError')} ${this.errorMessage(error)}`);
         }
     },
     async loadProject(event: Event): Promise<void> {
         const input = event.target;
-        if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return;
+
+        if (!(input instanceof HTMLInputElement) || !input.files?.[0]) {
+            return;
+        }
+
         try {
             const file = input.files[0];
             this.setProject(await ProjectFiles.read(file), file.name, false);
@@ -49,8 +62,12 @@ export const projectMethods: WorkspaceMethodMap = {
         }
     },
     async saveProject(): Promise<void> {
-        if (this.savingProject) return;
+        if (this.savingProject) {
+            return;
+        }
+
         this.savingProject = true;
+
         try {
             await Promise.all(Object.values(this.inputFileStores));
             const saved = await ProjectFiles.save(
@@ -63,7 +80,10 @@ export const projectMethods: WorkspaceMethodMap = {
             this.dirty = false;
             this.showNotice(this.t('project.saved', { name: this.filename }));
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return;
+            }
+
             this.showNotice(`${this.t('project.saveError')} ${this.errorMessage(error)}`);
         } finally {
             this.savingProject = false;
@@ -71,23 +91,28 @@ export const projectMethods: WorkspaceMethodMap = {
     },
     async restoreProjectInputs(): Promise<void> {
         for (const input of this.inputNodes) {
-            if (!input.file) continue;
+            if (!input.file) {
+                continue;
+            }
+
             const file = await ProjectAssets.load(input.file);
             this.inputFiles[input.id] = markRaw(file);
             const data = await BrowserTestbenchPreview.runtimeInputs({ [input.id]: file });
             this.inputData[input.id] = data[input.id]!;
         }
+
         this.renderGraph();
     },
     setProject(project: DirectorProject, filename: string, dirty: boolean): void {
         const previousRemoteSessionId = this.remotePreviewSessionId;
         this.remotePreviewSessionId = null;
-        this.remotePreviewDirect = false;
         this.selectedBrowserTargetId = '';
         this.remotePreviewError = '';
+
         if (previousRemoteSessionId) {
             void BrowserTestbenchPreview.close(previousRemoteSessionId).catch(() => undefined);
         }
+
         this.project = ProjectFormat.clone(project);
         this.activeConnectionId = null;
         this.filename = filename;
@@ -127,7 +152,11 @@ export const projectMethods: WorkspaceMethodMap = {
     },
     showNotice(message: string): void {
         this.notice = message;
-        if (this.noticeTimer) clearTimeout(this.noticeTimer);
+
+        if (this.noticeTimer) {
+            clearTimeout(this.noticeTimer);
+        }
+
         this.noticeTimer = setTimeout(() => {
             this.notice = '';
         }, 3200);

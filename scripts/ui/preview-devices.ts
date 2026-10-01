@@ -34,13 +34,13 @@ export async function verifyPreviewDevices(session: RemoteSession): Promise<void
     assert.ok(remoteTarget, 'devices: at least one remote preview target must be ready.');
     await session.click('[data-testid="viewport-device-trigger"]');
 
-    await session.click('[data-testid="record-workflow"]');
-    await session.waitForElement('.recording-flyout__menu', 5_000);
-    const recordingTargets = await session.evaluate<number>(`
-        return document.querySelectorAll('.recording-target-option:not(:disabled)').length;
-    `);
-    assert.ok(recordingTargets > 0, 'recording: the reduced menu lists usable targets only.');
-    await session.click('[data-testid="record-workflow"]');
+    assert.equal(
+        await session.evaluate(
+            `return Boolean(document.querySelector('[data-testid="record-workflow"]'));`,
+        ),
+        false,
+        'recording: the graph header no longer owns recording.',
+    );
 
     await session.evaluate(`
         window.__directorOriginalFetch = window.fetch;

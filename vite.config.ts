@@ -18,6 +18,6 @@ export default defineConfig({
     },
     build: {
         outDir: 'dist/ui',
-        sourcemap: true,
+        sourcemap: false,
     },
 });

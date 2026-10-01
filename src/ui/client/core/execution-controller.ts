@@ -19,7 +19,10 @@ export class ExecutionController {
     #nodes: Record<string, NodeExecutionState> = {};
 
     begin(nodeIds: readonly string[]): number | null {
-        if (this.#running) return null;
+        if (this.#running) {
+            return null;
+        }
+
         this.#runId += 1;
         this.#running = true;
         this.#activeNodeId = null;
@@ -30,28 +33,48 @@ export class ExecutionController {
     }
 
     update(runId: number, nodeId: string, status: NodeExecutionStatus, error?: string): boolean {
-        if (!this.#running || runId !== this.#runId || !(nodeId in this.#nodes)) return false;
+        if (!this.#running || runId !== this.#runId || !(nodeId in this.#nodes)) {
+            return false;
+        }
+
         this.#nodes[nodeId] = error ? { status, error } : { status };
-        if (status === 'running') this.#activeNodeId = nodeId;
-        else if (this.#activeNodeId === nodeId) this.#activeNodeId = null;
+
+        if (status === 'running') {
+            this.#activeNodeId = nodeId;
+        } else if (this.#activeNodeId === nodeId) {
+            this.#activeNodeId = null;
+        }
+
         return true;
     }
 
     complete(runId: number): boolean {
-        if (!this.#running || runId !== this.#runId) return false;
-        for (const [nodeId, state] of Object.entries(this.#nodes)) {
-            if (state.status === 'running') this.#nodes[nodeId] = { status: 'success' };
+        if (!this.#running || runId !== this.#runId) {
+            return false;
         }
+
+        for (const [nodeId, state] of Object.entries(this.#nodes)) {
+            if (state.status === 'running') {
+                this.#nodes[nodeId] = { status: 'success' };
+            }
+        }
+
         this.#running = false;
         this.#activeNodeId = null;
         return true;
     }
 
     stop(): boolean {
-        if (!this.#running) return false;
-        for (const [nodeId, state] of Object.entries(this.#nodes)) {
-            if (state.status === 'running') this.#nodes[nodeId] = { status: 'cancelled' };
+        if (!this.#running) {
+            return false;
         }
+
+        for (const [nodeId, state] of Object.entries(this.#nodes)) {
+            if (state.status === 'running') {
+                this.#nodes[nodeId] = { status: 'cancelled' };
+            }
+        }
+
         this.#running = false;
         this.#activeNodeId = null;
         this.#runId += 1;
@@ -59,7 +82,10 @@ export class ExecutionController {
     }
 
     clear(nodeId: string): boolean {
-        if (this.#running || !(nodeId in this.#nodes)) return false;
+        if (this.#running || !(nodeId in this.#nodes)) {
+            return false;
+        }
+
         delete this.#nodes[nodeId];
         return true;
     }

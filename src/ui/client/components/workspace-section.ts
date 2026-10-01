@@ -8,6 +8,7 @@ interface WorkspaceSectionOptions {
     readonly name: string;
     readonly template: string;
     readonly bindings: readonly string[];
+    readonly components?: Readonly<Record<string, Component>>;
 }
 
 export function defineWorkspaceSection(options: WorkspaceSectionOptions): Component {
@@ -33,6 +34,7 @@ export function defineWorkspaceSection(options: WorkspaceSectionOptions): Compon
                 required: true,
             },
         },
+        components: options.components,
         computed,
     });
     TemplateRegistry.attach(component, options.template);

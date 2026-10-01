@@ -62,8 +62,12 @@ test('Browser-Testbench-Vorschau veröffentlicht ein Dokument unter einer virtue
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.deepEqual(requests[0], {
@@ -85,7 +89,7 @@ test('Browser-Testbench-Vorschau veröffentlicht ein Dokument unter einer virtue
     });
 });
 
-test('Lokale HTTPS-Shell akzeptiert das Director-Entwicklungszertifikat', async () => {
+test('HTTPS-Editor öffnet Remote-Player über den zertifikatsfreien HTTP-Origin', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
     const requests: Array<{ url: string; body?: BodyInit | null }> = [];
@@ -95,9 +99,12 @@ test('Lokale HTTPS-Shell akzeptiert das Director-Entwicklungszertifikat', async 
     });
     globalThis.fetch = async (input, init = {}) => {
         requests.push({ url: String(input), body: init.body });
-        const payload = String(input).startsWith('/director-api/previews/')
+        const url = String(input);
+        const payload = url.startsWith('/director-api/previews/')
             ? { url: '/director-preview/nodes/layer-1/preview-token' }
-            : { id: 'session-1' };
+            : url === '/director-api/player-origin'
+              ? { origin: 'http://127.0.0.1:61234' }
+              : { id: 'session-1' };
         return new Response(JSON.stringify(payload), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -108,20 +115,23 @@ test('Lokale HTTPS-Shell akzeptiert das Director-Entwicklungszertifikat', async 
         await BrowserTestbenchPreview.open('chrome', 'layer-1', '<!doctype html>');
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
-    assert.deepEqual(JSON.parse(String(requests[1]?.body)), {
+    assert.deepEqual(JSON.parse(String(requests[2]?.body)), {
         target: 'chrome',
-        url: 'https://127.0.0.1:5173/director-preview/nodes/layer-1/preview-token',
+        url: 'http://127.0.0.1:61234/director-preview/nodes/layer-1/preview-token',
         headless: false,
         leaseTimeoutMs: 15 * 60 * 1_000,
-        capabilities: { acceptInsecureCerts: true },
     });
 });
 
-test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', async () => {
+test('Recording session declares its capability before opening and retains project settings', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
     const requests: Array<{ url: string; body?: BodyInit | null }> = [];
@@ -153,11 +163,16 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
                 language: 'de',
                 locale: 'DE',
             },
+            true,
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     const session = JSON.parse(String(requests[1]?.body)) as Record<string, unknown>;
@@ -173,6 +188,9 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
             ],
             prefs: { 'intl.accept_languages': 'de-DE,de' },
         },
+    });
+    assert.deepEqual(session['require'], {
+        recording: { viewport: true, explicitLifecycle: true },
     });
 });
 
@@ -202,131 +220,6 @@ test('Leere Website-URLs werden niemals auf den Director selbst aufgelöst', () 
         () => BrowserTestbenchPreview.proxyWebsite('   '),
         /Website URL must not be empty/u,
     );
-});
-
-test('Lokales HTTPS wird auf Android Chrome ohne Zertifikatswarnung geöffnet', async () => {
-    const originalFetch = globalThis.fetch;
-    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
-    const requestBodies: Record<string, unknown>[] = [];
-    Object.defineProperty(globalThis, 'location', {
-        value: new URL('https://127.0.0.1:5173/'),
-        configurable: true,
-    });
-    globalThis.fetch = async (_input, init = {}) => {
-        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-        return new Response(JSON.stringify({ id: 'android-https-session' }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        });
-    };
-
-    try {
-        await BrowserTestbenchPreview.openWebsite(
-            { ...androidTarget, id: 'chrome-android-browser-testbench-api-36' },
-            'https://127.0.0.1:4200/price-check/scan',
-        );
-    } finally {
-        globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
-    }
-
-    assert.deepEqual(requestBodies[0]?.['capabilities'], {
-        acceptInsecureCerts: true,
-        'goog:chromeOptions': {
-            args: ['--allow-insecure-localhost', '--disable-features=Translate,TranslateUI'],
-        },
-    });
-    assert.equal(requestBodies[0]?.['localOrigins'], 'reverse');
-});
-
-test('Lokale Android-Vorschau navigiert nach dem Reverse-Tunnel kontrolliert neu', async () => {
-    const originalFetch = globalThis.fetch;
-    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
-    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
-    Object.defineProperty(globalThis, 'location', {
-        value: new URL('https://127.0.0.1:5173/'),
-        configurable: true,
-    });
-    globalThis.fetch = async (input, init = {}) => {
-        requests.push({
-            url: String(input),
-            body: JSON.parse(String(init.body)) as Record<string, unknown>,
-        });
-        return new Response(JSON.stringify({ id: 'android-local-session' }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        });
-    };
-
-    try {
-        await BrowserTestbenchPreview.openWebsite(
-            androidTarget,
-            'https://127.0.0.1:4200/price-check/scan',
-            {
-                permissions: [],
-                language: 'de',
-                locale: 'DE',
-            },
-        );
-    } finally {
-        globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
-    }
-
-    assert.equal(requests.length, 2);
-    assert.equal(requests[0]?.url, '/browser-testbench-api/sessions');
-    assert.equal(requests[0]?.body['localOrigins'], 'reverse');
-    assert.deepEqual(requests[1], {
-        url: '/browser-testbench-api/sessions/android-local-session/navigate',
-        body: { url: 'https://127.0.0.1:4200/price-check/scan' },
-    });
-});
-
-test('Desktop-Browsersprache wird beim Sessionstart vollständig konfiguriert', async () => {
-    const originalFetch = globalThis.fetch;
-    let requestBody: Record<string, unknown> | undefined;
-    globalThis.fetch = async (_input, init = {}) => {
-        requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
-        return new Response(JSON.stringify({ id: 'localized-desktop-session' }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        });
-    };
-
-    try {
-        await BrowserTestbenchPreview.openWebsite(
-            desktopTarget,
-            'https://www.binderium.com/price-check/scan',
-            {
-                permissions: ['geolocation'],
-                language: 'de',
-                locale: 'DE',
-            },
-            {},
-            [],
-            null,
-            true,
-        );
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-
-    assert.deepEqual(requestBody?.['capabilities'], {
-        'goog:chromeOptions': {
-            args: [
-                '--remote-allow-origins=https://chrome-devtools-frontend.appspot.com',
-                '--headless=new',
-                '--lang=de-DE',
-                '--disable-features=Translate,TranslateUI',
-            ],
-            prefs: { 'intl.accept_languages': 'de-DE,de' },
-        },
-    });
-    assert.deepEqual(requestBody?.['permissions'], [
-        { name: 'geolocation', origin: 'https://www.binderium.com' },
-    ]);
 });
 
 test('Browser-Testbench-Targets erhalten verständliche Namen', () => {
@@ -376,7 +269,7 @@ test('Desktop-Viewport behält sein Seitenverhältnis trotz Browser-Mindestbreit
     assert.deepEqual(requests[2], { action: 'viewport', width: 500, height: 1032 });
 });
 
-test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeiten an', async () => {
+test('Kamera-Eingabe wird über die gemeinsame Player-Runtime übertragen', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
     const requests: Array<{ url: string; headers: Headers; body: BodyInit | null | undefined }> =
@@ -391,17 +284,12 @@ test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeit
             headers: new Headers(init.headers),
             body: init.body,
         });
-        const payload = String(input).endsWith('/assets')
-            ? {
-                  id: '00000000-0000-4000-8000-000000000001',
-                  name: 'camera.png',
-                  contentType: 'image/png',
-                  size: 4,
-                  sha256: 'a'.repeat(64),
-              }
+        const url = String(input);
+        const payload = url.startsWith('/director-api/previews/')
+            ? { url: '/director-preview/nodes/camera/preview-token' }
             : { id: 'camera-session' };
         return new Response(JSON.stringify(payload), {
-            status: String(input).endsWith('/assets') ? 201 : 200,
+            status: url.startsWith('/director-api/previews/') ? 201 : 200,
             headers: { 'Content-Type': 'application/json' },
         });
     };
@@ -410,14 +298,10 @@ test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeit
         const file = new File([new Uint8Array([1, 2, 3, 4])], 'camera.png', {
             type: 'image/png',
         });
-        const id = await BrowserTestbenchPreview.openWebsite(
+        const id = await BrowserTestbenchPreview.open(
             androidTarget,
-            'https://www.binderium.com/price-check/scan',
-            {
-                permissions: [],
-                language: 'de',
-                locale: 'DE',
-            },
+            'camera',
+            '<!doctype html>',
             { 'camera-image': file },
             [
                 {
@@ -429,70 +313,39 @@ test('Kamera-Session lädt die Eingabedatei hoch und fordert Emulator-Fähigkeit
                     required: true,
                 },
             ],
-            'camera-image',
-        );
-        assert.equal(id, 'camera-session');
-    } finally {
-        globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
-    }
-
-    assert.equal(requests[0]?.url, '/browser-testbench-api/assets');
-    assert.equal(requests[0]?.headers.get('content-type'), 'application/octet-stream');
-    assert.equal(requests[0]?.headers.get('x-browser-testbench-asset-content-type'), 'image/png');
-    const session = JSON.parse(String(requests[1]?.body)) as Record<string, unknown>;
-    assert.equal(session['leaseTimeoutMs'], 15 * 60 * 1_000);
-    assert.deepEqual(session['permissions'], [
-        { name: 'camera', origin: 'https://www.binderium.com' },
-    ]);
-    assert.deepEqual(session['media'], {
-        camera: {
-            facing: 'back',
-            source: {
-                id: '00000000-0000-4000-8000-000000000001',
-                name: 'camera.png',
-                contentType: 'image/png',
-                size: 4,
-                sha256: 'a'.repeat(64),
-            },
-        },
-    });
-    assert.deepEqual(session['require'], {
-        localOrigins: { reverse: true },
-        permissions: { native: ['camera'], origin: ['camera'] },
-        mediaInjection: { cameraImage: true },
-    });
-});
-
-test('Desktop-Kamera wird ausschließlich über die reloadfeste Preview-Shell geöffnet', async () => {
-    await assert.rejects(
-        BrowserTestbenchPreview.openWebsite(
-            desktopTarget,
-            'https://www.binderium.com/price-check/scan',
+            false,
             {
                 permissions: [],
                 language: 'de',
                 locale: 'DE',
             },
-            {
-                'camera-image': new File([new Uint8Array([1, 2, 3])], 'card.jpg', {
-                    type: 'image/jpeg',
-                }),
-            },
-            [
-                {
-                    id: 'camera-image',
-                    type: 'input',
-                    name: 'Camera image',
-                    position: null,
-                    accept: 'image/*',
-                    required: true,
-                },
-            ],
-            'camera-image',
-        ),
-        /preview shell/u,
+        );
+        assert.equal(id, 'camera-session');
+    } finally {
+        globalThis.fetch = originalFetch;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
+    }
+
+    assert.equal(
+        requests.some((request) => request.url.endsWith('/assets')),
+        false,
+    );
+    const sessionRequest = requests.find((request) =>
+        request.url.endsWith('/browser-testbench-api/sessions'),
+    )!;
+    const session = JSON.parse(String(sessionRequest.body)) as Record<string, unknown>;
+    assert.equal(session['leaseTimeoutMs'], 15 * 60 * 1_000);
+    assert.equal(session['permissions'], undefined);
+    assert.equal(session['media'], undefined);
+    assert.equal(session['require'], undefined);
+    assert.equal(session['localOrigins'], 'reverse');
+    assert.ok(
+        requests.some((request) => String(request.body).includes('data:image/png;base64,AQIDBA==')),
     );
 });
 
@@ -508,6 +361,7 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
     globalThis.fetch = async (input, init = {}) => {
         const url = String(input);
         requests.push({ url, headers: new Headers(init.headers), body: init.body });
+
         if (url.startsWith('/director-api/inputs/prepare?')) {
             return new Response(new Uint8Array([9, 8, 7]), {
                 headers: {
@@ -516,30 +370,21 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
                 },
             });
         }
-        const payload = url.endsWith('/assets')
-            ? {
-                  id: 'prepared-asset',
-                  name: 'camera.png',
-                  contentType: 'image/png',
-                  size: 3,
-                  sha256: 'b'.repeat(64),
-              }
+
+        const payload = url.startsWith('/director-api/previews/')
+            ? { url: '/director-preview/nodes/prepared/preview-token' }
             : { id: 'prepared-session' };
         return new Response(JSON.stringify(payload), {
-            status: url.endsWith('/assets') ? 201 : 200,
+            status: 200,
             headers: { 'Content-Type': 'application/json' },
         });
     };
 
     try {
-        await BrowserTestbenchPreview.openWebsite(
+        await BrowserTestbenchPreview.open(
             androidTarget,
-            'https://www.binderium.com/price-check/scan',
-            {
-                permissions: [],
-                language: 'de',
-                locale: 'DE',
-            },
+            'prepared',
+            '<!doctype html>',
             {
                 'camera-image': new File([new Uint8Array([1, 2, 3])], 'card.jpg', {
                     type: 'image/jpeg',
@@ -561,12 +406,21 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
                     },
                 },
             ],
-            'camera-image',
+            false,
+            {
+                permissions: [],
+                language: 'de',
+                locale: 'DE',
+            },
         );
     } finally {
         globalThis.fetch = originalFetch;
-        if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
-        else delete (globalThis as { location?: Location }).location;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
     assert.equal(
@@ -579,9 +433,68 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
         '/director-api/inputs/prepare?module=projects%2Fguess-price%2Fprepare%2Fcamera.mjs',
     );
     assert.equal(requests[0]?.headers.get('content-type'), 'image/jpeg');
-    assert.equal(requests[2]?.url, '/browser-testbench-api/assets');
-    assert.equal(requests[2]?.headers.get('x-browser-testbench-asset-name'), 'camera.png');
-    assert.equal(requests[2]?.headers.get('x-browser-testbench-asset-content-type'), 'image/png');
+    assert.equal(
+        requests.some((request) => request.url.endsWith('/assets')),
+        false,
+    );
+    assert.ok(
+        requests.some((request) => String(request.body).includes('data:image/png;base64,CQgH')),
+    );
+});
+
+test('Runtime initialization failure closes the session and releases prepared recording resources', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', {
+        value: new URL('http://localhost:5173'),
+        configurable: true,
+    });
+    const requests: Array<{ url: string; method: string }> = [];
+    globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+        requests.push({ url, method: init.method ?? 'GET' });
+        return new Response(
+            JSON.stringify(
+                url.endsWith('/wait')
+                    ? { error: 'Runtime unavailable' }
+                    : url.includes('/previews/')
+                      ? { url: '/preview' }
+                      : { id: 'prepared' },
+            ),
+            {
+                status: url.endsWith('/wait') ? 500 : 200,
+                headers: { 'Content-Type': 'application/json' },
+            },
+        );
+    };
+
+    try {
+        await assert.rejects(
+            BrowserTestbenchPreview.open(
+                'chrome',
+                'node',
+                '<html></html>',
+                {},
+                [],
+                false,
+                undefined,
+                true,
+            ),
+            /Runtime unavailable/u,
+        );
+        assert.deepEqual(requests.at(-1), {
+            url: '/browser-testbench-api/sessions/prepared',
+            method: 'DELETE',
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
+    }
 });
 
 test('Projektdateien stehen der Runtime als Data-URLs zur Verfügung', async () => {
@@ -597,7 +510,7 @@ test('Projektdateien stehen der Runtime als Data-URLs zur Verfügung', async () 
     assert.equal(inputs['font'], 'data:font/ttf;base64,Zm9udA==');
 });
 
-test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench', async () => {
+test('Workflow-Aufnahme normalisiert ungerade native Viewport-Maße für H.264', async () => {
     const originalFetch = globalThis.fetch;
     const video = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]);
     const digest = await crypto.subtle.digest('SHA-256', video);
@@ -608,12 +521,14 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
     globalThis.fetch = async (input, init = {}) => {
         const url = String(input);
         requests.push({ url, body: init.body, headers: init.headers });
+
         if (url.endsWith('/recording/start')) {
             return new Response(JSON.stringify({ id: 'recording-1' }), {
                 status: 201,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
+
         if (url.endsWith('/recording/stop')) {
             return new Response(
                 JSON.stringify({
@@ -621,13 +536,26 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
                     size: video.byteLength,
                     sha256,
                     mimeType: 'video/mp4',
-                    width: 1080,
-                    height: 1920,
+                    width: 1079,
+                    height: 2069,
                     durationMs: 4_200,
+                    marks: [
+                        {
+                            name: 'director.audio.start',
+                            data: { nodeId: 'soundtrack', runtimeTimeMs: 0 },
+                            recordingTimeMs: 600,
+                        },
+                        {
+                            name: 'director.audio.end',
+                            data: { nodeId: 'soundtrack', runtimeTimeMs: 1_000 },
+                            recordingTimeMs: 3_600,
+                        },
+                    ],
                 }),
                 { headers: { 'Content-Type': 'application/json' } },
             );
         }
+
         return new Response(video, { headers: { 'Content-Type': 'video/mp4' } });
     };
 
@@ -636,12 +564,25 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
         const recording = await BrowserTestbenchPreview.stopRecording(
             'session-1',
             'guess-price.mp4',
+            undefined,
+            [
+                {
+                    name: 'director.audio.start',
+                    data: { nodeId: 'soundtrack', runtimeTimeMs: 0 },
+                    recordingTimeMs: 600,
+                },
+                {
+                    name: 'director.audio.end',
+                    data: { nodeId: 'soundtrack', runtimeTimeMs: 1_000 },
+                    recordingTimeMs: 1_600,
+                },
+            ],
         );
         assert.equal(recording.filename, 'guess-price.mp4');
         assert.equal(recording.blob.size, video.byteLength);
         assert.deepEqual(
             { width: recording.width, height: recording.height, durationMs: recording.durationMs },
-            { width: 1080, height: 1920, durationMs: 4_200 },
+            { width: 1080, height: 2070, durationMs: 4_200 },
         );
     } finally {
         globalThis.fetch = originalFetch;
@@ -658,7 +599,8 @@ test('Workflow-Aufnahme lädt das geprüfte MP4-Artefakt von Browser Testbench',
     assert.equal(requests[3]?.url, '/director-api/video-exports');
     const exportHeaders = new Headers(requests[3]?.headers);
     assert.equal(exportHeaders.get('x-director-video-width'), '1080');
-    assert.equal(exportHeaders.get('x-director-video-height'), '1920');
+    assert.equal(exportHeaders.get('x-director-video-height'), '2070');
+    assert.equal(exportHeaders.has('x-director-video-audio'), false);
 });
 
 test('Aufnahmeintervalle für Layer und eingeschlossene Wartezeiten verwenden die native Aufnahmeuhr', () => {
@@ -713,198 +655,57 @@ test('Aufnahmeintervalle für Layer und eingeschlossene Wartezeiten verwenden di
     ]);
 });
 
-test('Aufnahme markiert nur Warte-Nodes, die im Export bleiben sollen', async () => {
-    const originalFetch = globalThis.fetch;
-    const urls: string[] = [];
-    globalThis.fetch = async (input, init = {}) => {
-        urls.push(String(input));
-        const body = JSON.parse(String(init.body)) as { action?: string };
-        const payload = body.action === 'evaluate' ? '{}' : '{}';
-        return new Response(payload, { headers: { 'Content-Type': 'application/json' } });
-    };
-
-    try {
-        await BrowserTestbenchPreview.executeOnWebsite(
-            'session-wait',
-            [
-                {
-                    id: 'visible-wait',
-                    type: 'browser-wait',
-                    speed: 'live',
-                    source: '',
-                    condition: 'element',
-                    selector: '#ready',
-                    timeoutMs: 1_000,
-                    omitFromRecording: false,
-                },
-                {
-                    id: 'omitted-wait',
-                    type: 'browser-wait',
-                    speed: 'live',
-                    source: '',
-                    condition: 'element',
-                    selector: '#done',
-                    timeoutMs: 1_000,
-                    omitFromRecording: true,
-                },
-            ],
-            true,
-        );
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-
-    assert.deepEqual(
-        urls.map((url) => url.split('/').at(-1)),
-        ['browser', 'marks', 'wait', 'marks', 'browser', 'wait'],
-    );
-});
-
-test('Browser-Aktion und Wartebedingung verwenden die nativen Testbench-Endpunkte', async () => {
-    const originalFetch = globalThis.fetch;
-    const requests: Array<{ url: string; body: unknown }> = [];
-    globalThis.fetch = async (input, init = {}) => {
-        requests.push({ url: String(input), body: JSON.parse(String(init.body)) });
-        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
-    };
-
-    try {
-        await BrowserTestbenchPreview.executeOnWebsite('session-1', [
-            {
-                id: 'ready',
-                type: 'browser-wait',
-                speed: 'live',
-                source: '',
-                condition: 'element',
-                selector: '#ready',
-                timeoutMs: 12_000,
-                omitFromRecording: true,
-            },
-            {
-                id: 'click',
-                type: 'browser-action',
-                speed: 'live',
-                source: '',
-                selector: '#ready',
-            },
-        ]);
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-
-    assert.deepEqual(requests, [
-        {
-            url: '/browser-testbench-api/sessions/session-1/browser',
-            body: {
-                action: 'evaluate',
-                script: `window.__directorResults ??= {};
-                delete window.__directorResults[arguments[0]];`,
-                arguments: ['ready'],
-            },
-        },
-        {
-            url: '/browser-testbench-api/sessions/session-1/wait',
-            body: { type: 'element', selector: '#ready', timeoutMs: 12_000 },
-        },
-        {
-            url: '/browser-testbench-api/sessions/session-1/browser',
-            body: {
-                action: 'evaluate',
-                script: `window.__directorResults ??= {};
-                delete window.__directorResults[arguments[0]];`,
-                arguments: ['click'],
-            },
-        },
-        {
-            url: '/browser-testbench-api/sessions/session-1/click',
-            body: { selector: '#ready' },
-        },
-    ]);
-});
-
-test('Script-Wait speichert sein Ergebnis für nachfolgende Nodes', async () => {
-    const originalFetch = globalThis.fetch;
-    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
-    globalThis.fetch = async (input, init = {}) => {
-        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-        requests.push({ url: String(input), body });
-        const result =
-            body['action'] === 'evaluate' && body['script'] === 'return { price: "42 €" };'
-                ? { price: '42 €' }
-                : {};
-        return new Response(JSON.stringify(result), {
-            headers: { 'Content-Type': 'application/json' },
-        });
-    };
-
-    try {
-        await BrowserTestbenchPreview.executeOnWebsite('session-2', [
-            {
-                id: 'price-result',
-                type: 'browser-wait',
-                speed: 'live',
-                source: '',
-                condition: 'script',
-                script: 'return { price: "42 €" };',
-                timeoutMs: 30_000,
-                omitFromRecording: true,
-            },
-        ]);
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-
-    const wait = requests.find((request) => request.url.endsWith('/wait'));
-    assert.deepEqual(wait?.body, {
-        type: 'script',
-        script: 'return { price: "42 €" };',
-        arguments: [],
-        timeoutMs: 30_000,
+test('Überlappende Layer-Zweige erzeugen nur ein Exportintervall', () => {
+    const intervals = BrowserTestbenchPreview.layerIntervals({
+        artifactId: 'artifact-1',
+        size: 1,
+        sha256: 'a'.repeat(64),
+        mimeType: 'video/mp4',
+        width: 1080,
+        height: 1920,
+        durationMs: 5_000,
+        startedSessionTimeMs: 0,
+        endedSessionTimeMs: 5_000,
+        marks: [
+            { name: 'director.layer.start', data: { nodeId: 'title' }, recordingTimeMs: 500 },
+            { name: 'director.layer.start', data: { nodeId: 'callout' }, recordingTimeMs: 520 },
+            { name: 'director.layer.end', data: { nodeId: 'title' }, recordingTimeMs: 2_500 },
+            { name: 'director.layer.end', data: { nodeId: 'callout' }, recordingTimeMs: 2_520 },
+        ],
     });
-    const store = requests.at(-1)?.body;
-    assert.deepEqual(store?.['arguments'], ['price-result', { price: '42 €' }]);
+
+    assert.deepEqual(intervals, [{ startMs: 500, endMs: 2_520 }]);
 });
 
-test('Aufnahme markiert ein Layer-Intervall erst nach dem Mount', async () => {
-    const originalFetch = globalThis.fetch;
-    const urls: string[] = [];
-    globalThis.fetch = async (input) => {
-        urls.push(String(input));
-        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
-    };
+test('Synchronisierte Runtime-Marken bestimmen die Aufnahmeintervalle direkt', () => {
+    const intervals = BrowserTestbenchPreview.layerIntervals({
+        artifactId: 'artifact-1',
+        size: 1,
+        sha256: 'a'.repeat(64),
+        mimeType: 'video/mp4',
+        width: 1080,
+        height: 1920,
+        durationMs: 5_000,
+        startedSessionTimeMs: 0,
+        endedSessionTimeMs: 5_000,
+        marks: [
+            {
+                name: 'director.layer.start',
+                data: { nodeId: 'scan', durationMs: 1_600, runtimeTimeMs: 400 },
+                recordingTimeMs: 400,
+            },
+            {
+                name: 'director.layer.end',
+                data: { nodeId: 'scan', runtimeTimeMs: 2_000 },
+                recordingTimeMs: 2_000,
+            },
+        ],
+    });
 
-    try {
-        await BrowserTestbenchPreview.executeOnWebsite(
-            'session-3',
-            [
-                {
-                    id: 'intro',
-                    type: 'layer',
-                    speed: 'live',
-                    source: '',
-                    html: '<strong>Intro</strong>',
-                    css: '',
-                    placement: {
-                        reference: { type: 'viewport' },
-                        horizontal: 'center',
-                        vertical: 'center',
-                    },
-                    playback: { durationMs: 10, removeAfter: true },
-                },
-            ],
-            true,
-        );
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-
-    assert.deepEqual(
-        urls.map((url) => url.split('/').at(-1)),
-        ['browser', 'browser', 'marks', 'marks', 'browser'],
-    );
+    assert.deepEqual(intervals, [{ startMs: 400, endMs: 2_000 }]);
 });
 
-test('Preview-Shell markiert Layer für den geschnittenen Aufnahmeexport', async () => {
+test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Runtime', async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
     globalThis.fetch = async (input, init = {}) => {
@@ -912,7 +713,129 @@ test('Preview-Shell markiert Layer für den geschnittenen Aufnahmeexport', async
             url: String(input),
             body: JSON.parse(String(init.body)) as Record<string, unknown>,
         });
+        const body = requests.at(-1)!.body;
+        const payload = String(body['script']).includes('.status(')
+            ? { state: 'success', events: [], marks: [] }
+            : null;
+        return new Response(JSON.stringify(payload), {
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+
+    try {
+        await BrowserTestbenchPreview.execute(
+            'session-audio',
+            [
+                {
+                    id: 'soundtrack',
+                    type: 'audio',
+                    speed: 'live',
+                    source: '',
+                    inputId: 'soundtrack-file',
+                    volume: 0.6,
+                    envelope: [
+                        { time: 0, gain: 1 },
+                        { time: 1, gain: 1 },
+                    ],
+                    waitForEnd: true,
+                },
+            ],
+            true,
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(
+        requests.map((request) => request.url.split('/').at(-1)),
+        ['browser', 'browser', 'browser', 'browser', 'browser'],
+    );
+    const start = requests.find((request) => String(request.body['script']).includes('.start('));
+    const options = (start?.body['arguments'] as unknown[] | undefined)?.[1];
+    assert.deepEqual(options, {
+        recording: true,
+        clockUrl: '/browser-testbench-api/sessions/session-audio/recording/clock',
+    });
+});
+
+test('Remote-Audio kann für einen einzelnen Branch gestoppt werden', async () => {
+    const originalFetch = globalThis.fetch;
+    let request: { action?: string; script?: string; arguments?: unknown[] } | undefined;
+    globalThis.fetch = async (_input, init = {}) => {
+        request = JSON.parse(String(init.body)) as { action?: string; script?: string };
         return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    try {
+        await BrowserTestbenchPreview.stopAudio('session-audio', 'soundtrack');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(request?.action, 'evaluate');
+    assert.equal(request?.script, 'window.__director?.stopAudio?.(arguments[0]);');
+    assert.deepEqual(request?.['arguments'], ['soundtrack']);
+});
+
+for (const kind of ['desktop', 'mobile'] as const) {
+    for (const ready of [true, false]) {
+        test(`${kind} audio unlock validates readiness (${ready}) and removes its temporary control`, async () => {
+            const originalFetch = globalThis.fetch;
+            const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+            globalThis.fetch = async (input, init = {}) => {
+                const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+                requests.push({ url: String(input), body });
+                const script = String(body['script']);
+                const result = script.includes('.prepareAudio()')
+                    ? { x: 180, y: 320 }
+                    : script.includes('.audioReady()')
+                      ? ready
+                      : {};
+                return new Response(JSON.stringify(result), {
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            };
+
+            try {
+                if (ready) {
+                    await BrowserTestbenchPreview.prepareAudio(kind, kind);
+                } else {
+                    await assert.rejects(
+                        BrowserTestbenchPreview.prepareAudio(kind, kind),
+                        /Audio playback/u,
+                    );
+                }
+
+                assert.deepEqual(requests[1], {
+                    url: `/browser-testbench-api/sessions/${kind}/${kind === 'mobile' ? 'gesture' : 'click'}`,
+                    body:
+                        kind === 'mobile'
+                            ? { type: 'tap', x: 180, y: 320 }
+                            : { selector: '#director-audio-unlock' },
+                });
+                assert.match(String(requests.at(-1)?.body['script']), /remove\(\)/u);
+            } finally {
+                globalThis.fetch = originalFetch;
+            }
+        });
+    }
+}
+
+test('Preview-Shell hält während eines autonomen Layer-Laufs nur den Statuskanal offen', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = async (input, init = {}) => {
+        requests.push({
+            url: String(input),
+            body: JSON.parse(String(init.body)) as Record<string, unknown>,
+        });
+        const body = requests.at(-1)!.body;
+        const payload = String(body['script']).includes('.status(')
+            ? { state: 'success', events: [], marks: [] }
+            : {};
+        return new Response(JSON.stringify(payload), {
+            headers: { 'Content-Type': 'application/json' },
+        });
     };
 
     try {
@@ -941,74 +864,78 @@ test('Preview-Shell markiert Layer für den geschnittenen Aufnahmeexport', async
     }
 
     assert.deepEqual(
-        requests.map(({ url, body }) => ({
-            endpoint: url.split('/').at(-1),
-            name: body['name'],
-        })),
-        [
-            { endpoint: 'browser', name: undefined },
-            { endpoint: 'marks', name: 'director.layer.start' },
-            { endpoint: 'marks', name: 'director.layer.end' },
-            { endpoint: 'browser', name: undefined },
-        ],
+        requests.map(({ url }) => url.split('/').at(-1)),
+        ['browser', 'browser', 'browser', 'browser'],
     );
 });
 
-test('Große Script-Inputs werden unterhalb der JSON-Grenze gestückelt', async () => {
+test('Preview-Shell überträgt große Laufzeitdateien außerhalb des HTML-Dokuments', async () => {
     const originalFetch = globalThis.fetch;
-    const requests: Array<{ rawBody: string; body: Record<string, unknown> }> = [];
-    globalThis.fetch = async (_input, init = {}) => {
-        const rawBody = String(init.body);
-        requests.push({
-            rawBody,
-            body: JSON.parse(rawBody) as Record<string, unknown>,
+    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    const requests: Array<{ url: string; rawBody: string }> = [];
+    Object.defineProperty(globalThis, 'location', {
+        value: new URL('http://127.0.0.1:5173/'),
+        configurable: true,
+    });
+    globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+        requests.push({ url, rawBody: String(init.body ?? '') });
+        const payload = url.startsWith('/director-api/previews/')
+            ? { url: '/director-preview/nodes/audio/preview-token' }
+            : url === '/browser-testbench-api/sessions'
+              ? { id: 'large-shell-session' }
+              : {};
+        return new Response(JSON.stringify(payload), {
+            status: url.startsWith('/director-api/previews/') ? 201 : 200,
+            headers: { 'Content-Type': 'application/json' },
         });
-        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
     };
-    const font = `data:font/ttf;base64,${'a'.repeat(1_200_000)}`;
-    const camera = `data:image/jpeg;base64,${'b'.repeat(1_200_000)}`;
 
     try {
-        await BrowserTestbenchPreview.executeOnWebsite(
-            'session-large-input',
+        await BrowserTestbenchPreview.open(
+            desktopTarget,
+            'audio',
+            '<!doctype html><title>Lean preview shell</title>',
+            {
+                soundtrack: new File([new Uint8Array(1_200_000)], 'soundtrack.wav', {
+                    type: 'audio/wav',
+                }),
+            },
             [
                 {
-                    id: 'install-font',
-                    type: 'javascript',
-                    speed: 'live',
-                    source: "return director.inputs['font'];",
+                    id: 'soundtrack',
+                    type: 'input',
+                    name: 'Soundtrack',
+                    position: null,
+                    accept: 'audio/*',
+                    required: true,
                 },
             ],
-            false,
-            { font, camera },
-            'camera',
         );
     } finally {
         globalThis.fetch = originalFetch;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
     }
 
-    assert.ok(
-        requests.every((request) => Buffer.byteLength(request.rawBody) < 1_000_000),
-        'Every Browser Testbench JSON request must stay below its 1 MB limit.',
-    );
-    const transferred = requests
-        .map((request) => request.body['arguments'])
-        .filter(
-            (arguments_): arguments_ is [string, string, boolean] =>
-                Array.isArray(arguments_) && arguments_.length === 3 && arguments_[0] === 'font',
-        )
-        .map((arguments_) => arguments_[1])
-        .join('');
-    assert.equal(transferred, font);
     assert.equal(
-        requests.some((request) => request.rawBody.includes(camera)),
-        false,
+        requests.find((request) => request.url.startsWith('/director-api/previews/'))?.rawBody,
+        '<!doctype html><title>Lean preview shell</title>',
     );
-    assert.deepEqual(requests.at(-1)?.body['arguments'], [
-        'live',
-        'install-font',
-        { durationMs: 0, removeAfter: false },
-    ]);
+    assert.ok(
+        requests
+            .filter((request) => request.url.includes('/actions'))
+            .every((request) => Buffer.byteLength(request.rawBody) < 1_000_000),
+        'Large runtime inputs must use Browser Testbench requests below its JSON limit.',
+    );
+    assert.equal(
+        requests.some((request) => request.rawBody.includes('__director?.setInputs')),
+        true,
+    );
 });
 
 test('Browser-Testbench-Lifecycle verwendet den lokalen Director-Endpunkt', async () => {

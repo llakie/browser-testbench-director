@@ -98,7 +98,6 @@
 
 .panel__header--editor > .editor-node-header {
     padding-inline: var(--properties-inline-padding);
-    padding-right: 0;
 }
 
 .panel__header > .panel-header-actions,
@@ -245,7 +244,12 @@
 }
 
 .editor-panel__body--javascript {
-    grid-template-rows: minmax(12rem, 1fr);
+    grid-template-rows: auto minmax(12rem, 1fr);
+    align-content: stretch;
+}
+
+.editor-panel__body--wait-script {
+    grid-template-rows: auto auto minmax(12rem, 1fr) auto;
     align-content: stretch;
 }
 

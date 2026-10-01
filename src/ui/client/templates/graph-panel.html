@@ -82,15 +82,35 @@
                             <span>{{ t('node.addBrowserWait') }}</span>
                         </button>
                         <button
-                            v-if="activeNode && !activeWebsite && !activeInput && !activeCapability"
                             class="action-option"
                             type="button"
                             role="menuitem"
-                            data-testid="play-node-current"
-                            @click="playActiveNodeOnCurrentState"
+                            data-testid="add-merge-node"
+                            @click="addNode('merge')"
                         >
-                            <span class="bi bi-lightning-fill" aria-hidden="true"></span>
-                            <span>{{ t('playback.currentNode') }}</span>
+                            <span class="bi bi-sign-merge-right" aria-hidden="true"></span>
+                            <span>{{ t('node.addMerge') }}</span>
+                        </button>
+                        <button
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-audio-node"
+                            @click="addNode('audio')"
+                        >
+                            <span class="bi bi-volume-up" aria-hidden="true"></span>
+                            <span>{{ t('node.addAudio') }}</span>
+                        </button>
+                        <button
+                            v-if="!project.nodes.some(node => node.type === 'video-output')"
+                            class="action-option"
+                            type="button"
+                            role="menuitem"
+                            data-testid="add-video-output-node"
+                            @click="addNode('video-output')"
+                        >
+                            <span class="bi bi-camera-reels" aria-hidden="true"></span>
+                            <span>{{ t('node.addVideoOutput') }}</span>
                         </button>
                         <button
                             v-if="activeNode && !activeWebsite"
@@ -102,17 +122,6 @@
                         >
                             <span class="bi bi-copy" aria-hidden="true"></span>
                             <span>{{ t('node.duplicate') }}</span>
-                        </button>
-                        <button
-                            v-if="activeNode && !activeWebsite"
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="delete-node"
-                            @click="deleteActiveNode"
-                        >
-                            <span class="bi bi-trash3" aria-hidden="true"></span>
-                            <span>{{ t('node.delete') }}</span>
                         </button>
                     </div>
                 </div>
@@ -183,57 +192,6 @@
                         aria-hidden="true"
                     ></span>
                 </button>
-                <div
-                    data-workspace-ref="recordingFlyout"
-                    class="action-flyout recording-flyout"
-                    @keydown.esc.stop.prevent="recordingMenuOpen = false"
-                >
-                    <button
-                        :class="[
-                                    'icon-button',
-                                    'recording-control',
-                                    { 'is-recording': recordingActive },
-                                ]"
-                        type="button"
-                        :data-testid="recordingActive ? 'stop-recording' : 'record-workflow'"
-                        :disabled="!recordingActive && (executionRunning || browserTargetOpening || recordingWorkflow || !browserTestbenchRunning || !recordingTargetsAvailable || !browserSessionInputsReady)"
-                        :aria-label="t(recordingActive ? 'recording.stop' : 'recording.chooseTarget')"
-                        :title="t(recordingActive ? 'recording.stop' : 'recording.chooseTarget')"
-                        aria-haspopup="menu"
-                        :aria-expanded="String(!recordingActive && recordingMenuOpen)"
-                        @click="recordingActive ? stopRecordingWorkflow() : toggleRecordingMenu()"
-                    >
-                        <span
-                            :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"
-                            aria-hidden="true"
-                        ></span>
-                    </button>
-                    <div
-                        v-if="recordingMenuOpen && !recordingActive"
-                        class="flyout-menu target-flyout__menu recording-flyout__menu"
-                        role="menu"
-                        :aria-label="t('recording.target')"
-                    >
-                        <button
-                            v-for="target in availableRecordingTargets"
-                            :key="target.id"
-                            class="target-option recording-target-option"
-                            type="button"
-                            role="menuitem"
-                            :data-testid="`recording-target-${target.id}`"
-                            @click="startRecordingOnTarget(target)"
-                        >
-                            <i
-                                :class="['bi', target.kind === 'mobile' ? 'bi-phone' : 'bi-display']"
-                                aria-hidden="true"
-                            ></i>
-                            <span>
-                                <strong>{{ browserTargetLabel(target) }}</strong>
-                                <small>{{ recordingTargetStatus(target) }}</small>
-                            </span>
-                        </button>
-                    </div>
-                </div>
                 <button
                     class="icon-button"
                     type="button"

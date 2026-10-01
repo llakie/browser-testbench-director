@@ -53,10 +53,11 @@ export class DirectorServer {
     readonly #previewRoutes = new DirectorPreviewRoutes();
     readonly #inputPreparations: DirectorInputPreparations;
     readonly #projectAssets: DirectorProjectAssets;
-    readonly #videoExports = new DirectorVideoExports();
+    readonly #videoExports: DirectorVideoExports;
     readonly #websiteProxy = new DirectorWebsiteProxy();
     readonly #browserTestbenchLifecycle: BrowserTestbenchLifecycle;
     readonly #server: HttpServer | HttpsServer;
+    readonly #playerServer?: HttpServer;
 
     constructor(private readonly options: DirectorServerOptions) {
         const handler = (request: IncomingMessage, response: ServerResponse): void => {
@@ -65,12 +66,19 @@ export class DirectorServer {
         this.#server = options.https
             ? createHttpsServer({ cert: options.https.cert, key: options.https.key }, handler)
             : createHttpServer(handler);
+        this.#playerServer = options.https ? createHttpServer(handler) : undefined;
+        this.#server.on('upgrade', (request, socket, head) => {
+            this.#websiteProxy.upgrade(request, socket, head);
+        });
+        this.#playerServer?.on('upgrade', (request, socket, head) => {
+            this.#websiteProxy.upgrade(request, socket, head);
+        });
         this.#inputPreparations = new DirectorInputPreparations(
             resolve(options.projectDirectory, 'projects'),
         );
-        this.#projectAssets = new DirectorProjectAssets(
-            resolve(options.projectDirectory, 'projects', '.director-assets'),
-        );
+        const assetDirectory = resolve(options.projectDirectory, 'projects', '.director-assets');
+        this.#projectAssets = new DirectorProjectAssets(assetDirectory);
+        this.#videoExports = new DirectorVideoExports();
         this.#browserTestbenchLifecycle = new BrowserTestbenchLifecycle(
             options.browserTestbenchUrl,
             options.browserTestbench.version,
@@ -79,28 +87,27 @@ export class DirectorServer {
     }
 
     async start(): Promise<void> {
-        await new Promise<void>((resolveStarted, reject) => {
-            this.#server.once('error', reject);
-            this.#server.listen(this.options.port, this.options.host, () => {
-                this.#server.off('error', reject);
-                resolveStarted();
-            });
-        });
+        await this.#listen(this.#server, this.options.port);
+
+        if (this.#playerServer) {
+            await this.#listen(this.#playerServer, 0);
+        }
     }
 
     async close(): Promise<void> {
         await this.#browserTestbenchLifecycle.close();
-        if (!this.#server.listening) return;
-        await new Promise<void>((resolveClosed, reject) => {
-            this.#server.close((error) => (error ? reject(error) : resolveClosed()));
-        });
+
+        if (this.#playerServer?.listening) {
+            await this.#closeServer(this.#playerServer);
+        }
+
+        if (this.#server.listening) {
+            await this.#closeServer(this.#server);
+        }
     }
 
     origin(): string {
-        const address = this.#server.address() as AddressInfo | null;
-        if (!address) throw new Error('Director server is not listening.');
-        const host = address.address.includes(':') ? `[${address.address}]` : address.address;
-        return `${this.options.https ? 'https' : 'http'}://${host}:${address.port}`;
+        return this.#origin(this.#server, this.options.https ? 'https' : 'http');
     }
 
     listener(): HttpServer | HttpsServer {
@@ -110,22 +117,36 @@ export class DirectorServer {
     async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         try {
             const pathname = new URL(request.url ?? '/', 'http://director.local').pathname;
+
             if (pathname === '/director-api/browser-testbench') {
                 await this.#browserTestbenchLifecycle.handle(request, response);
                 return;
             }
+
+            if (pathname === '/director-api/player-origin') {
+                this.#json(response, 200, {
+                    origin: this.#playerServer
+                        ? this.#origin(this.#playerServer, 'http')
+                        : this.origin(),
+                });
+                return;
+            }
+
             if (pathname.startsWith('/director-api/previews/nodes/')) {
                 await this.#previewRoutes.publish(request, response);
                 return;
             }
+
             if (pathname.startsWith('/director-preview/nodes/')) {
                 this.#previewRoutes.render(request, response);
                 return;
             }
+
             if (pathname === '/director-api/inputs/prepare') {
                 await this.#inputPreparations.handle(request, response);
                 return;
             }
+
             if (
                 pathname === DirectorProjectAssets.apiPath ||
                 pathname.startsWith(`${DirectorProjectAssets.apiPath}/`)
@@ -133,26 +154,32 @@ export class DirectorServer {
                 await this.#projectAssets.handle(request, response, pathname);
                 return;
             }
+
             if (pathname === '/director-api/video-exports') {
                 await this.#videoExports.handle(request, response);
                 return;
             }
+
             if (pathname === DirectorWebsiteProxy.apiPath) {
                 await this.#websiteProxy.register(request, response);
                 return;
             }
+
             if (pathname.startsWith(DirectorWebsiteProxy.routePath)) {
                 await this.#websiteProxy.proxy(request, response);
                 return;
             }
+
             if (pathname === '/director-api/mcp') {
                 if (!this.options.mcpIntegration) {
                     this.#json(response, 503, { error: 'MCP integration is unavailable.' });
                     return;
                 }
+
                 await this.options.mcpIntegration.handle(request, response);
                 return;
             }
+
             if (
                 pathname === '/browser-testbench-api' ||
                 pathname.startsWith('/browser-testbench-api/')
@@ -160,16 +187,19 @@ export class DirectorServer {
                 await this.#proxyBrowserTestbench(request, response);
                 return;
             }
+
             if (this.options.frontend) {
                 await this.options.frontend(request, response);
                 return;
             }
+
             await this.#serveClient(request, response, pathname);
         } catch (error) {
             if (response.headersSent) {
                 response.destroy(error instanceof Error ? error : new Error(String(error)));
                 return;
             }
+
             this.#json(response, 500, {
                 error: error instanceof Error ? error.message : String(error),
             });
@@ -219,21 +249,28 @@ export class DirectorServer {
             this.#json(response, 405, { error: 'Method not allowed.' });
             return;
         }
+
         const clientRoot = this.options.clientDirectory;
         const requestedPath = decodeURIComponent(pathname);
         let filePath = resolve(
             clientRoot,
             `.${requestedPath === '/' ? '/index.html' : requestedPath}`,
         );
+
         if (relative(clientRoot, filePath).startsWith('..')) {
             this.#json(response, 404, { error: 'Not found.' });
             return;
         }
-        if (!(await this.#isFile(filePath))) filePath = resolve(clientRoot, 'index.html');
+
+        if (!(await this.#isFile(filePath))) {
+            filePath = resolve(clientRoot, 'index.html');
+        }
+
         if (!(await this.#isFile(filePath))) {
             this.#json(response, 503, { error: 'Director client is not built.' });
             return;
         }
+
         const file = await stat(filePath);
         response.statusCode = 200;
         response.setHeader(
@@ -245,10 +282,12 @@ export class DirectorServer {
             'Cache-Control',
             filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
         );
+
         if (request.method === 'HEAD') {
             response.end();
             return;
         }
+
         createReadStream(filePath).pipe(response);
     }
 
@@ -258,6 +297,33 @@ export class DirectorServer {
         } catch {
             return false;
         }
+    }
+
+    async #listen(server: HttpServer | HttpsServer, port: number): Promise<void> {
+        await new Promise<void>((resolveStarted, reject) => {
+            server.once('error', reject);
+            server.listen(port, this.options.host, () => {
+                server.off('error', reject);
+                resolveStarted();
+            });
+        });
+    }
+
+    async #closeServer(server: HttpServer | HttpsServer): Promise<void> {
+        await new Promise<void>((resolveClosed, reject) => {
+            server.close((error) => (error ? reject(error) : resolveClosed()));
+        });
+    }
+
+    #origin(server: HttpServer | HttpsServer, protocol: 'http' | 'https'): string {
+        const address = server.address() as AddressInfo | null;
+
+        if (!address) {
+            throw new Error('Director server is not listening.');
+        }
+
+        const host = address.address.includes(':') ? `[${address.address}]` : address.address;
+        return `${protocol}://${host}:${address.port}`;
     }
 
     #json(response: ServerResponse, status: number, payload: unknown): void {

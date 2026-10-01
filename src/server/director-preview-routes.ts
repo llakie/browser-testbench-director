@@ -21,10 +21,12 @@ export class DirectorPreviewRoutes {
             const nodeId = decodeURIComponent(
                 (request.url ?? '/').replace(/^\/director-api\/previews\/nodes\/?/u, ''),
             );
+
             if (!nodeId) {
                 this.json(response, 400, { error: 'A node ID is required.' });
                 return;
             }
+
             const document = await this.readDocument(request);
             const token = randomUUID();
             this.previews.set(token, { nodeId, document });
@@ -44,10 +46,12 @@ export class DirectorPreviewRoutes {
             this.json(response, 405, { error: 'Method not allowed.' });
             return;
         }
+
         const parts = (request.url ?? '').split('/').filter(Boolean);
         const token = parts.at(-1) ?? '';
         const preview = this.previews.get(token);
         const requestedNodeId = parts.length > 1 ? decodeURIComponent(parts.at(-2) ?? '') : '';
+
         if (!preview || preview.nodeId !== requestedNodeId) {
             this.json(response, 404, { error: 'Preview not found.' });
             return;
@@ -64,21 +68,29 @@ export class DirectorPreviewRoutes {
     private async readDocument(request: IncomingMessage): Promise<string> {
         const chunks: Buffer[] = [];
         let size = 0;
+
         for await (const chunk of request) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             size += buffer.byteLength;
+
             if (size > DirectorPreviewRoutes.maximumDocumentBytes) {
                 throw new Error('The preview document exceeds the 10 MB limit.');
             }
+
             chunks.push(buffer);
         }
+
         return Buffer.concat(chunks).toString('utf8');
     }
 
     private prune(): void {
         while (this.previews.size > DirectorPreviewRoutes.maximumStoredPreviews) {
             const oldest = this.previews.keys().next().value as string | undefined;
-            if (!oldest) return;
+
+            if (!oldest) {
+                return;
+            }
+
             this.previews.delete(oldest);
         }
     }

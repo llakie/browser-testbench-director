@@ -8,6 +8,7 @@
                         v-model="activeNode.name"
                         type="text"
                         data-testid="node-name"
+                        :disabled="activeNodeLocked"
                         :aria-label="t('node.name')"
                         @input="markDirty(); renderGraph()"
                     />
@@ -16,6 +17,63 @@
                     <span class="bi bi-exclamation-triangle-fill" aria-hidden="true"></span>
                     <span>{{ activeNodeError }}</span>
                 </p>
+                <button
+                    v-if="activeVideoOutput"
+                    :class="[
+                                'icon-button',
+                                'recording-control',
+                                { 'is-recording': recordingActive },
+                            ]"
+                    type="button"
+                    data-testid="record-video-output"
+                    :disabled="
+                        !recordingActive &&
+                        (!browserSessionInputsReady || browserTargetOpening || executionRunning)
+                    "
+                    :aria-label="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
+                    :title="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
+                    @click="playNode(activeVideoOutput.id)"
+                >
+                    <span
+                        :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"
+                        aria-hidden="true"
+                    ></span>
+                </button>
+                <button
+                    v-if="activeLayer || activeJavaScript || activeBrowserAction || activeAudio"
+                    class="icon-button direct-run-control"
+                    type="button"
+                    data-testid="play-node-current"
+                    :disabled="executionRunning || browserTargetOpening"
+                    :aria-label="t('playback.currentNode')"
+                    :title="t('playback.currentNode')"
+                    @click="playActiveNodeOnCurrentState"
+                >
+                    <svg
+                        class="direct-run-icon"
+                        viewBox="0 0 20 20"
+                        aria-hidden="true"
+                        focusable="false"
+                    >
+                        <path class="direct-run-icon__play" d="M3.25 4.25v11.5L11 10 3.25 4.25Z" />
+                        <path
+                            class="direct-run-icon__bolt"
+                            d="m15.35 1.5-4.1 6.65h3.05l-1.15 5.65 4.6-7.45h-3.1l2.05-4.85h-1.35Z"
+                        />
+                    </svg>
+                </button>
+                <button
+                    v-if="!activeWebsite"
+                    class="icon-button icon-button--danger"
+                    type="button"
+                    data-testid="delete-node"
+                    :disabled="executionRunning"
+                    :aria-label="t('node.delete')"
+                    :title="t('node.delete')"
+                    @click="deleteActiveNode"
+                >
+                    <span class="bi bi-trash3" aria-hidden="true"></span>
+                </button>
                 <button
                     class="icon-button"
                     type="button"
@@ -39,8 +97,13 @@
                         {
                             'editor-panel__body--layer': activeLayer,
                             'editor-panel__body--javascript': activeJavaScript,
+                            'editor-panel__body--locked': activeNodeLocked,
+                            'editor-panel__body--wait-script':
+                                activeBrowserWait?.condition === 'script',
                         },
                     ]"
+            :aria-disabled="activeNodeLocked"
+            :inert="activeNodeLocked"
             data-testid="editor-properties-scroll"
             tabindex="0"
         >
@@ -193,20 +256,37 @@
                         <span>{{ t('layer.removeAfter') }}</span>
                     </label>
                 </div>
-                <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
+                <div class="source-toolbar">
+                    <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
+                        <button
+                            v-for="source in sourceTypes"
+                            :id="`source-tab-${source}`"
+                            :key="source"
+                            :class="['source-tab', `source-tab--${source}`, { 'is-active': activeSource === source }]"
+                            type="button"
+                            role="tab"
+                            :aria-selected="String(activeSource === source)"
+                            :aria-controls="`source-panel-${source}`"
+                            @click="activeSource = source"
+                        >
+                            <span class="source-tab__dot" aria-hidden="true"></span>
+                            {{ t(`editor.${source}`) }}
+                        </button>
+                    </div>
                     <button
-                        v-for="source in sourceTypes"
-                        :id="`source-tab-${source}`"
-                        :key="source"
-                        :class="['source-tab', `source-tab--${source}`, { 'is-active': activeSource === source }]"
+                        class="icon-button icon-button--small source-format-button"
                         type="button"
-                        role="tab"
-                        :aria-selected="String(activeSource === source)"
-                        :aria-controls="`source-panel-${source}`"
-                        @click="activeSource = source"
+                        data-testid="format-source"
+                        aria-keyshortcuts="Alt+Shift+F"
+                        :disabled="formattingSource"
+                        :aria-label="t('editor.format')"
+                        :title="`${t('editor.format')} · Alt/Option+Shift+F`"
+                        @click="formatActiveSource"
                     >
-                        <span class="source-tab__dot" aria-hidden="true"></span>
-                        {{ t(`editor.${source}`) }}
+                        <i
+                            :class="['bi', formattingSource ? 'bi-arrow-repeat source-format-spinner' : 'bi-braces-asterisk']"
+                            aria-hidden="true"
+                        ></i>
                     </button>
                 </div>
 
@@ -235,25 +315,44 @@
                     ></textarea>
                 </div>
             </template>
-            <div v-else-if="activeJavaScript" class="source-editor">
-                <span
-                    data-workspace-ref="sourceGutter"
-                    class="source-editor__gutter"
-                    aria-hidden="true"
-                    >{{ lineNumbers }}</span
-                >
-                <textarea
-                    :value="activeJavaScript.source"
-                    :aria-label="t('editor.javascriptLabel')"
-                    autocapitalize="off"
-                    autocomplete="off"
-                    spellcheck="false"
-                    wrap="off"
-                    @input="updateJavaScriptSource"
-                    @keydown="handleEditorKeydown"
-                    @scroll="syncSourceGutter"
-                ></textarea>
-            </div>
+            <template v-else-if="activeJavaScript">
+                <div class="source-toolbar source-toolbar--actions">
+                    <button
+                        class="icon-button icon-button--small source-format-button"
+                        type="button"
+                        data-testid="format-source"
+                        aria-keyshortcuts="Alt+Shift+F"
+                        :disabled="formattingSource"
+                        :aria-label="t('editor.format')"
+                        :title="`${t('editor.format')} · Alt/Option+Shift+F`"
+                        @click="formatActiveSource"
+                    >
+                        <i
+                            :class="['bi', formattingSource ? 'bi-arrow-repeat source-format-spinner' : 'bi-braces-asterisk']"
+                            aria-hidden="true"
+                        ></i>
+                    </button>
+                </div>
+                <div class="source-editor">
+                    <span
+                        data-workspace-ref="sourceGutter"
+                        class="source-editor__gutter"
+                        aria-hidden="true"
+                        >{{ lineNumbers }}</span
+                    >
+                    <textarea
+                        :value="activeJavaScript.source"
+                        :aria-label="t('editor.javascriptLabel')"
+                        autocapitalize="off"
+                        autocomplete="off"
+                        spellcheck="false"
+                        wrap="off"
+                        @input="updateJavaScriptSource"
+                        @keydown="handleEditorKeydown"
+                        @scroll="syncSourceGutter"
+                    ></textarea>
+                </div>
+            </template>
             <div v-else-if="activeBrowserAction" class="automation-properties">
                 <label>
                     <span>{{ t('browser.selector') }}</span>
@@ -287,89 +386,140 @@
                     </span>
                 </label>
             </div>
-            <div v-else-if="activeBrowserWait" class="automation-properties">
-                <label>
-                    <span>{{ t('browserWait.condition') }}</span>
-                    <select
-                        :value="activeBrowserWait.condition"
-                        data-testid="browser-wait-condition"
-                        @change="setBrowserWaitCondition"
-                    >
-                        <option value="element">{{ t('browserWait.element') }}</option>
-                        <option value="url">{{ t('browserWait.url') }}</option>
-                        <option value="script">{{ t('browserWait.script') }}</option>
-                    </select>
-                </label>
-                <label v-if="activeBrowserWait.condition === 'element'">
-                    <span>{{ t('browser.selector') }}</span>
-                    <span class="selector-field">
+            <template v-else-if="activeBrowserWait">
+                <div class="automation-properties">
+                    <label>
+                        <span>{{ t('browserWait.condition') }}</span>
+                        <select
+                            :value="activeBrowserWait.condition"
+                            data-testid="browser-wait-condition"
+                            @change="setBrowserWaitCondition"
+                        >
+                            <option value="element">{{ t('browserWait.element') }}</option>
+                            <option value="url">{{ t('browserWait.url') }}</option>
+                            <option value="script">{{ t('browserWait.script') }}</option>
+                        </select>
+                    </label>
+                    <label v-if="activeBrowserWait.condition === 'element'">
+                        <span>{{ t('browser.selector') }}</span>
+                        <span class="selector-field">
+                            <input
+                                v-model="activeBrowserWait.selector"
+                                type="text"
+                                data-testid="browser-wait-selector"
+                                spellcheck="false"
+                                @input="markActiveNodeStale"
+                            />
+                            <button
+                                type="button"
+                                :class="['icon-button', { 'is-active': selectorPicking }]"
+                                :disabled="
+                                            !selectorPicking &&
+                                            (!selectedBrowserTarget ||
+                                                executionRunning ||
+                                                !browserSessionInputsReady)
+                                        "
+                                data-testid="pick-browser-wait-selector"
+                                :aria-label="t(selectorPicking ? 'browser.selectorPickerCancel' : 'browser.selectorPicker')"
+                                @click="toggleSelectorPicker"
+                            >
+                                <i
+                                    :class="['bi', selectorPicking ? 'bi-x-lg' : 'bi-crosshair']"
+                                    aria-hidden="true"
+                                ></i>
+                            </button>
+                        </span>
+                    </label>
+                    <label v-else-if="activeBrowserWait.condition === 'url'">
+                        <span>{{ t('browserWait.urlValue') }}</span>
                         <input
-                            v-model="activeBrowserWait.selector"
+                            v-model="activeBrowserWait.value"
                             type="text"
-                            data-testid="browser-wait-selector"
+                            data-testid="browser-wait-url"
                             spellcheck="false"
                             @input="markActiveNodeStale"
                         />
+                    </label>
+                </div>
+                <template v-if="activeBrowserWait.condition === 'script'">
+                    <div class="source-toolbar">
+                        <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
+                            <span
+                                id="source-tab-wait-javascript"
+                                class="source-tab source-tab--javascript is-active"
+                                role="tab"
+                                aria-selected="true"
+                                aria-controls="source-panel-wait-javascript"
+                            >
+                                <span class="source-tab__dot" aria-hidden="true"></span>
+                                {{ t('editor.javascript') }}
+                            </span>
+                        </div>
                         <button
+                            class="icon-button icon-button--small source-format-button"
                             type="button"
-                            :class="['icon-button', { 'is-active': selectorPicking }]"
-                            :disabled="
-                                        !selectorPicking &&
-                                        (!selectedBrowserTarget ||
-                                            executionRunning ||
-                                            !browserSessionInputsReady)
-                                    "
-                            data-testid="pick-browser-wait-selector"
-                            :aria-label="t(selectorPicking ? 'browser.selectorPickerCancel' : 'browser.selectorPicker')"
-                            @click="toggleSelectorPicker"
+                            data-testid="format-source"
+                            aria-keyshortcuts="Alt+Shift+F"
+                            :disabled="formattingSource"
+                            :aria-label="t('editor.format')"
+                            :title="`${t('editor.format')} · Alt/Option+Shift+F`"
+                            @click="formatActiveSource"
                         >
                             <i
-                                :class="['bi', selectorPicking ? 'bi-x-lg' : 'bi-crosshair']"
+                                :class="['bi', formattingSource ? 'bi-arrow-repeat source-format-spinner' : 'bi-braces-asterisk']"
                                 aria-hidden="true"
                             ></i>
                         </button>
-                    </span>
-                </label>
-                <label v-else-if="activeBrowserWait.condition === 'url'">
-                    <span>{{ t('browserWait.urlValue') }}</span>
-                    <input
-                        v-model="activeBrowserWait.value"
-                        type="text"
-                        data-testid="browser-wait-url"
-                        spellcheck="false"
-                        @input="markActiveNodeStale"
-                    />
-                </label>
-                <label v-else>
-                    <span>{{ t('browserWait.scriptSource') }}</span>
-                    <textarea
-                        v-model="activeBrowserWait.script"
-                        data-testid="browser-wait-script"
-                        spellcheck="false"
-                        @input="markActiveNodeStale"
-                    ></textarea>
-                </label>
-                <label>
-                    <span>{{ t('browser.timeout') }}</span>
-                    <input
-                        v-model.number="activeBrowserWait.timeoutMs"
-                        type="number"
-                        min="1"
-                        step="1000"
-                        data-testid="browser-wait-timeout"
-                        @input="markActiveNodeStale"
-                    />
-                </label>
-                <label class="automation-properties__toggle">
-                    <input
-                        v-model="activeBrowserWait.omitFromRecording"
-                        type="checkbox"
-                        data-testid="browser-wait-omit-from-recording"
-                        @change="markActiveNodeStale"
-                    />
-                    <span>{{ t('browserWait.omitFromRecording') }}</span>
-                </label>
-            </div>
+                    </div>
+                    <div
+                        id="source-panel-wait-javascript"
+                        class="source-editor"
+                        role="tabpanel"
+                        aria-labelledby="source-tab-wait-javascript"
+                    >
+                        <span
+                            data-workspace-ref="sourceGutter"
+                            class="source-editor__gutter"
+                            aria-hidden="true"
+                            >{{ lineNumbers }}</span
+                        >
+                        <textarea
+                            :value="activeBrowserWait.script"
+                            data-testid="browser-wait-script"
+                            :aria-label="t('browserWait.scriptSource')"
+                            autocapitalize="off"
+                            autocomplete="off"
+                            spellcheck="false"
+                            wrap="off"
+                            @input="updateBrowserWaitScript"
+                            @keydown="handleEditorKeydown"
+                            @scroll="syncSourceGutter"
+                        ></textarea>
+                    </div>
+                </template>
+                <div class="automation-properties">
+                    <label>
+                        <span>{{ t('browser.timeout') }}</span>
+                        <input
+                            v-model.number="activeBrowserWait.timeoutMs"
+                            type="number"
+                            min="1"
+                            step="1000"
+                            data-testid="browser-wait-timeout"
+                            @input="markActiveNodeStale"
+                        />
+                    </label>
+                    <label class="automation-properties__toggle">
+                        <input
+                            v-model="activeBrowserWait.omitFromRecording"
+                            type="checkbox"
+                            data-testid="browser-wait-omit-from-recording"
+                            @change="markActiveNodeStale"
+                        />
+                        <span>{{ t('browserWait.omitFromRecording') }}</span>
+                    </label>
+                </div>
+            </template>
             <div v-else-if="activeWebsite" class="website-properties">
                 <label for="website-url">{{ t('website.url') }}</label>
                 <input
@@ -502,6 +652,92 @@
             </div>
             <div v-else-if="activeCapability" class="capability-properties">
                 <p>{{ t('capability.cameraHint') }}</p>
+            </div>
+            <div v-else-if="activeMerge" class="automation-properties">
+                <label>
+                    <span>{{ t('merge.waitFor') }}</span>
+                    <select
+                        v-model="activeMerge.waitFor"
+                        data-testid="merge-wait-for"
+                        @change="markActiveNodeStale"
+                    >
+                        <option value="all">{{ t('merge.all') }}</option>
+                        <option value="any">{{ t('merge.any') }}</option>
+                    </select>
+                </label>
+            </div>
+            <div v-else-if="activeAudio" class="automation-properties">
+                <label>
+                    <span>{{ t('audio.volume') }}</span>
+                    <span class="audio-volume-field">
+                        <input
+                            v-model.number="activeAudio.volume"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            data-testid="audio-volume"
+                            @input="markActiveNodeStale"
+                        />
+                        <output>{{ Math.round(activeAudio.volume * 100) }} %</output>
+                    </span>
+                </label>
+                <label class="audio-envelope-field">
+                    <span>{{ t('audio.envelope') }}</span>
+                    <audio-envelope-editor
+                        v-model="activeAudio.envelope"
+                        :label="t('audio.envelope')"
+                        :delete-label="t('audio.deleteEnvelopePoint')"
+                        @change="markActiveNodeStale"
+                    ></audio-envelope-editor>
+                </label>
+                <label class="automation-properties__toggle">
+                    <input
+                        v-model="activeAudio.waitForEnd"
+                        type="checkbox"
+                        data-testid="audio-wait-for-end"
+                        @change="markActiveNodeStale"
+                    />
+                    <span>{{ t('audio.waitForEnd') }}</span>
+                </label>
+                <p
+                    class="property-hint"
+                    :class="{ 'audio-file-name': activeAudioFileName }"
+                    :title="activeAudioFileName"
+                    data-testid="audio-file-name"
+                >
+                    {{ activeAudioFileName || t('audio.inputHint') }}
+                </p>
+            </div>
+            <div v-else-if="activeVideoOutput" class="automation-properties">
+                <label>
+                    <span>{{ t('videoOutput.target') }}</span>
+                    <select
+                        v-model="activeVideoOutput.targetId"
+                        data-testid="video-output-target"
+                        @change="markDirty(); renderGraph()"
+                    >
+                        <option value="">{{ t('videoOutput.selectTarget') }}</option>
+                        <option
+                            v-for="target in availableRecordingTargets"
+                            :key="target.id"
+                            :value="target.id"
+                        >
+                            {{ browserTargetLabel(target) }} · {{ recordingTargetStatus(target) }}
+                        </option>
+                    </select>
+                </label>
+                <label>
+                    <span>{{ t('videoOutput.filename') }}</span>
+                    <input
+                        v-model.trim="activeVideoOutput.filename"
+                        type="text"
+                        data-testid="video-output-filename"
+                        placeholder="video.mp4"
+                        @input="markDirty"
+                        @change="renderGraph"
+                    />
+                </label>
             </div>
         </div>
     </section>

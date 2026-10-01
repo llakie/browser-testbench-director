@@ -113,6 +113,7 @@ return marker ? { cardName: marker.dataset.cardName } : false;`,
 }
 
 export async function verifyCameraSessionConfiguration(session: RemoteSession): Promise<void> {
+    await session.setViewport(1440, 1000);
     const project = ProjectFormat.create();
     project.nodes.unshift({
         id: 'camera-image',

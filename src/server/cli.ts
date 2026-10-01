@@ -36,11 +36,15 @@ async function main(arguments_: readonly string[]): Promise<void> {
     }
 
     const integration = mcpIntegration(workspace);
+
     if (command === 'mcp-config') {
         process.stdout.write(`${integration.configuration(values.get('client') ?? 'codex')}\n`);
         return;
     }
-    if (command !== 'start') throw new Error(`Unknown command: ${command}`);
+
+    if (command !== 'start') {
+        throw new Error(`Unknown command: ${command}`);
+    }
 
     await startServer(serverOptions(values), workspace, integration);
 }
@@ -64,9 +68,13 @@ async function startServer(
         ((request: IncomingMessage, response: ServerResponse) => Promise<void>) | undefined;
     let handleFrontend:
         ((request: IncomingMessage, response: ServerResponse) => Promise<void>) | undefined;
+
     if (options.development) {
         frontend = async (request, response) => {
-            if (!handleFrontend) throw new Error('Director frontend is not ready.');
+            if (!handleFrontend) {
+                throw new Error('Director frontend is not ready.');
+            }
+
             await handleFrontend(request, response);
         };
     }
@@ -82,6 +90,7 @@ async function startServer(
         mcpIntegration: mcpIntegrationService,
         frontend,
     });
+
     if (options.development) {
         const { createServer: createViteServer } = await import('vite');
         const vite = await createViteServer({
@@ -113,13 +122,18 @@ async function startServer(
                       },
             },
         });
-        if (options.https) await vite.ws.close();
+
+        if (options.https) {
+            await vite.ws.close();
+        }
+
         handleFrontend = (request, response) =>
             new Promise<void>((resolveRequest, reject) => {
                 response.once('finish', resolveRequest);
                 vite.middlewares(request, response, (error?: unknown) => {
-                    if (error) reject(error);
-                    else if (!response.writableEnded) {
+                    if (error) {
+                        reject(error);
+                    } else if (!response.writableEnded) {
                         response.statusCode = 404;
                         response.end('Not found.');
                     }
@@ -127,16 +141,21 @@ async function startServer(
             });
         closeFrontend = () => vite.close();
     }
+
     await server.start();
     process.stdout.write(`Browser Testbench Director listening on ${server.origin()}\n`);
 
     let closing = false;
     const close = async (): Promise<void> => {
-        if (closing) return;
+        if (closing) {
+            return;
+        }
+
         closing = true;
         await closeFrontend();
         await server.close();
     };
+
     for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         process.once(signal, () => {
             void close().finally(() => process.exit(0));
@@ -159,43 +178,59 @@ function mcpIntegration(workspace: string): McpClientIntegration {
 
 async function findPackageRoot(start: string): Promise<string> {
     let directory = start;
+
     while (true) {
         try {
             const packageJson = JSON.parse(
                 await readFile(resolve(directory, 'package.json'), 'utf8'),
             ) as { name?: string };
-            if (packageJson.name === 'browser-testbench-director') return directory;
+
+            if (packageJson.name === 'browser-testbench-director') {
+                return directory;
+            }
         } catch {
             // Continue with the parent directory.
         }
+
         const parent = dirname(directory);
-        if (parent === directory) throw new Error('Director package root could not be located.');
+
+        if (parent === directory) {
+            throw new Error('Director package root could not be located.');
+        }
+
         directory = parent;
     }
 }
 
 function parseValues(arguments_: readonly string[]): Map<string, string> {
     const values = new Map<string, string>();
+
     for (let index = 0; index < arguments_.length; index += 1) {
         const argument = arguments_[index]!;
+
         if (argument === '--dev' || argument === '--https') {
             values.set(argument.slice(2), 'true');
             continue;
         }
+
         if (!argument.startsWith('--') || !arguments_[index + 1]) {
             throw new Error(`Unknown or incomplete option: ${argument}`);
         }
+
         values.set(argument.slice(2), arguments_[index + 1]!);
         index += 1;
     }
+
     return values;
 }
 
 function serverOptions(values: ReadonlyMap<string, string>): ServerOptions {
     const port = Number(values.get('port') ?? process.env['PORT'] ?? 5173);
+
     if (!Number.isInteger(port) || port < 1 || port > 65_535) {
         throw new Error('Port must be an integer between 1 and 65535.');
     }
+
     return {
         host: values.get('host') ?? process.env['HOST'] ?? '127.0.0.1',
         port,

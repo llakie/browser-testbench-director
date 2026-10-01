@@ -8,6 +8,7 @@ export const DirectorTopbar = defineWorkspaceSection({
         'browserTestbenchLifecycleLabel',
         'browserTestbenchRunning',
         'browserTestbenchTransitioning',
+        'browserTestbenchUrl',
         'dirty',
         'executionRunning',
         'loadProject',

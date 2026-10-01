@@ -12,10 +12,20 @@ export async function verifyEditableConnections(session: RemoteSession): Promise
     await session.setViewport(1440, 1000);
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 1, 10_000);
-
-    await session.click(
+    await session.waitForState(
         '[data-testid="graph-canvas"] .joint-link [joint-selector="connectionHandle"]',
+        'absent',
+        5_000,
     );
+    await session.evaluate(`
+        const line = document.querySelector(
+            '[data-testid="graph-canvas"] .joint-link [joint-selector="line"]',
+        );
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+            const EventType = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+            line.dispatchEvent(new EventType(type, { bubbles: true, button: 0 }));
+        }
+    `);
     await session.waitForElement('[data-testid="delete-connection"]', 5_000);
     await session.click('[data-testid="delete-connection"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 0, 5_000);
@@ -139,7 +149,6 @@ root.dataset.speed = director.speed;`,
         5_000,
     );
 
-    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="play-node-current"]');
     await session.waitForScript(
         `const preview = document.querySelector('.preview-viewport iframe')?.contentDocument;
@@ -156,7 +165,7 @@ root.dataset.speed = director.speed;`,
         const website = preview?.querySelector('.director-website')?.contentDocument;
         return Boolean(
             preview?.querySelector('.director-layer') &&
-            website?.querySelector('#example-website[data-runs="1"][data-speed="catchup"]')
+            website?.querySelector('#example-website[data-runs="1"][data-speed="live"]')
         );`,
         [],
         5_000,

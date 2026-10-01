@@ -26,6 +26,7 @@ export class DirectorInputPreparations {
     static resolveModule(modulePath: string, projectRoot = resolve('projects')): string {
         const resolved = resolve(modulePath);
         const projectRelativePath = relative(projectRoot, resolved);
+
         if (
             !modulePath.trim() ||
             isAbsolute(modulePath) ||
@@ -35,6 +36,7 @@ export class DirectorInputPreparations {
         ) {
             throw new Error('Preparation modules must be .mjs files below projects/.');
         }
+
         return resolved;
     }
 
@@ -43,9 +45,11 @@ export class DirectorInputPreparations {
             this.json(response, 405, { error: 'Method not allowed.' });
             return;
         }
+
         const directory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-input-'));
         const sourcePath = resolve(directory, 'input');
         const targetPath = resolve(directory, 'output');
+
         try {
             const modulePath = this.modulePath(request);
             await pipeline(request, createWriteStream(sourcePath));
@@ -53,13 +57,17 @@ export class DirectorInputPreparations {
             const imported = (await import(
                 `${pathToFileURL(modulePath).href}?mtime=${moduleStats.mtimeMs}`
             )) as PreparationModule;
+
             if (typeof imported.prepare !== 'function') {
                 throw new Error('Preparation module must export an async prepare function.');
             }
+
             const result = await imported.prepare({ sourcePath, targetPath });
+
             if (!result?.filename?.trim() || !result.contentType?.trim()) {
                 throw new Error('Preparation module returned invalid output metadata.');
             }
+
             const output = await stat(targetPath);
             response.statusCode = 200;
             response.setHeader('Content-Type', result.contentType);

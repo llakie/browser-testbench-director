@@ -23,6 +23,7 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
     });
     await new Promise<void>((resolveStarted) => browserTestbench.listen(0, resolveStarted));
     const browserAddress = browserTestbench.address();
+
     if (!browserAddress || typeof browserAddress === 'string') {
         throw new Error('Browser Testbench fixture did not start.');
     }
@@ -39,6 +40,8 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
     try {
         await server.start();
         const origin = server.origin();
+        const player = await fetch(`${origin}/director-api/player-origin`);
+        assert.deepEqual(await player.json(), { origin });
         const client = await fetch(`${origin}/workflow/deep-link`);
         assert.equal(client.status, 200);
         assert.match(await client.text(), /Director standalone/u);
@@ -77,7 +80,11 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
         assert.equal(await restoredAsset.text(), 'persistent input');
 
         const status = await fetch(`${origin}/director-api/browser-testbench`);
-        assert.deepEqual(await status.json(), { running: true, managed: false });
+        assert.deepEqual(await status.json(), {
+            running: true,
+            managed: false,
+            url: `http://127.0.0.1:${browserAddress.port}`,
+        });
     } finally {
         await server.close();
         await new Promise<void>((resolveClosed, reject) =>
@@ -96,18 +103,21 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
     const websiteRequests: string[] = [];
     const website = createServer((request, response) => {
         websiteRequests.push(request.url ?? '');
+
         if (request.url === '/main.js') {
             response.setHeader('Content-Type', 'text/javascript');
             response.end(
-                'const root = "/"; const pattern = /["\']\\//gu; import "/@fs/module.js"; const lazy = import("/lazy.js"); const path = window.location.pathname; window.websiteLoaded = true;',
+                'const root = "/"; const pattern = /["\']\\//gu; const componentCss = ".price::before{mask:url(/price-splash.svg)}"; router.navigateByUrl("/price-check/value"); import "/@fs/module.js"; const lazy = import("/lazy.js"); const path = window.location.pathname; window.websiteLoaded = true;',
             );
             return;
         }
+
         if (request.url === '/@fs/module.js' || request.url === '/lazy.js') {
             response.setHeader('Content-Type', 'text/javascript');
             response.end('window.moduleLoaded = true;');
             return;
         }
+
         response.setHeader('Content-Type', 'text/html; charset=utf-8');
         response.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
         response.setHeader('X-Frame-Options', 'DENY');
@@ -117,6 +127,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
     });
     await new Promise<void>((resolveStarted) => website.listen(0, resolveStarted));
     const websiteAddress = website.address();
+
     if (!websiteAddress || typeof websiteAddress === 'string') {
         throw new Error('Website fixture did not start.');
     }
@@ -124,6 +135,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
     const browserTestbench = createServer((_request, response) => response.end('{}'));
     await new Promise<void>((resolveStarted) => browserTestbench.listen(0, resolveStarted));
     const browserAddress = browserTestbench.address();
+
     if (!browserAddress || typeof browserAddress === 'string') {
         throw new Error('Browser Testbench fixture did not start.');
     }
@@ -152,12 +164,15 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         assert.equal(page.headers.get('content-security-policy'), null);
         assert.equal(page.headers.get('x-frame-options'), null);
         assert.doesNotMatch(html, /@vite\/client/u);
+        assert.match(html, /<meta name="google" content="notranslate">/u);
         assert.match(html, /<base href="\/director-website\/[^/]+\/">/u);
         assert.match(html, /Element\.prototype\.setAttribute/u);
         assert.match(html, /new MutationObserver/u);
+        assert.match(html, /history\.pushState/u);
+        assert.match(html, /DirectorWebSocket/u);
         assert.match(
             html,
-            /url\.pathname === prefix \|\| url\.pathname\.startsWith\(prefix \+ '\/'\)/u,
+            /url\.pathname === prefix \|\| url\.pathname\.startsWith/u,
             'Already proxied same-origin URLs must not be rewritten repeatedly.',
         );
         assert.match(
@@ -165,13 +180,18 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
             /__directorPreviewCameraStream/u,
             'The preview camera bridge must run before application scripts.',
         );
+        assert.match(
+            html,
+            /Object\.defineProperty\(window, 'isSecureContext'/u,
+            'The synthetic camera must also work in certificate-free mobile HTTP players.',
+        );
 
         const prefix = url.slice(0, url.indexOf('/price-check/scan'));
         const asset = await fetch(`${server.origin()}${prefix}/main.js`);
         const script = await asset.text();
         assert.equal(
             script,
-            `const root = "/"; const pattern = /["']\\//gu; import "${prefix}/@fs/module.js"; const lazy = import("${prefix}/lazy.js"); const path = globalThis.__directorWebsitePathname(); window.websiteLoaded = true;`,
+            `const root = "/"; const pattern = /["']\\//gu; const componentCss = ".price::before{mask:url(${prefix}/price-splash.svg)}"; router.navigateByUrl("/price-check/value"); import "${prefix}/@fs/module.js"; const lazy = import("${prefix}/lazy.js"); const path = globalThis.__directorWebsitePathname(); window.websiteLoaded = true;`,
         );
         const module = await fetch(`${server.origin()}${prefix}/@fs/module.js`);
         assert.equal(await module.text(), 'window.moduleLoaded = true;');
