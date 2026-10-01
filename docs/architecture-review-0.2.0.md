@@ -14,7 +14,7 @@ The package contains the built UI, CLI, MCP server, format documentation, and de
 
 ## Risks and follow-up
 
-- Release dependency: Browser Testbench 0.7.1 can retain an Android target and OBS lock after Chrome reports `tab crashed`. The upstream cleanup fix passed unit tests and a real forced-crash check, but must be released and installed before Director 0.2.0 is published.
+- Browser Testbench 0.7.2 fixes Android target and OBS cleanup after Chrome reports `tab crashed`. The upstream fix passed unit tests and a real forced-crash check. Director 0.2.0 requires that version or newer.
 - Android emulator capacity matters for production recording. The 2 GB Pixel 8a AVD repeatedly lost Chrome's renderer; Android's low-memory killer log identified memory pressure. At 4 GB one run passed and another failed. With a temporary 8 GB launch, two consecutive full GTP recordings passed at 19.33 and 19.31 seconds, with H.264 video and AAC audio. This is a test-environment requirement, not a persisted project setting.
 - The earlier 58.7-second GTP export included a variable-length card-recognition wait. Marking that wait as omitted in the local production project brought Android's exported duration in line with desktop Chrome's 19.3 seconds. The GTP project is intentionally excluded from Git and the npm package.
 - Several files remain large, especially preview integration, graph rendering, project validation, and the node editor template. They are maintenance hotspots, but splitting them without a behavior change is not a release prerequisite. Extract along stable responsibility boundaries when those areas are next changed.

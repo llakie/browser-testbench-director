@@ -336,6 +336,7 @@ export class JointLayerGraph {
         const useAutomaticRoutes = routeKey === this.#automaticRouteKey;
 
         for (const [index, node] of nodes.entries()) {
+            const headerColor = JointLayerGraph.color(node);
             const execution = states[node.id];
             const locked = lockedNodeIds.has(node.id);
             const stoppingPlayback = playbackTriggerNodeId === node.id;
@@ -381,7 +382,7 @@ export class JointLayerGraph {
             const cell = new GraphNode({
                 id: node.id,
                 ports: {
-                    groups: JointLayerGraph.portGroups(),
+                    groups: JointLayerGraph.portGroups(headerColor),
                     items: [...(node.type === 'input' ? [] : inputPorts), ...outputPorts],
                 },
             });
@@ -399,8 +400,8 @@ export class JointLayerGraph {
                     ry: 12,
                 },
                 header: {
-                    fill: JointLayerGraph.color(node),
-                    stroke: JointLayerGraph.color(node),
+                    fill: headerColor,
+                    stroke: headerColor,
                 },
                 outline: {
                     stroke: JointLayerGraph.borderColor(node.id === selectedId, execution),
@@ -826,15 +827,15 @@ export class JointLayerGraph {
         return outgoing;
     }
 
-    private static portGroups(): Record<string, dia.Element.PortGroup> {
+    private static portGroups(fill: string): Record<string, dia.Element.PortGroup> {
         return {
             in: {
                 position: { name: 'left' },
                 attrs: {
                     portBody: {
                         r: 6,
-                        fill: 'var(--color-surface-raised)',
-                        stroke: 'var(--color-text-muted)',
+                        fill,
+                        stroke: 'var(--color-border)',
                         strokeWidth: 2,
                         magnet: 'passive',
                         cursor: 'crosshair',
@@ -846,8 +847,8 @@ export class JointLayerGraph {
                 attrs: {
                     portBody: {
                         r: 6,
-                        fill: 'var(--color-accent)',
-                        stroke: 'var(--color-surface-raised)',
+                        fill,
+                        stroke: 'var(--color-border)',
                         strokeWidth: 2,
                         magnet: true,
                         cursor: 'crosshair',

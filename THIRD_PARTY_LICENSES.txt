@@ -9215,7 +9215,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - browser-testbench@0.7.1
+ - browser-testbench@0.7.2
 
 This package contains the following license:
 

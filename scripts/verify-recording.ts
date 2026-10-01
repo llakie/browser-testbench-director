@@ -165,8 +165,8 @@ try {
                 window.__directorRecordingRequests.push({
                     url,
                     status: response.status,
-                    body: await response.clone().text(),
-                    requestBody: arguments_[1]?.body ?? null,
+                    body: (await response.clone().text()).slice(0, 500),
+                    requestBody: String(arguments_[1]?.body ?? '').slice(0, 500),
                 });
             }
             return response;
@@ -186,6 +186,7 @@ try {
         const diagnostic = await controller.evaluate(`return {
             notice: document.querySelector('.notice')?.textContent?.trim() || '',
             requests: window.__directorRecordingRequests ?? [],
+            recordButton: document.querySelector('[data-testid="record-video-output"]')?.outerHTML.slice(0, 500),
         };`);
         throw new Error(`Recording did not produce a download: ${JSON.stringify(diagnostic)}`, {
             cause: error,

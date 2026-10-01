@@ -104,6 +104,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         rowCount: number;
         routeCount: number;
         nodeHeadersCovered: boolean;
+        portsMatchHeaders: boolean;
         routeObstructions: string[];
         routeOverlaps: string[];
         rootInputPortCount: number;
@@ -166,6 +167,18 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
             }
         }
         const root = document.querySelector('.joint-element[model-id="website-root"]');
+        const unselectedOutline = document.querySelector(
+            '.joint-element[model-id="branch-a"] [joint-selector="outline"]'
+        );
+        const borderColor = unselectedOutline ? getComputedStyle(unselectedOutline).stroke : '';
+        const portsMatchHeaders = nodeElements.every((element) => {
+            const header = element.querySelector('[joint-selector="header"]');
+            const ports = [...element.querySelectorAll('[joint-selector="portBody"]')];
+            return header && ports.length > 0 && ports.every((port) =>
+                getComputedStyle(port).fill === getComputedStyle(header).fill &&
+                getComputedStyle(port).stroke === borderColor
+            );
+        });
         const nodeHeadersCovered = nodeElements.every((element) => {
             const header = element.querySelector('[joint-selector="header"]');
             const outline = element.querySelector('[joint-selector="outline"]');
@@ -184,6 +197,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
             rowCount: rows.size,
             routeCount: document.querySelectorAll('[data-testid="graph-canvas"] .joint-link').length,
             nodeHeadersCovered,
+            portsMatchHeaders,
             routeObstructions,
             routeOverlaps,
             rootInputPortCount,
@@ -206,6 +220,11 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         layout.nodeHeadersCovered,
         true,
         'graph: every node header must span the top edge beneath one continuous outline.',
+    );
+    assert.equal(
+        layout.portsMatchHeaders,
+        true,
+        'graph: both port types must have their node header fill and a gray node border.',
     );
     assert.equal(
         layout.rootInputPortCount,

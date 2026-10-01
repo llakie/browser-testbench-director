@@ -73,7 +73,7 @@ Physical devices, simulators, and emulators retain their native fixed video reso
 Director derives the output from the CSS viewport and DPR of the centrally defined preview preset. Server-side removal
 of omitted wait times preserves those dimensions; the project stores only the portable preset ID.
 
-Recording uses Browser Testbench 0.7.1 or newer and OBS. Configure OBS and any per-device audio offset in the
+Recording uses Browser Testbench 0.7.2 or newer and OBS. Configure OBS and any per-device audio offset in the
 Browser Testbench setup UI; Director does not maintain separate recorder or synchronization settings.
 Desktop browsers stay visible during recording. Audio nodes play on the target just as they do in preview,
 including volume envelopes and branch cancellation. Director preserves the captured audio and cuts it together

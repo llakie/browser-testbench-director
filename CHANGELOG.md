@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Preview and recording now use the same Browser Testbench runtime; Director preserves captured audio instead of mixing replacement tracks.
 - Workflow planning and graph routing handle parallel branches, merge cancellation, and playback-to-node more consistently.
 - Node editing, status indicators, and recording controls were refined for active runs.
+- Graph ports now match their node header colors, and the editor has a dedicated favicon.
 - The bundled Axios version is pinned to a patched release across Browser Testbench's Appium dependencies.
 
 ### Fixed
