@@ -8,7 +8,11 @@ import {
 } from './support/ui-verification-context.js';
 import { verifyEditableConnections, verifyJavaScriptNode } from './ui/graph-editing.js';
 import { verifyAudioPlayback } from './ui/audio-playback.js';
-import { verifyCenteredNodeInsertion, verifyGraphAutoLayout } from './ui/graph-layout.js';
+import {
+    verifyCenteredNodeInsertion,
+    verifyGraphAutoLayout,
+    verifyManualNodeMove,
+} from './ui/graph-layout.js';
 import { verifyPlacement } from './ui/layer-placement.js';
 import { verifyNodeEditing } from './ui/node-editing.js';
 import { verifyExecutionControls, verifyPlayback } from './ui/playback.js';
@@ -58,6 +62,7 @@ try {
     await verifyLayerSelectionAndZoom(browser);
     await verifyCenteredNodeInsertion(browser);
     await verifyGraphAutoLayout(browser);
+    await verifyManualNodeMove(browser);
     await verifyJavaScriptNode(browser);
     await verifyResizableWorkspace(browser);
     await verifyEditableConnections(browser);

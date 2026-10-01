@@ -218,6 +218,52 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
 }
 
+export async function verifyManualNodeMove(session: RemoteSession): Promise<void> {
+    await session.setViewport(1440, 1000);
+    const project = ProjectFormat.create('Manual node move');
+    const projectPath = join(outputDirectory, 'manual-node-move.btd.json');
+    await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
+    await session.upload('[data-testid="project-file-input"]', projectPath);
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 5_000);
+    const before = await graphNodeRects(session);
+    await session.drag(
+        '.joint-element[model-id="layer-1"] [joint-selector="body"]',
+        '[data-testid="graph-canvas"]',
+    );
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 5_000);
+    const after = await graphNodeRects(session);
+    assert.equal(after.length, 2, 'dragging must preserve both graph nodes');
+    assert.deepEqual(
+        after.find((node) => node.id === 'website-root'),
+        before.find((node) => node.id === 'website-root'),
+        'dragging one node must not move the root',
+    );
+    const moved = after.find((node) => node.id === 'layer-1');
+    const original = before.find((node) => node.id === 'layer-1');
+    assert.ok(moved && original && moved.x !== original.x, 'the dragged node must move');
+    assert.equal(moved.visible, true, 'the dragged node must remain visible in the graph');
+    await session.screenshot(join(outputDirectory, 'graph-manual-move.png'), true);
+}
+
+async function graphNodeRects(
+    session: RemoteSession,
+): Promise<Array<{ id: string; x: number; y: number; visible: boolean }>> {
+    return session.evaluate(`
+        const panel = document.querySelector('[data-testid="graph-canvas"]').getBoundingClientRect();
+        return [...document.querySelectorAll('[data-testid="graph-canvas"] .joint-element')]
+            .map((element) => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    id: element.getAttribute('model-id'),
+                    x: Math.round(rect.x),
+                    y: Math.round(rect.y),
+                    visible: rect.right > panel.left && rect.left < panel.right &&
+                        rect.bottom > panel.top && rect.top < panel.bottom,
+                };
+            });
+    `);
+}
+
 export async function verifyCenteredNodeInsertion(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
     await session.refresh();

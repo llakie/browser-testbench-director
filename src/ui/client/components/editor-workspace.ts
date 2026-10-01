@@ -462,8 +462,13 @@ export const EditorWorkspace = defineComponent({
 
                     node.position = { x, y };
                     this.markDirty();
-                    this.graph?.preserveViewportOnNextRender();
-                    this.renderGraph();
+                    void this.graph
+                        ?.rerouteConnections(this.project.nodes, this.project.connections)
+                        .catch((error: unknown) => {
+                            this.showNotice(
+                                `${this.t('graph.autoLayoutFailed')} ${this.errorMessage(error)}`,
+                            );
+                        });
                 },
                 playNode: (id) => this.playNode(id),
                 connectNodes: (source, target) => this.connectNodes(source, target),

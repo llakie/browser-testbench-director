@@ -668,9 +668,7 @@ export class JointLayerGraph {
 
         const layoutKey = this.#layoutKey(nodes, connections);
         this.#automaticPositions = layout.positions;
-        this.#automaticRoutes = layout.routes;
         this.#automaticLayoutKey = layoutKey;
-        this.#automaticRouteKey = this.#automaticRoutes.size ? layoutKey : '';
 
         for (const node of nodes) {
             if (node.position !== null) {
@@ -685,18 +683,46 @@ export class JointLayerGraph {
             }
         }
 
-        if (this.#automaticRouteKey === layoutKey) {
-            for (const connection of connections) {
-                const link = this.#graph.getCell(connection.id);
-
-                if (link?.isLink()) {
-                    JointLayerGraph.applyRoute(link, layout.routes.get(connection.id));
-                }
-            }
-        }
+        this.#applyRoutes(connections, layout.routes, layoutKey);
 
         this.#paper.updateViews();
         return fit ? this.fitToContent() : this.#zoom;
+    }
+
+    async rerouteConnections(
+        nodes: readonly DirectorNode[],
+        connections: readonly WorkflowConnection[],
+    ): Promise<void> {
+        const run = ++this.#automaticLayoutRun;
+        const height = this.#paper.el.clientHeight;
+        const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
+        const layout = await GraphAutoLayout.layout(nodes, connections, aspectRatio);
+
+        if (run !== this.#automaticLayoutRun) {
+            return;
+        }
+
+        const layoutKey = this.#layoutKey(nodes, connections);
+        this.#automaticLayoutKey = layoutKey;
+        this.#applyRoutes(connections, layout.routes, layoutKey);
+        this.#paper.updateViews();
+    }
+
+    #applyRoutes(
+        connections: readonly WorkflowConnection[],
+        routes: ReadonlyMap<string, readonly GraphEdgePoint[]>,
+        layoutKey: string,
+    ): void {
+        this.#automaticRoutes = routes;
+        this.#automaticRouteKey = routes.size ? layoutKey : '';
+
+        for (const connection of connections) {
+            const link = this.#graph.getCell(connection.id);
+
+            if (link?.isLink()) {
+                JointLayerGraph.applyRoute(link, routes.get(connection.id));
+            }
+        }
     }
 
     panBy(x: number, y: number): void {

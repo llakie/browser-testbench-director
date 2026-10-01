@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Dragging a graph node now retains its SVG view and updates connection routing without rebuilding or moving the rest of the graph.
 - Input assets are restored for immediate node playback after a project is reopened.
 - Audio playback is unlocked before a remote workflow starts, including Firefox recording.
 - Recording output retains synchronized captured audio when omitted intervals are removed.
