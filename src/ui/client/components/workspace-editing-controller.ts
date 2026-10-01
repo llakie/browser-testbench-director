@@ -54,6 +54,8 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             this.recordingActive,
             this.executionLockedNodeIds,
             this.playbackTriggerNodeId,
+            this.executionRunning,
+            this.browserSessionInputsReady,
         );
     },
     connectNodes(source: string, target: string): boolean {

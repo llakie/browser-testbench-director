@@ -82,7 +82,8 @@
         outline: 0;
     }
 
-    .mobile-project-menu > button {
+    .mobile-project-menu > button,
+    .mobile-project-menu > a {
         display: flex;
         align-items: center;
         gap: var(--space-4);
@@ -96,11 +97,14 @@
         font-size: 12px;
         font-weight: 700;
         text-align: left;
+        text-decoration: none;
         cursor: pointer;
     }
 
     .mobile-project-menu > button:hover:not(:disabled),
-    .mobile-project-menu > button:focus-visible {
+    .mobile-project-menu > button:focus-visible,
+    .mobile-project-menu > a:hover,
+    .mobile-project-menu > a:focus-visible {
         color: var(--color-accent-soft);
         background: var(--color-surface-soft);
         outline: 0;
@@ -111,7 +115,8 @@
         opacity: 0.45;
     }
 
-    .mobile-project-menu > button > i {
+    .mobile-project-menu > button > i,
+    .mobile-project-menu > a > i {
         display: grid;
         width: 20px;
         flex: 0 0 20px;

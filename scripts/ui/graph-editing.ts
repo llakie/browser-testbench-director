@@ -12,10 +12,20 @@ export async function verifyEditableConnections(session: RemoteSession): Promise
     await session.setViewport(1440, 1000);
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 1, 10_000);
-
-    await session.click(
+    await session.waitForState(
         '[data-testid="graph-canvas"] .joint-link [joint-selector="connectionHandle"]',
+        'absent',
+        5_000,
     );
+    await session.evaluate(`
+        const line = document.querySelector(
+            '[data-testid="graph-canvas"] .joint-link [joint-selector="line"]',
+        );
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+            const EventType = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+            line.dispatchEvent(new EventType(type, { bubbles: true, button: 0 }));
+        }
+    `);
     await session.waitForElement('[data-testid="delete-connection"]', 5_000);
     await session.click('[data-testid="delete-connection"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 0, 5_000);

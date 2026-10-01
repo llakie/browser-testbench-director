@@ -2,7 +2,6 @@ import {
     BrowserTestbenchPreview,
     type BrowserTestbenchTarget,
 } from '../core/browser-testbench-preview.js';
-import { AudioFileMetadata } from '../core/audio-file-metadata.js';
 import type { NodeExecutionStatus } from '../core/execution-controller.js';
 import { PreviewDocument } from '../core/preview-document.js';
 import type { DirectorNode } from '../core/project-format.js';
@@ -54,6 +53,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
             const status = await BrowserTestbenchPreview.status();
             this.browserTestbenchManaged = status.managed;
             this.browserTestbenchState = status.running ? 'running' : 'stopped';
+            this.browserTestbenchUrl = status.url;
 
             if (status.running) {
                 await this.loadBrowserTargets();
@@ -65,6 +65,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
         } catch {
             this.browserTestbenchState = 'stopped';
             this.browserTestbenchManaged = false;
+            this.browserTestbenchUrl = '';
             this.clearBrowserTargets();
         }
     },
@@ -82,6 +83,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
                 : await BrowserTestbenchPreview.start();
             this.browserTestbenchManaged = status.managed;
             this.browserTestbenchState = status.running ? 'running' : 'stopped';
+            this.browserTestbenchUrl = status.url;
 
             if (status.running) {
                 await this.loadBrowserTargets();
@@ -146,7 +148,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
                 'preview-state',
                 sessionPlan,
             );
-            const steps = await PreviewDocument.remoteRuntimeSteps(previewPlan, this.inputFiles);
+            const steps = PreviewDocument.runtimeSteps(previewPlan);
 
             await BrowserTestbenchPreview.execute(this.remotePreviewSessionId, steps);
 
@@ -231,9 +233,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
             }
 
             this.remotePreviewSessionId = await this.openRemotePlan(target, selectedNodeId, plan);
-            const precedingSteps = (
-                await PreviewDocument.remoteRuntimeSteps(plan, this.inputFiles)
-            ).slice(0, -1);
+            const precedingSteps = PreviewDocument.runtimeSteps(plan).slice(0, -1);
 
             await BrowserTestbenchPreview.execute(this.remotePreviewSessionId, precedingSteps);
 
@@ -305,6 +305,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
 
         this.recordingWorkflow = true;
         this.recordingStopRequested = false;
+        this.recordingMarks = [];
         this.browserTargetOpening = true;
         let sessionId: string | null = null;
         let recordingStarted = false;
@@ -321,34 +322,19 @@ export const browserSessionMethods: WorkspaceMethodMap = {
             await Promise.all(Object.values(this.inputFileStores));
             const plan = WorkflowPlanner.plan(this.project, 'workflow');
             this.assertPlanInputs(plan);
-            const audioSteps = plan.steps.filter(
-                (step) => step.node.type === 'audio' && Boolean(step.inputId),
-            );
-            const audioTracks = await Promise.all(
-                audioSteps.map(async (step) => {
-                    const input = plan.inputs.find((candidate) => candidate.id === step.inputId)!;
-                    const file = this.inputFiles[step.inputId!];
-
-                    if (!input.file || !file || step.node.type !== 'audio') {
-                        throw new Error(`Audio input is missing: ${step.inputId ?? step.node.id}`);
-                    }
-
-                    return {
-                        nodeId: step.node.id,
-                        asset: input.file.asset,
-                        volume: step.node.volume,
-                        envelope: step.node.envelope,
-                        durationMs: await AudioFileMetadata.durationMs(file),
-                    };
-                }),
-            );
+            await this.stopPlaybackAudio();
 
             if (recordingOnPreviewTarget && previewSessionId) {
                 await BrowserTestbenchPreview.close(previewSessionId).catch(() => undefined);
             }
 
-            sessionId = await this.openRemotePlan(target, 'workflow', plan);
+            sessionId = await this.openRemotePlan(target, 'workflow', plan, true);
             this.remotePreviewSessionId = sessionId;
+
+            if (plan.steps.some((step) => step.node.type === 'audio')) {
+                await BrowserTestbenchPreview.prepareAudio(sessionId!);
+            }
+
             await BrowserTestbenchPreview.startRecording(sessionId!, filename);
             recordingStarted = true;
             this.startRecordingIndicator();
@@ -369,13 +355,13 @@ export const browserSessionMethods: WorkspaceMethodMap = {
             }
 
             this.stopRecordingIndicator();
+            recordingStarted = false;
             const recording = await BrowserTestbenchPreview.stopRecording(
                 sessionId!,
                 filename,
                 target.kind === 'desktop' ? this.previewOutputSize : undefined,
-                audioTracks,
+                this.recordingMarks,
             );
-            recordingStarted = false;
             recordingCompleted = true;
             BrowserTestbenchPreview.downloadRecording(recording);
             this.showNotice(this.t('recording.completed', { name: filename }));
@@ -383,9 +369,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
             this.stopRecordingIndicator();
 
             if (recordingStarted && sessionId) {
-                await BrowserTestbenchPreview.stopRecording(sessionId, filename).catch(
-                    () => undefined,
-                );
+                await BrowserTestbenchPreview.discardRecording(sessionId).catch(() => undefined);
             }
 
             this.showNotice(

@@ -152,6 +152,42 @@ test('ELK wraps a long workflow with side branches into distinct compact lanes',
     }
 });
 
+test('ELK keeps safe routes when one node has a manual position', async () => {
+    const project = ProjectFormat.create();
+    const manual: JavaScriptNode = {
+        id: 'manual-side-branch',
+        type: 'javascript',
+        name: 'Manual side branch',
+        position: { x: 24, y: 500 },
+        source: '',
+    };
+    const automatic: JavaScriptNode = {
+        id: 'automatic-tail',
+        type: 'javascript',
+        name: 'Automatic tail',
+        position: null,
+        source: '',
+    };
+    project.nodes.push(manual, automatic);
+    project.connections.push(
+        { id: 'layer-manual', source: 'layer-1', target: manual.id },
+        { id: 'layer-tail', source: 'layer-1', target: automatic.id },
+    );
+
+    const layout = await GraphAutoLayout.layout(project.nodes, project.connections, 1.6);
+
+    assert.equal(
+        layout.routes.has('layer-manual'),
+        false,
+        'An edge attached to a manually positioned node must use live obstacle routing.',
+    );
+    assert.equal(
+        layout.routes.has('layer-tail'),
+        true,
+        'A manual node must not disable independent ELK routes.',
+    );
+});
+
 function routesOverlap(left: readonly GraphEdgePoint[], right: readonly GraphEdgePoint[]): boolean {
     return segments(left).some((leftSegment) =>
         segments(right).some((rightSegment) => segmentsOverlap(leftSegment, rightSegment)),

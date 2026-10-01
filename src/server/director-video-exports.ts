@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 
@@ -15,53 +15,31 @@ interface VideoInterval {
     readonly endMs: number;
 }
 
-interface AudioEnvelopePoint {
-    readonly time: number;
-    readonly gain: number;
-}
-
-export interface AudioTrack {
-    readonly asset: string;
-    readonly path: string;
-    readonly startMs: number;
-    readonly endMs?: number;
-    readonly volume: number;
-    readonly envelope: readonly AudioEnvelopePoint[];
-    readonly durationMs: number;
-}
-
 export class DirectorVideoExports {
-    constructor(private readonly assetDirectory = '') {}
-
     static ffmpegArguments(
         inputPath: string,
         outputPath: string,
         width: number,
         height: number,
         intervals: readonly VideoInterval[] = [],
-        audioTracks: readonly AudioTrack[] = [],
-    ) {
+    ): string[] {
         const transform = `scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x0d110f:eval=frame,setsar=1,fps=30`;
-        const inputArguments = audioTracks.flatMap((track) => ['-i', track.path]);
-        const audioFilter = DirectorVideoExports.audioFilter(audioTracks, intervals);
-        const complexFilter = [
-            intervals.length
-                ? DirectorVideoExports.intervalFilter(intervals, transform)
-                : `[0:v]${transform}[video]`,
-            audioFilter,
-        ]
-            .filter(Boolean)
-            .join(';');
-        const filterArguments =
-            intervals.length || audioFilter
-                ? [
-                      '-filter_complex',
-                      complexFilter,
-                      '-map',
-                      '[video]',
-                      ...(audioFilter ? ['-map', '[audio]'] : []),
-                  ]
-                : ['-vf', transform];
+        const filters = intervals.flatMap((interval, index) => {
+            const start = interval.startMs / 1000;
+            const end = interval.endMs / 1000;
+            // Both streams retain the same time origin. Never reconstruct or realign audio.
+            return [
+                `[0:v]fps=30,trim=start=${start}:end=${end},setpts=PTS-${start}/TB[v${index}]`,
+                `[0:a]atrim=start=${start}:end=${end},asetpts=PTS-${start}/TB[a${index}]`,
+            ];
+        });
+
+        if (intervals.length) {
+            const streams = intervals.map((_, index) => `[v${index}][a${index}]`).join('');
+            filters.push(`${streams}concat=n=${intervals.length}:v=1:a=1[cut][audio]`);
+            filters.push(`[cut]${transform}[video]`);
+        }
+
         return [
             '-hide_banner',
             '-loglevel',
@@ -69,8 +47,9 @@ export class DirectorVideoExports {
             '-y',
             '-i',
             inputPath,
-            ...inputArguments,
-            ...filterArguments,
+            ...(intervals.length
+                ? ['-filter_complex', filters.join(';'), '-map', '[video]', '-map', '[audio]']
+                : ['-vf', transform, '-map', '0:v:0', '-map', '0:a:0']),
             '-c:v',
             'libx264',
             '-preset',
@@ -81,126 +60,12 @@ export class DirectorVideoExports {
             'yuv420p',
             '-movflags',
             '+faststart',
-            ...(audioFilter ? ['-c:a', 'aac', '-b:a', '192k', '-shortest'] : ['-an']),
+            '-c:a',
+            'aac',
+            '-b:a',
+            '192k',
             outputPath,
-        ] as const;
-    }
-
-    private static audioFilter(
-        tracks: readonly AudioTrack[],
-        intervals: readonly VideoInterval[],
-    ): string {
-        const filters: string[] = [];
-        const labels: string[] = [];
-
-        for (const [trackIndex, track] of tracks.entries()) {
-            const input = trackIndex + 1;
-            const segments = intervals.length
-                ? DirectorVideoExports.audioSegments(track, intervals)
-                : [
-                      {
-                          sourceStartMs: 0,
-                          outputStartMs: track.startMs,
-                          durationMs:
-                              track.endMs !== undefined ? track.endMs - track.startMs : null,
-                      },
-                  ];
-            const segmentInputs = segments.map((_segment, segmentIndex) =>
-                segments.length === 1 ? `[${input}:a]` : `[audio${trackIndex}split${segmentIndex}]`,
-            );
-
-            if (segments.length > 1) {
-                filters.push(`[${input}:a]asplit=${segments.length}${segmentInputs.join('')}`);
-            }
-
-            for (const [segmentIndex, segment] of segments.entries()) {
-                const label = `audio${trackIndex}_${segmentIndex}`;
-                const duration =
-                    segment.durationMs === null
-                        ? ''
-                        : `:duration=${DirectorVideoExports.seconds(segment.durationMs)}`;
-                const volume = DirectorVideoExports.volumeFilter(track, segment.sourceStartMs);
-                filters.push(
-                    `${segmentInputs[segmentIndex]}atrim=start=${DirectorVideoExports.seconds(segment.sourceStartMs)}${duration},asetpts=PTS-STARTPTS,${volume},adelay=${Math.round(segment.outputStartMs)}:all=1[${label}]`,
-                );
-                labels.push(`[${label}]`);
-            }
-        }
-
-        if (labels.length === 0) {
-            return '';
-        }
-
-        filters.push(
-            `${labels.join('')}amix=inputs=${labels.length}:duration=longest:normalize=0,apad[audio]`,
-        );
-        return filters.join(';');
-    }
-
-    private static volumeFilter(track: AudioTrack, sourceStartMs: number): string {
-        if (track.envelope.every((point) => point.gain === 1)) {
-            return `volume=${track.volume}`;
-        }
-
-        const duration = track.durationMs / 1_000;
-        const sourceStart = sourceStartMs / 1_000;
-        let expression = String(track.envelope.at(-1)!.gain);
-
-        for (let index = track.envelope.length - 2; index >= 0; index -= 1) {
-            const left = track.envelope[index]!;
-            const right = track.envelope[index + 1]!;
-            const leftTime = left.time * duration - sourceStart;
-            const rightTime = right.time * duration - sourceStart;
-            const slope = (right.gain - left.gain) / (rightTime - leftTime);
-            const interpolation = `${left.gain}+(${slope})*(t-(${leftTime}))`;
-            expression = `if(lt(t,${rightTime}),${interpolation},${expression})`;
-        }
-
-        return `volume='${track.volume}*(${expression})':eval=frame`;
-    }
-
-    private static audioSegments(track: AudioTrack, intervals: readonly VideoInterval[]) {
-        const segments: Array<{
-            sourceStartMs: number;
-            outputStartMs: number;
-            durationMs: number;
-        }> = [];
-        let outputCursorMs = 0;
-        const trackEndMs = track.endMs ?? Number.POSITIVE_INFINITY;
-
-        for (const interval of intervals) {
-            const recordingEndMs = Math.min(interval.endMs, trackEndMs);
-
-            if (recordingEndMs > track.startMs) {
-                const recordingStartMs = Math.max(interval.startMs, track.startMs);
-
-                if (recordingEndMs > recordingStartMs) {
-                    segments.push({
-                        sourceStartMs: recordingStartMs - track.startMs,
-                        outputStartMs:
-                            outputCursorMs + Math.max(0, track.startMs - interval.startMs),
-                        durationMs: recordingEndMs - recordingStartMs,
-                    });
-                }
-            }
-
-            outputCursorMs += interval.endMs - interval.startMs;
-        }
-
-        return segments;
-    }
-
-    private static intervalFilter(intervals: readonly VideoInterval[], transform: string): string {
-        const trims = intervals.map((interval, index) => {
-            const duration = DirectorVideoExports.seconds(interval.endMs - interval.startMs);
-            return `[0:v]trim=start=${DirectorVideoExports.seconds(interval.startMs)}:end=${DirectorVideoExports.seconds(interval.endMs)},setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS[interval${index}]`;
-        });
-        const inputs = intervals.map((_interval, index) => `[interval${index}]`).join('');
-        return `${trims.join(';')};${inputs}concat=n=${intervals.length}:v=1:a=0[cut];[cut]${transform}[video]`;
-    }
-
-    private static seconds(milliseconds: number): string {
-        return (milliseconds / 1_000).toFixed(6).replace(/0+$/u, '').replace(/\.$/u, '');
+        ];
     }
 
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -221,13 +86,6 @@ export class DirectorVideoExports {
 
         if (intervals === null) {
             this.json(response, 400, { error: 'Video intervals are invalid.' });
-            return;
-        }
-
-        const audioTracks = this.audioTracks(request.headers['x-director-video-audio']);
-
-        if (audioTracks === null) {
-            this.json(response, 400, { error: 'Audio tracks are invalid.' });
             return;
         }
 
@@ -257,7 +115,6 @@ export class DirectorVideoExports {
                     width,
                     height,
                     intervals,
-                    audioTracks,
                 ),
             );
             const output = await stat(outputPath);
@@ -321,94 +178,6 @@ export class DirectorVideoExports {
         } catch {
             return null;
         }
-    }
-
-    private audioTracks(value: string | string[] | undefined): AudioTrack[] | null {
-        if (value === undefined) {
-            return [];
-        }
-
-        try {
-            const parsed = JSON.parse(Array.isArray(value) ? value[0]! : value) as unknown;
-
-            if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 100) {
-                return null;
-            }
-
-            return parsed.map((entry) => {
-                if (!entry || typeof entry !== 'object') {
-                    throw new TypeError('Invalid audio track.');
-                }
-
-                const { asset, startMs, endMs, volume, envelope, durationMs } = entry as Record<
-                    string,
-                    unknown
-                >;
-
-                if (
-                    typeof asset !== 'string' ||
-                    !/^[a-f0-9]{64}\/[A-Za-z0-9%._~-]+$/u.test(asset) ||
-                    typeof startMs !== 'number' ||
-                    !Number.isFinite(startMs) ||
-                    startMs < 0 ||
-                    (endMs !== undefined &&
-                        (typeof endMs !== 'number' ||
-                            !Number.isFinite(endMs) ||
-                            endMs <= startMs)) ||
-                    typeof volume !== 'number' ||
-                    !Number.isFinite(volume) ||
-                    volume < 0 ||
-                    volume > 1 ||
-                    typeof durationMs !== 'number' ||
-                    !Number.isFinite(durationMs) ||
-                    durationMs <= 0 ||
-                    !DirectorVideoExports.validEnvelope(envelope)
-                ) {
-                    throw new TypeError('Invalid audio track.');
-                }
-
-                const [sha256, encodedName] = asset.split('/');
-                const name = basename(decodeURIComponent(encodedName!));
-                return {
-                    asset,
-                    startMs,
-                    ...(typeof endMs === 'number' ? { endMs } : {}),
-                    volume,
-                    envelope,
-                    durationMs,
-                    path: resolve(this.assetDirectory, sha256!, name),
-                };
-            });
-        } catch {
-            return null;
-        }
-    }
-
-    private static validEnvelope(value: unknown): value is AudioEnvelopePoint[] {
-        if (!Array.isArray(value) || value.length < 2) {
-            return false;
-        }
-
-        return value.every((point, index) => {
-            if (!point || typeof point !== 'object') {
-                return false;
-            }
-
-            const { time, gain } = point as Record<string, unknown>;
-            const previous = value[index - 1] as Record<string, unknown> | undefined;
-            return (
-                typeof time === 'number' &&
-                Number.isFinite(time) &&
-                time >= 0 &&
-                time <= 1 &&
-                typeof gain === 'number' &&
-                Number.isFinite(gain) &&
-                gain >= 0 &&
-                gain <= 1 &&
-                (index === 0 ? time === 0 : time > Number(previous?.['time'])) &&
-                (index !== value.length - 1 || time === 1)
-            );
-        });
     }
 
     private json(response: ServerResponse, status: number, payload: unknown): void {

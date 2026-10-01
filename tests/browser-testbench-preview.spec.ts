@@ -131,7 +131,7 @@ test('HTTPS-Editor öffnet Remote-Player über den zertifikatsfreien HTTP-Origin
     });
 });
 
-test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', async () => {
+test('Recording session declares its capability before opening and retains project settings', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
     const requests: Array<{ url: string; body?: BodyInit | null }> = [];
@@ -163,6 +163,7 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
                 language: 'de',
                 locale: 'DE',
             },
+            true,
         );
     } finally {
         globalThis.fetch = originalFetch;
@@ -188,7 +189,9 @@ test('Preview-Shell übernimmt globale Sprache und Website-Berechtigungen', asyn
             prefs: { 'intl.accept_languages': 'de-DE,de' },
         },
     });
-    assert.equal(session['require'], undefined);
+    assert.deepEqual(session['require'], {
+        recording: { viewport: true, explicitLifecycle: true },
+    });
 });
 
 test('Lokale Website-Vorschau registriert eine Same-Origin-Proxy-Route', async () => {
@@ -439,6 +442,61 @@ test('Projektmodul bereitet eine Eingabe vor dem Testbench-Upload auf', async ()
     );
 });
 
+test('Runtime initialization failure closes the session and releases prepared recording resources', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', {
+        value: new URL('http://localhost:5173'),
+        configurable: true,
+    });
+    const requests: Array<{ url: string; method: string }> = [];
+    globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+        requests.push({ url, method: init.method ?? 'GET' });
+        return new Response(
+            JSON.stringify(
+                url.endsWith('/wait')
+                    ? { error: 'Runtime unavailable' }
+                    : url.includes('/previews/')
+                      ? { url: '/preview' }
+                      : { id: 'prepared' },
+            ),
+            {
+                status: url.endsWith('/wait') ? 500 : 200,
+                headers: { 'Content-Type': 'application/json' },
+            },
+        );
+    };
+
+    try {
+        await assert.rejects(
+            BrowserTestbenchPreview.open(
+                'chrome',
+                'node',
+                '<html></html>',
+                {},
+                [],
+                false,
+                undefined,
+                true,
+            ),
+            /Runtime unavailable/u,
+        );
+        assert.deepEqual(requests.at(-1), {
+            url: '/browser-testbench-api/sessions/prepared',
+            method: 'DELETE',
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
+    }
+});
+
 test('Projektdateien stehen der Runtime als Data-URLs zur Verfügung', async () => {
     const inputs = await BrowserTestbenchPreview.runtimeInputs(
         {
@@ -509,14 +567,14 @@ test('Workflow-Aufnahme normalisiert ungerade native Viewport-Maße für H.264',
             undefined,
             [
                 {
-                    nodeId: 'soundtrack',
-                    asset: `${'a'.repeat(64)}/sound.mp3`,
-                    volume: 0.7,
-                    envelope: [
-                        { time: 0, gain: 1 },
-                        { time: 1, gain: 1 },
-                    ],
-                    durationMs: 4_000,
+                    name: 'director.audio.start',
+                    data: { nodeId: 'soundtrack', runtimeTimeMs: 0 },
+                    recordingTimeMs: 600,
+                },
+                {
+                    name: 'director.audio.end',
+                    data: { nodeId: 'soundtrack', runtimeTimeMs: 1_000 },
+                    recordingTimeMs: 1_600,
                 },
             ],
         );
@@ -542,19 +600,7 @@ test('Workflow-Aufnahme normalisiert ungerade native Viewport-Maße für H.264',
     const exportHeaders = new Headers(requests[3]?.headers);
     assert.equal(exportHeaders.get('x-director-video-width'), '1080');
     assert.equal(exportHeaders.get('x-director-video-height'), '2070');
-    assert.deepEqual(JSON.parse(exportHeaders.get('x-director-video-audio')!), [
-        {
-            asset: `${'a'.repeat(64)}/sound.mp3`,
-            startMs: 600,
-            endMs: 1_600,
-            volume: 0.7,
-            envelope: [
-                { time: 0, gain: 1 },
-                { time: 1, gain: 1 },
-            ],
-            durationMs: 4_000,
-        },
-    ]);
+    assert.equal(exportHeaders.has('x-director-video-audio'), false);
 });
 
 test('Aufnahmeintervalle für Layer und eingeschlossene Wartezeiten verwenden die native Aufnahmeuhr', () => {
@@ -631,7 +677,7 @@ test('Überlappende Layer-Zweige erzeugen nur ein Exportintervall', () => {
     assert.deepEqual(intervals, [{ startMs: 500, endMs: 2_520 }]);
 });
 
-test('Runtime-Zeitstempel entkoppeln Layer-Dauern von schwankender Mark-Übertragung', () => {
+test('Synchronisierte Runtime-Marken bestimmen die Aufnahmeintervalle direkt', () => {
     const intervals = BrowserTestbenchPreview.layerIntervals({
         artifactId: 'artifact-1',
         size: 1,
@@ -646,17 +692,17 @@ test('Runtime-Zeitstempel entkoppeln Layer-Dauern von schwankender Mark-Übertra
             {
                 name: 'director.layer.start',
                 data: { nodeId: 'scan', durationMs: 1_600, runtimeTimeMs: 400 },
-                recordingTimeMs: 900,
+                recordingTimeMs: 400,
             },
             {
                 name: 'director.layer.end',
                 data: { nodeId: 'scan', runtimeTimeMs: 2_000 },
-                recordingTimeMs: 3_800,
+                recordingTimeMs: 2_000,
             },
         ],
     });
 
-    assert.deepEqual(intervals, [{ startMs: 900, endMs: 2_500 }]);
+    assert.deepEqual(intervals, [{ startMs: 400, endMs: 2_000 }]);
 });
 
 test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Runtime', async () => {
@@ -669,8 +715,8 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
         });
         const body = requests.at(-1)!.body;
         const payload = String(body['script']).includes('.status(')
-            ? { state: 'success', events: [] }
-            : {};
+            ? { state: 'success', events: [], marks: [] }
+            : null;
         return new Response(JSON.stringify(payload), {
             headers: { 'Content-Type': 'application/json' },
         });
@@ -692,7 +738,6 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
                         { time: 1, gain: 1 },
                     ],
                     waitForEnd: true,
-                    durationMs: 1,
                 },
             ],
             true,
@@ -703,13 +748,13 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
 
     assert.deepEqual(
         requests.map((request) => request.url.split('/').at(-1)),
-        ['browser', 'browser', 'browser', 'browser'],
+        ['browser', 'browser', 'browser', 'browser', 'browser'],
     );
     const start = requests.find((request) => String(request.body['script']).includes('.start('));
     const options = (start?.body['arguments'] as unknown[] | undefined)?.[1];
     assert.deepEqual(options, {
         recording: true,
-        markUrl: '/browser-testbench-api/sessions/session-audio/marks',
+        clockUrl: '/browser-testbench-api/sessions/session-audio/recording/clock',
     });
 });
 
@@ -732,6 +777,50 @@ test('Remote-Audio kann für einen einzelnen Branch gestoppt werden', async () =
     assert.deepEqual(request?.['arguments'], ['soundtrack']);
 });
 
+for (const kind of ['desktop', 'mobile'] as const) {
+    for (const ready of [true, false]) {
+        test(`${kind} audio unlock validates readiness (${ready}) and removes its temporary control`, async () => {
+            const originalFetch = globalThis.fetch;
+            const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+            globalThis.fetch = async (input, init = {}) => {
+                const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+                requests.push({ url: String(input), body });
+                const script = String(body['script']);
+                const result = script.includes('.prepareAudio()')
+                    ? { x: 180, y: 320 }
+                    : script.includes('.audioReady()')
+                      ? ready
+                      : {};
+                return new Response(JSON.stringify(result), {
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            };
+
+            try {
+                if (ready) {
+                    await BrowserTestbenchPreview.prepareAudio(kind, kind);
+                } else {
+                    await assert.rejects(
+                        BrowserTestbenchPreview.prepareAudio(kind, kind),
+                        /Audio playback/u,
+                    );
+                }
+
+                assert.deepEqual(requests[1], {
+                    url: `/browser-testbench-api/sessions/${kind}/${kind === 'mobile' ? 'gesture' : 'click'}`,
+                    body:
+                        kind === 'mobile'
+                            ? { type: 'tap', x: 180, y: 320 }
+                            : { selector: '#director-audio-unlock' },
+                });
+                assert.match(String(requests.at(-1)?.body['script']), /remove\(\)/u);
+            } finally {
+                globalThis.fetch = originalFetch;
+            }
+        });
+    }
+}
+
 test('Preview-Shell hält während eines autonomen Layer-Laufs nur den Statuskanal offen', async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -742,7 +831,7 @@ test('Preview-Shell hält während eines autonomen Layer-Laufs nur den Statuskan
         });
         const body = requests.at(-1)!.body;
         const payload = String(body['script']).includes('.status(')
-            ? { state: 'success', events: [] }
+            ? { state: 'success', events: [], marks: [] }
             : {};
         return new Response(JSON.stringify(payload), {
             headers: { 'Content-Type': 'application/json' },

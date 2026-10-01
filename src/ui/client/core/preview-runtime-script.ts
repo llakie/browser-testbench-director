@@ -277,8 +277,38 @@ function getAudioContext() {
         throw new Error('Web Audio is not supported by this browser.');
     }
 
+    if (!audioContext && navigator.audioSession) {
+        navigator.audioSession.type = 'playback';
+    }
+
     audioContext ??= new Context();
     return audioContext;
+}
+
+function prepareAudio() {
+    const context = getAudioContext();
+
+    if (context.state === 'running') {
+        return null;
+    }
+
+    const button = document.createElement('button');
+    button.id = 'director-audio-unlock';
+    button.textContent = 'Enable audio';
+    Object.assign(button.style, {
+        position: 'fixed',
+        inset: '0',
+        zIndex: '2147483647',
+        background: 'transparent',
+        border: '0',
+        color: 'transparent',
+    });
+    button.addEventListener('click', () => {
+        void context.resume();
+        button.remove();
+    }, { once: true });
+    document.documentElement.append(button);
+    return { x: innerWidth / 2, y: innerHeight / 2 };
 }
 
 function loadAudioBuffer(step) {
@@ -310,11 +340,7 @@ function loadAudioBuffer(step) {
     return loading;
 }
 
-async function preloadAudio(nextSteps, options) {
-    if (options.recording) {
-        return;
-    }
-
+async function preloadAudio(nextSteps) {
     const audioSteps = nextSteps.filter(
         (step) => step.type === 'audio' && step.speed !== 'catchup'
     );
@@ -332,23 +358,6 @@ async function preloadAudio(nextSteps, options) {
 async function playAudio(step, signal) {
     if (step.speed === 'catchup') return;
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
-    if (activeRun?.recording) {
-        if (!step.waitForEnd) return;
-        if (!Number.isFinite(step.durationMs) || step.durationMs <= 0) {
-            throw new Error('Audio duration is missing: ' + step.id);
-        }
-        const director = createDirectorRuntime(
-            step.speed,
-            null,
-            websiteDocument(),
-            signal,
-            results,
-            inputs,
-            websiteDocument,
-        );
-        await director.wait(step.durationMs);
-        return;
-    }
     const source = inputs[step.inputId];
     if (!source) throw new Error('Audio input is missing: ' + (step.inputId || step.id));
     const parentPlayback = window.parent !== window
@@ -530,25 +539,49 @@ function report(executionId, nodeId, status, error) {
 }
 
 function recordingMark(name, data) {
-    if (!activeRun?.recording || !activeRun.markUrl) return;
-    const request = fetch(activeRun.markUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            name,
-            data: {
-                ...data,
-                runtimeTimeMs: performance.now() - activeRun.startedAt,
-            },
-        }),
-    }).then((response) => {
-        if (!response.ok) throw new Error('Recording mark failed: ' + response.status);
+    if (!activeRun?.recording || activeRun.recordingClockOffsetMs === null) return;
+    const now = performance.now();
+    activeRun.recordingMarks.push({
+        name,
+        data: {
+            ...data,
+            runtimeTimeMs: now - activeRun.startedAt,
+        },
+        recordingTimeMs: Math.max(0, activeRun.recordingClockOffsetMs + now),
     });
-    activeRun.markRequests.push(request);
 }
+
+
+async function synchronizeRecordingClock(clockUrl) {
+    const samples = [];
+    for (let index = 0; index < 5; index += 1) {
+        const sentAt = performance.now();
+        const response = await fetch(clockUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+            cache: 'no-store',
+        });
+        const receivedAt = performance.now();
+        if (!response.ok) throw new Error('Recording clock synchronization failed: ' + response.status);
+        const clock = await response.json();
+        if (!Number.isFinite(clock.recordingTimeMs)) {
+            throw new TypeError('Recording clock returned an invalid time.');
+        }
+        samples.push({
+            roundTripMs: receivedAt - sentAt,
+            offsetMs: clock.recordingTimeMs - (sentAt + receivedAt) / 2,
+        });
+    }
+    samples.sort((left, right) => left.roundTripMs - right.roundTripMs);
+    return samples[0].offsetMs;
+}
+
 
 function markStart(step) {
     if (step.speed !== 'live') return;
+
+
     if (step.type === 'layer' && step.playback.durationMs > 0) {
         recordingMark('director.layer.start', {
             nodeId: step.id,
@@ -557,9 +590,6 @@ function markStart(step) {
     }
     if (step.type === 'browser-wait' && !step.omitFromRecording) {
         recordingMark('director.wait.start', { nodeId: step.id });
-    }
-    if (step.type === 'audio') {
-        recordingMark('director.audio.start', { nodeId: step.id });
     }
 }
 
@@ -571,9 +601,6 @@ function markEnd(step) {
     if (step.type === 'browser-wait' && !step.omitFromRecording) {
         recordingMark('director.wait.end', { nodeId: step.id });
     }
-    if (step.type === 'audio' && step.waitForEnd) {
-        recordingMark('director.audio.end', { nodeId: step.id });
-    }
 }
 
 async function run(nextSteps, executionId = null, options = {}) {
@@ -584,14 +611,19 @@ async function run(nextSteps, executionId = null, options = {}) {
         error: undefined,
         events: [],
         recording: Boolean(options.recording),
-        markUrl: options.markUrl || '',
-        markRequests: [],
-        startedAt: performance.now(),
+        recordingClockOffsetMs: null,
+        recordingMarks: [],
+        startedAt: 0,
         cancelRequested: false,
     };
     activeRun = runState;
     try {
-        await preloadAudio(nextSteps, options);
+        await preloadAudio(nextSteps);
+        if (runState.recording) {
+            if (!options.clockUrl) throw new TypeError('Recording clock URL is missing.');
+            runState.recordingClockOffsetMs = await synchronizeRecordingClock(options.clockUrl);
+        }
+        runState.startedAt = performance.now();
     } catch (error) {
         runState.state = 'error';
         runState.error = error instanceof Error ? error.message : String(error);
@@ -645,15 +677,6 @@ async function run(nextSteps, executionId = null, options = {}) {
             try {
                 delete results[step.id];
                 markStart(step);
-
-                if (step.type === 'audio' && !step.waitForEnd && step.speed === 'live') {
-                    controller.signal.addEventListener(
-                        'abort',
-                        () => recordingMark('director.audio.end', { nodeId: step.id }),
-                        { once: true },
-                    );
-                }
-
                 let result;
                 try {
                     result = step.type === 'merge'
@@ -680,10 +703,8 @@ async function run(nextSteps, executionId = null, options = {}) {
     }
     try {
         await Promise.all(executions.values());
-        await Promise.all(runState.markRequests);
         runState.state = runState.cancelRequested ? 'cancelled' : 'success';
     } catch (error) {
-        await Promise.allSettled(runState.markRequests);
         runState.state = runState.cancelRequested ? 'cancelled' : 'error';
         runState.error = error instanceof Error ? error.message : String(error);
         throw error;
@@ -702,11 +723,14 @@ function status(executionId, afterSequence = 0) {
         state: activeRun.state,
         error: activeRun.error,
         events: activeRun.events.filter((event) => event.sequence > afterSequence),
+        marks: activeRun.state === 'running' ? [] : activeRun.recordingMarks,
     };
 }
 
 const ready = run(steps, initialExecutionId);
 window.__director = Object.freeze({
+    prepareAudio,
+    audioReady: () => audioContext?.state === 'running',
     run,
     start,
     status,

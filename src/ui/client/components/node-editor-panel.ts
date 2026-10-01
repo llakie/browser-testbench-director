@@ -51,6 +51,8 @@ export const NodeEditorPanel = defineWorkspaceSection({
         'maximizedPanel',
         'placementReferenceType',
         'playActiveNodeOnCurrentState',
+        'playNode',
+        'recordingActive',
         'removeInputAccept',
         'removeInputPreparation',
         'renderGraph',

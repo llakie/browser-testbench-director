@@ -80,7 +80,11 @@ test('Director-Server hostet Client, APIs und Browser-Testbench-Proxy eigenstän
         assert.equal(await restoredAsset.text(), 'persistent input');
 
         const status = await fetch(`${origin}/director-api/browser-testbench`);
-        assert.deepEqual(await status.json(), { running: true, managed: false });
+        assert.deepEqual(await status.json(), {
+            running: true,
+            managed: false,
+            url: `http://127.0.0.1:${browserAddress.port}`,
+        });
     } finally {
         await server.close();
         await new Promise<void>((resolveClosed, reject) =>

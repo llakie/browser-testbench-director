@@ -1,3 +1,5 @@
+import type { Plugin } from 'prettier';
+
 export type SourceLanguage = 'html' | 'css' | 'javascript';
 
 const parserByLanguage: Readonly<Record<SourceLanguage, string>> = {
@@ -8,21 +10,34 @@ const parserByLanguage: Readonly<Record<SourceLanguage, string>> = {
 
 export class SourceFormatter {
     static async format(source: string, language: SourceLanguage): Promise<string> {
-        const [{ format }, babel, estree, html, postcss] = await Promise.all([
+        const [{ format }, plugins] = await Promise.all([
             import('prettier/standalone'),
-            import('prettier/plugins/babel'),
-            import('prettier/plugins/estree'),
-            import('prettier/plugins/html'),
-            import('prettier/plugins/postcss'),
+            SourceFormatter.plugins(language),
         ]);
 
         return format(source, {
             parser: parserByLanguage[language],
-            plugins: [babel.default, estree.default, html.default, postcss.default],
+            plugins,
             printWidth: 100,
             singleQuote: true,
             tabWidth: 4,
             useTabs: false,
         });
+    }
+
+    private static async plugins(language: SourceLanguage): Promise<Plugin[]> {
+        if (language === 'javascript') {
+            const [babel, estree] = await Promise.all([
+                import('prettier/plugins/babel'),
+                import('prettier/plugins/estree'),
+            ]);
+            return [babel.default, estree.default];
+        }
+
+        if (language === 'css') {
+            return [(await import('prettier/plugins/postcss')).default];
+        }
+
+        return [(await import('prettier/plugins/html')).default];
     }
 }

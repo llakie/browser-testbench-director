@@ -190,7 +190,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
             if (keepRemotePreview) {
                 this.remotePreviewError = this.errorMessage(error);
-            } else {
+            } else if (!recording) {
                 this.remotePreviewSessionId = null;
 
                 if (sessionId) {
@@ -450,7 +450,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             return;
         }
 
-        const steps = await PreviewDocument.remoteRuntimeSteps(plan, this.inputFiles);
+        const steps = PreviewDocument.runtimeSteps(plan);
 
         if (!recording && plan.resetWebsite) {
             if (plan.website) {
@@ -474,9 +474,17 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             }
         }
 
-        await BrowserTestbenchPreview.execute(sessionId, steps, recording, undefined, (event) =>
-            this.updateExecution(runId, event.nodeId, event.status, event.error),
+        const marks = await BrowserTestbenchPreview.execute(
+            sessionId,
+            steps,
+            recording,
+            undefined,
+            (event) => this.updateExecution(runId, event.nodeId, event.status, event.error),
         );
+
+        if (recording) {
+            this.recordingMarks = [...marks];
+        }
     },
     async stopPlayback(): Promise<void> {
         if (!this.executionController.stop()) {
@@ -544,6 +552,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         target: BrowserTestbenchTarget,
         nodeId: string,
         plan: ReturnType<typeof WorkflowPlanner.plan>,
+        recording = false,
     ): Promise<string> {
         const inputs = await BrowserTestbenchPreview.prepareRuntimeInputs(
             this.inputFiles,
@@ -562,13 +571,19 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             plan.inputs,
             false,
             this.project.browserSession,
+            recording,
         );
 
-        if (target.kind === 'desktop') {
-            await BrowserTestbenchPreview.setViewport(sessionId, this.previewViewport);
-        }
+        try {
+            if (target.kind === 'desktop') {
+                await BrowserTestbenchPreview.setViewport(sessionId, this.previewViewport);
+            }
 
-        return sessionId;
+            return sessionId;
+        } catch (error) {
+            await BrowserTestbenchPreview.close(sessionId).catch(() => undefined);
+            throw error;
+        }
     },
     async remoteShellDocument(
         plan: ReturnType<typeof WorkflowPlanner.plan>,

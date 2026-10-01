@@ -162,6 +162,8 @@
     "preview.testbench.stopped": "Start Browser Testbench",
     "preview.testbench.starting": "Starting Browser Testbench",
     "preview.testbench.stopping": "Stopping Browser Testbench",
+    "preview.testbench.open": "Open",
+    "preview.testbench.openTitle": "Open Browser Testbench in a new tab",
     "preview.testbench.started": "Browser Testbench started",
     "preview.testbench.stoppedNotice": "Browser Testbench stopped",
     "preview.testbench.lifecycleError": "Browser Testbench could not be toggled.",

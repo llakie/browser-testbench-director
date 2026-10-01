@@ -78,7 +78,7 @@ export class DirectorServer {
         );
         const assetDirectory = resolve(options.projectDirectory, 'projects', '.director-assets');
         this.#projectAssets = new DirectorProjectAssets(assetDirectory);
-        this.#videoExports = new DirectorVideoExports(assetDirectory);
+        this.#videoExports = new DirectorVideoExports();
         this.#browserTestbenchLifecycle = new BrowserTestbenchLifecycle(
             options.browserTestbenchUrl,
             options.browserTestbench.version,

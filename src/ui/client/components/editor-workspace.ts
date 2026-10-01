@@ -22,7 +22,7 @@ import {
     viewportPresets,
 } from './workspace-model.js';
 
-import type { BrowserTestbenchTarget } from '../core/browser-testbench-preview.js';
+import type { BrowserTestbenchTarget, RecordingMark } from '../core/browser-testbench-preview.js';
 import { ExecutionController, type ExecutionSnapshot } from '../core/execution-controller.js';
 import { JointLayerGraph } from '../core/joint-layer-graph.js';
 import { previewOutputSize } from '../core/media-presets.js';
@@ -110,6 +110,7 @@ export const EditorWorkspace = defineComponent({
             browserTargetOpening: false,
             browserTestbenchState: 'checking' as BrowserTestbenchState,
             browserTestbenchManaged: false,
+            browserTestbenchUrl: '',
             remotePreviewSessionId: null as string | null,
             remotePreviewError: '',
             recordingWorkflow: false,
@@ -118,6 +119,7 @@ export const EditorWorkspace = defineComponent({
             recordingStartedAt: 0,
             recordingTimer: undefined as ReturnType<typeof setInterval> | undefined,
             recordingStopRequested: false,
+            recordingMarks: [] as RecordingMark[],
             playbackTriggerNodeId: null as string | null,
             selectorPicking: false,
             mcpSetupOpen: false,
@@ -216,8 +218,8 @@ export const EditorWorkspace = defineComponent({
             );
 
             if (this.recordingWorkflow) {
-                for (const nodeId of WorkflowGraph.connectedNodeIds(this.project)) {
-                    nodeIds.add(nodeId);
+                for (const node of this.project.nodes) {
+                    nodeIds.add(node.id);
                 }
             }
 
@@ -460,6 +462,8 @@ export const EditorWorkspace = defineComponent({
 
                     node.position = { x, y };
                     this.markDirty();
+                    this.graph?.preserveViewportOnNextRender();
+                    this.renderGraph();
                 },
                 playNode: (id) => this.playNode(id),
                 connectNodes: (source, target) => this.connectNodes(source, target),

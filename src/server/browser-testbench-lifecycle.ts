@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 interface BrowserTestbenchStatus {
     readonly running: boolean;
     readonly managed: boolean;
+    readonly url: string;
 }
 
 interface BrowserTestbenchProcessState {
@@ -53,6 +54,7 @@ export class BrowserTestbenchLifecycle {
         return {
             running: await this.isReachable(),
             managed: this.state.process !== undefined,
+            url: new URL(this.serverUrl).origin,
         };
     }
 

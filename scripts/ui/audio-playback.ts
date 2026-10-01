@@ -50,6 +50,17 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         10_000,
     );
     await selectGraphNode(session, audio.id);
+    const graphPlayDisplay = await session.evaluate<string>(`
+        const control = document.querySelector(
+            '[model-id="${audio.id}"] [joint-selector="playButton"]'
+        );
+        return control ? getComputedStyle(control).display : 'missing';
+    `);
+    assert.equal(
+        graphPlayDisplay,
+        'none',
+        'audio: graph nodes must use properties audition instead of play-to-node.',
+    );
     await session.click('[data-testid="play-node-current"]');
     await session.waitForScript(
         `return ['✓', '!'].includes(document.querySelector(

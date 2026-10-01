@@ -1,5 +1,4 @@
 import { renderPreviewShellTemplate } from '../templates/preview-shell-template.js';
-import { AudioFileMetadata } from './audio-file-metadata.js';
 import type { LayerNode } from './project-format.js';
 import { renderPreviewRuntimeScript } from './preview-runtime-script.js';
 import type { RuntimeStep } from './runtime-protocol.js';
@@ -50,31 +49,6 @@ export class PreviewDocument {
 
     static runtimeSteps(plan: WorkflowPlan): RuntimeStep[] {
         return plan.steps.map(PreviewDocument.serializeStep);
-    }
-
-    static async remoteRuntimeSteps(
-        plan: WorkflowPlan,
-        inputFiles: Readonly<Record<string, File>>,
-    ): Promise<RuntimeStep[]> {
-        const durations = new Map<string, number>();
-
-        await Promise.all(
-            plan.steps.map(async (step) => {
-                if (step.node.type !== 'audio' || !step.inputId) {
-                    return;
-                }
-
-                const file = inputFiles[step.inputId];
-
-                if (file) {
-                    durations.set(step.node.id, await AudioFileMetadata.durationMs(file));
-                }
-            }),
-        );
-
-        return PreviewDocument.runtimeSteps(plan).map((step) =>
-            step.type === 'audio' ? { ...step, durationMs: durations.get(step.id) } : step,
-        );
     }
 
     private static serializeStep(step: WorkflowStep): RuntimeStep {

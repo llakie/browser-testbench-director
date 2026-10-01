@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { executeRuntimeGraph, type RuntimeStep } from '../src/ui/client/core/runtime-protocol.js';
+import type { RuntimeStep } from '../src/ui/client/core/runtime-protocol.js';
+import { executeRuntimeGraph } from './support/runtime-graph.js';
 
 const step = (
     id: string,

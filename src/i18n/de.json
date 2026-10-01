@@ -162,6 +162,8 @@
     "preview.testbench.stopped": "Browser Testbench starten",
     "preview.testbench.starting": "Browser Testbench wird gestartet",
     "preview.testbench.stopping": "Browser Testbench wird gestoppt",
+    "preview.testbench.open": "Öffnen",
+    "preview.testbench.openTitle": "Browser Testbench in neuem Tab öffnen",
     "preview.testbench.started": "Browser Testbench gestartet",
     "preview.testbench.stoppedNotice": "Browser Testbench gestoppt",
     "preview.testbench.lifecycleError": "Browser Testbench konnte nicht umgeschaltet werden.",

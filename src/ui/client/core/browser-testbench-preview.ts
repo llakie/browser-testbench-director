@@ -1,9 +1,5 @@
 import type { RuntimeStep } from './runtime-protocol.js';
-import type {
-    AudioEnvelopePoint,
-    BrowserSessionConfiguration,
-    ProjectFileInput,
-} from './project-format.js';
+import type { BrowserSessionConfiguration, ProjectFileInput } from './project-format.js';
 
 interface MessageDescriptor {
     readonly parameters?: Readonly<Record<string, string | number>>;
@@ -38,6 +34,7 @@ interface BrowserTestbenchCapabilities {
 export interface BrowserTestbenchStatus {
     readonly running: boolean;
     readonly managed: boolean;
+    readonly url: string;
 }
 
 interface BrowserTestbenchError {
@@ -74,7 +71,7 @@ interface RecordingArtifact {
     readonly marks: readonly RecordingMark[];
 }
 
-interface RecordingMark {
+export interface RecordingMark {
     readonly name: string;
     readonly data?: Readonly<Record<string, unknown>>;
     readonly recordingTimeMs?: number;
@@ -83,23 +80,6 @@ interface RecordingMark {
 export interface RecordingInterval {
     readonly startMs: number;
     readonly endMs: number;
-}
-
-export interface RecordingAudioTrack {
-    readonly nodeId: string;
-    readonly asset: string;
-    readonly volume: number;
-    readonly envelope: readonly AudioEnvelopePoint[];
-    readonly durationMs: number;
-}
-
-interface ExportAudioTrack {
-    readonly asset: string;
-    readonly startMs: number;
-    readonly endMs?: number;
-    readonly volume: number;
-    readonly envelope: readonly AudioEnvelopePoint[];
-    readonly durationMs: number;
 }
 
 export interface RecordingExport {
@@ -126,6 +106,7 @@ interface RemoteRuntimeStatus {
     readonly state: 'missing' | 'running' | 'success' | 'error' | 'cancelled';
     readonly error?: string;
     readonly events: readonly RemoteRuntimeEvent[];
+    readonly marks?: readonly RecordingMark[];
 }
 
 export class BrowserTestbenchPreview {
@@ -133,6 +114,7 @@ export class BrowserTestbenchPreview {
     private static readonly lifecycleUrl = '/director-api/browser-testbench';
     private static readonly inputChunkSize = 256 * 1024;
     private static readonly sessionLeaseTimeoutMs = 15 * 60 * 1_000;
+    private static readonly sessionKinds = new Map<string, BrowserTestbenchTarget['kind']>();
 
     static async targets(): Promise<BrowserTestbenchTarget[]> {
         const [targets, capabilities] = await Promise.all([
@@ -179,6 +161,7 @@ export class BrowserTestbenchPreview {
         inputs: readonly ProjectFileInput[] = [],
         headless = false,
         configuration?: BrowserSessionConfiguration,
+        recording = false,
     ): Promise<string> {
         const runtimeInputs = await this.prepareRuntimeInputs(inputFiles, inputs);
         const [preview, player] = await Promise.all([
@@ -209,19 +192,32 @@ export class BrowserTestbenchPreview {
                 target: targetId,
                 url: previewUrl.toString(),
                 headless,
+                ...(recording
+                    ? { require: { recording: { viewport: true, explicitLifecycle: true } } }
+                    : {}),
                 leaseTimeoutMs: this.sessionLeaseTimeoutMs,
                 ...(localReverse ? { localOrigins: 'reverse' } : {}),
                 ...(permissions.length ? { permissions } : {}),
                 ...(Object.keys(capabilities).length ? { capabilities } : {}),
             }),
         });
-        await this.waitForDirectorRuntime(session.id);
 
-        if (Object.keys(runtimeInputs).length > 0) {
-            await this.setRuntimeInputs(session.id, runtimeInputs);
+        try {
+            await this.waitForDirectorRuntime(session.id);
+
+            if (Object.keys(runtimeInputs).length > 0) {
+                await this.setRuntimeInputs(session.id, runtimeInputs);
+            }
+
+            if (typeof target !== 'string') {
+                this.sessionKinds.set(session.id, target.kind);
+            }
+
+            return session.id;
+        } catch (error) {
+            await this.close(session.id).catch(() => undefined);
+            throw error;
         }
-
-        return session.id;
     }
 
     static async navigate(sessionId: string, nodeId: string, document: string): Promise<void> {
@@ -242,6 +238,13 @@ export class BrowserTestbenchPreview {
         return this.request(`/sessions/${encodeURIComponent(sessionId)}/recording/start`, {
             method: 'POST',
             body: JSON.stringify({ outputPath: filename, scope: 'viewport' }),
+        });
+    }
+
+    static discardRecording(sessionId: string): Promise<unknown> {
+        return this.request(`/sessions/${encodeURIComponent(sessionId)}/recording/stop`, {
+            method: 'POST',
+            body: '{}',
         });
     }
 
@@ -285,7 +288,7 @@ export class BrowserTestbenchPreview {
         sessionId: string,
         filename: string,
         outputSize?: ExportViewport,
-        audioTracks: readonly RecordingAudioTrack[] = [],
+        marks: readonly RecordingMark[] = [],
     ): Promise<RecordingExport> {
         const recording = await this.request<RecordingArtifact>(
             `/sessions/${encodeURIComponent(sessionId)}/recording/stop`,
@@ -315,19 +318,14 @@ export class BrowserTestbenchPreview {
         }
 
         const original = new Blob([content], { type: recording.mimeType });
-        const intervals = this.layerIntervals(recording);
+        const timeline = { ...recording, marks };
+        const intervals = this.layerIntervals(timeline);
         const requestedOutput = outputSize ?? {
             width: recording.width,
             height: recording.height,
         };
         const output = this.evenViewport(requestedOutput);
-        const blob = await this.normalizeRecording(
-            original,
-            filename,
-            output,
-            intervals,
-            this.audioTracks(recording, audioTracks),
-        );
+        const blob = await this.normalizeRecording(original, filename, output, intervals);
         return {
             blob,
             filename,
@@ -356,7 +354,6 @@ export class BrowserTestbenchPreview {
         filename: string,
         viewport: ExportViewport,
         intervals: readonly RecordingInterval[],
-        audioTracks: readonly ExportAudioTrack[],
     ): Promise<Blob> {
         const response = await fetch('/director-api/video-exports', {
             method: 'POST',
@@ -368,9 +365,6 @@ export class BrowserTestbenchPreview {
                 'x-director-video-height': String(viewport.height),
                 ...(intervals.length
                     ? { 'x-director-video-intervals': JSON.stringify(intervals) }
-                    : {}),
-                ...(audioTracks.length
-                    ? { 'x-director-video-audio': JSON.stringify(audioTracks) }
                     : {}),
             },
         });
@@ -395,9 +389,14 @@ export class BrowserTestbenchPreview {
         markIntervals = false,
         executionSignal?: AbortSignal,
         onEvent: (event: RemoteRuntimeEvent) => void = () => undefined,
-    ): Promise<void> {
+    ): Promise<readonly RecordingMark[]> {
         const executionId = crypto.randomUUID();
         await this.setRuntimePlan(sessionId, steps);
+
+        if (steps.some((step) => step.type === 'audio' && step.speed === 'live')) {
+            await this.prepareAudio(sessionId);
+        }
+
         await this.browserAction(sessionId, {
             action: 'evaluate',
             script: `window.__director.start(
@@ -410,8 +409,8 @@ export class BrowserTestbenchPreview {
                 executionId,
                 {
                     recording: markIntervals,
-                    markUrl: markIntervals
-                        ? `${this.apiBase}/sessions/${encodeURIComponent(sessionId)}/marks`
+                    clockUrl: markIntervals
+                        ? `${this.apiBase}/sessions/${encodeURIComponent(sessionId)}/recording/clock`
                         : '',
                 },
             ],
@@ -437,7 +436,7 @@ export class BrowserTestbenchPreview {
             }
 
             if (status.state === 'success') {
-                return;
+                return status.marks ?? [];
             }
 
             if (status.state === 'error') {
@@ -464,6 +463,51 @@ export class BrowserTestbenchPreview {
         });
     }
 
+    static async prepareAudio(
+        sessionId: string,
+        kind = this.sessionKinds.get(sessionId) ?? 'desktop',
+    ): Promise<void> {
+        const point = await this.browserAction<{ x: number; y: number } | null>(sessionId, {
+            action: 'evaluate',
+            script: 'return window.__director.prepareAudio();',
+            arguments: [],
+        });
+
+        if (!point) {
+            return;
+        }
+
+        try {
+            if (kind === 'mobile') {
+                await this.request(`/sessions/${encodeURIComponent(sessionId)}/gesture`, {
+                    method: 'POST',
+                    body: JSON.stringify({ type: 'tap', ...point }),
+                });
+            } else {
+                await this.request(`/sessions/${encodeURIComponent(sessionId)}/click`, {
+                    method: 'POST',
+                    body: JSON.stringify({ selector: '#director-audio-unlock' }),
+                });
+            }
+
+            const ready = await this.browserAction<boolean>(sessionId, {
+                action: 'evaluate',
+                script: 'return window.__director.audioReady();',
+                arguments: [],
+            });
+
+            if (!ready) {
+                throw new Error('Audio playback could not be enabled on this device.');
+            }
+        } finally {
+            await this.browserAction(sessionId, {
+                action: 'evaluate',
+                script: 'document.getElementById("director-audio-unlock")?.remove();',
+                arguments: [],
+            });
+        }
+    }
+
     static async stopAudio(sessionId: string, nodeId?: string): Promise<void> {
         await this.browserAction(sessionId, {
             action: 'evaluate',
@@ -476,7 +520,7 @@ export class BrowserTestbenchPreview {
         const starts = new Map<string, { timeMs: number; durationMs?: number }>();
         const intervals: RecordingInterval[] = [];
 
-        for (const mark of this.timelineMarks(recording)) {
+        for (const mark of recording.marks ?? []) {
             const nodeId = typeof mark.data?.['nodeId'] === 'string' ? mark.data['nodeId'] : null;
 
             if (!nodeId || !Number.isFinite(mark.recordingTimeMs)) {
@@ -528,75 +572,6 @@ export class BrowserTestbenchPreview {
         return merged;
     }
 
-    private static audioTracks(
-        recording: RecordingArtifact,
-        definitions: readonly RecordingAudioTrack[],
-    ): ExportAudioTrack[] {
-        const byNode = new Map(definitions.map((track) => [track.nodeId, track]));
-        const ends = new Map<string, number>();
-        const marks = this.timelineMarks(recording);
-
-        for (const mark of marks) {
-            const nodeId = typeof mark.data?.['nodeId'] === 'string' ? mark.data['nodeId'] : '';
-
-            if (mark.name === 'director.audio.end' && Number.isFinite(mark.recordingTimeMs)) {
-                ends.set(nodeId, Math.max(0, mark.recordingTimeMs!));
-            }
-        }
-
-        return marks.flatMap((mark) => {
-            const nodeId = typeof mark.data?.['nodeId'] === 'string' ? mark.data['nodeId'] : '';
-            const definition =
-                mark.name === 'director.audio.start' ? byNode.get(nodeId) : undefined;
-
-            if (!definition || !Number.isFinite(mark.recordingTimeMs)) {
-                return [];
-            }
-
-            return [
-                {
-                    asset: definition.asset,
-                    startMs: Math.max(0, mark.recordingTimeMs!),
-                    ...(ends.has(nodeId) ? { endMs: ends.get(nodeId)! } : {}),
-                    volume: definition.volume,
-                    envelope: definition.envelope,
-                    durationMs: definition.durationMs,
-                },
-            ];
-        });
-    }
-
-    private static timelineMarks(recording: RecordingArtifact): RecordingMark[] {
-        const marks = recording.marks ?? [];
-        const offsets = marks.flatMap((mark) => {
-            const runtimeTimeMs = Number(mark.data?.['runtimeTimeMs']);
-            return Number.isFinite(runtimeTimeMs) && Number.isFinite(mark.recordingTimeMs)
-                ? [mark.recordingTimeMs! - runtimeTimeMs]
-                : [];
-        });
-
-        if (offsets.length === 0) {
-            return [...marks];
-        }
-
-        const runtimeOffsetMs = Math.min(...offsets);
-        return marks.map((mark) => {
-            const runtimeTimeMs = Number(mark.data?.['runtimeTimeMs']);
-
-            if (!Number.isFinite(runtimeTimeMs)) {
-                return mark;
-            }
-
-            return {
-                ...mark,
-                recordingTimeMs: Math.max(
-                    0,
-                    Math.min(recording.durationMs, runtimeOffsetMs + runtimeTimeMs),
-                ),
-            };
-        });
-    }
-
     private static delay(milliseconds: number, signal: AbortSignal): Promise<void> {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(resolve, milliseconds);
@@ -612,7 +587,11 @@ export class BrowserTestbenchPreview {
     }
 
     static async close(sessionId: string): Promise<void> {
-        await this.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        try {
+            await this.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        } finally {
+            this.sessionKinds.delete(sessionId);
+        }
     }
 
     static async setRuntimeInputs(

@@ -65,7 +65,7 @@ Recording target selection remains independent and lists only targets that can r
 configure language, region, and additional website permissions for every Browser Testbench session. Supported desktop
 browsers expose the combined language, for example, as `navigator.language === 'de-DE'`.
 
-The record button in the graph header starts a clean remote session, captures its viewport during the complete
+The record button on a video-output node starts a clean remote session, captures its viewport during the complete
 workflow, and downloads an MP4 afterwards. If the selected target is already used for remote preview, Director resets
 that session reproducibly and leaves it displaying the final state after recording. Recording on a different target
 does not disturb the active preview. Director verifies the size and SHA-256 digest of the Browser Testbench artifact.
@@ -73,10 +73,13 @@ Physical devices, simulators, and emulators retain their native fixed video reso
 Director derives the output from the CSS viewport and DPR of the centrally defined preview preset. Server-side removal
 of omitted wait times preserves those dimensions; the project stores only the portable preset ID.
 
-Desktop browsers start headless while recording. Director compensates for browser chrome and minimum window sizes
-while preserving the project viewport's aspect ratio. A portrait short can therefore be recorded reliably in Chrome
-without visible browser windows, cropped viewports, or letterboxing, while the interactive remote preview remains
-visible.
+Recording uses Browser Testbench 0.7.1 or newer and OBS. Configure OBS and any per-device audio offset in the
+Browser Testbench setup UI; Director does not maintain separate recorder or synchronization settings.
+Desktop browsers stay visible during recording. Audio nodes play on the target just as they do in preview,
+including volume envelopes and branch cancellation. Director preserves the captured audio and cuts it together
+with the video when omitting wait times; it does not mix replacement audio tracks. Because desktop capture includes
+system audio, silence unrelated applications while recording. OBS and FFmpeg must be installed on the Testbench
+machine, and FFmpeg is also required on the Director server for the final export.
 
 Projects declare runtime files as input nodes before the website root. The file picker and current selection are shown
 directly in the node; MIME types, required state, and preparation modules are configured in its properties. Selected
@@ -90,8 +93,8 @@ playback to finish. For local Android URLs, Director enables Browser Testbench's
 A project can therefore start an Android emulator with camera permission, language and locale, an injected camera
 image, and a font without storing binary data or transport-specific network details in its `.btd.json` file.
 
-Director contains no hard-coded production logic. During video export, marked layer intervals are joined and audio
-nodes are mixed at their recorded timestamps. Wait nodes can be explicitly removed from the video and audio through
+Director contains no hard-coded production logic. During video export, marked intervals of captured video and audio
+are joined together. Wait nodes can be explicitly removed from the video and audio through
 `omitFromRecording`, or retained in the export.
 
 ```bash
@@ -101,9 +104,8 @@ npm run dev:https
 
 `npm run dev` starts the standalone Director server with embedded Vite middleware. On first launch,
 `npm run dev:https` creates and then reuses a local certificate for `localhost`, `127.0.0.1`, and `::1` under `.certs/`.
-Use `--https-cert` and `--https-key` to supply a different certificate. HTTPS websites are loaded into the integrated
-preview through a temporary same-origin Director route, while Browser Testbench continues to use the original website
-URL unchanged.
+Use `--https-cert` and `--https-key` to supply a different certificate. Websites are loaded through a temporary
+same-origin Director proxy route. Local and remote previews use the same player document and runtime.
 
 For production, the client and Node.js server are built together and then served without Vite:
 

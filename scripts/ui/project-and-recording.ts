@@ -167,6 +167,43 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
         select.value = select.querySelector('option:not([value=""])').value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
     `);
+    const filenameEditing = await session.evaluate<{
+        modelValue: string;
+        nodePreservedDuringInput: boolean;
+    }>(`
+        const nodeBefore = document.querySelector('[model-id="video-output"]');
+        const input = document.querySelector('[data-testid="video-output-filename"]');
+        input.value = 'a-long-responsive-recording-filename.mp4';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const nodeAfterInput = document.querySelector('[model-id="video-output"]');
+        return {
+            modelValue: input.value,
+            nodePreservedDuringInput: nodeBefore === nodeAfterInput,
+        };
+    `);
+    assert.equal(filenameEditing.modelValue, 'a-long-responsive-recording-filename.mp4');
+    assert.equal(
+        filenameEditing.nodePreservedDuringInput,
+        true,
+        'recording: filename input must not rebuild the graph on every keystroke.',
+    );
+    await session.evaluate(`
+        document.querySelector('[data-testid="video-output-filename"]')
+            .dispatchEvent(new Event('change', { bubbles: true }));
+    `);
+    await session.waitForScript(
+        `return document.querySelector(
+            '[model-id="video-output"] [joint-selector="bodyText"]'
+        )?.textContent.includes('a-long-responsive');`,
+        [],
+        5_000,
+    );
+    await session.evaluate(`
+        const input = document.querySelector('[data-testid="video-output-filename"]');
+        input.value = 'recording-ui.mp4';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
     await session.evaluate(`
         window.__directorRecordingOriginalFetch = window.fetch;
         window.__directorRecordingRequests = [];
@@ -261,6 +298,9 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
         label: string;
         nameDisabled: boolean;
         opacity: number;
+        otherPlayPointerEvents: string;
+        recordPointerEvents: string;
+        propertiesStopDisabled: boolean;
         tinted: boolean;
     }>(`
         const header = document.querySelector('.topbar');
@@ -274,6 +314,13 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
             opacity: node
                 ? Number(node.getAttribute('opacity') || getComputedStyle(node).opacity)
                 : 1,
+            otherPlayPointerEvents: document.querySelector(
+                '[model-id="layer-1"] [joint-selector="playButton"]',
+            )?.getAttribute('pointer-events') || '',
+            recordPointerEvents: node?.querySelector('[joint-selector="playButton"]')
+                ?.getAttribute('pointer-events') || '',
+            propertiesStopDisabled: document.querySelector('[data-testid="record-video-output"]')
+                ?.disabled ?? true,
             tinted: header?.classList.contains('topbar--recording') || false,
         };
     `);
@@ -283,6 +330,17 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
     assert.equal(recordingIndicator.editorLocked, true, 'recording: properties must lock.');
     assert.equal(recordingIndicator.nameDisabled, true, 'recording: the node name must lock.');
     assert.ok(recordingIndicator.opacity < 1, 'recording: participating nodes must fade.');
+    assert.equal(recordingIndicator.otherPlayPointerEvents, 'none');
+    assert.equal(recordingIndicator.recordPointerEvents, 'auto');
+    assert.equal(recordingIndicator.propertiesStopDisabled, false);
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="record-video-output"]')
+                ?.classList.contains('is-recording') ?? false;
+        `),
+        true,
+        'recording: the properties control must mirror the graph recording state.',
+    );
     await session.screenshot(join(outputDirectory, 'recording-active.png'), true);
     const download = await session.waitForDownload('recording-ui.mp4', 15_000);
     await session.waitForText('recording-ui.mp4', 5_000);
@@ -298,7 +356,7 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
         window.__directorRecordingCancelled = false;
         window.__directorRecordingHold = true;
     `);
-    await playGraphNode(session, 'video-output');
+    await session.click('[data-testid="record-video-output"]');
     await session.waitForElement('[data-testid="recording-status"]', 5_000);
     await playGraphNode(session, 'video-output');
     await session.waitForScript(

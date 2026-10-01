@@ -39,19 +39,23 @@ export class GraphAutoLayout {
         const routes = new Map(
             (result.edges ?? []).flatMap((edge) => {
                 const section = edge.sections?.[0];
+                const connection = connections.find((candidate) => candidate.id === edge.id);
 
-                if (!section) {
+                if (!section || !connection) {
                     return [];
                 }
 
-                return [
-                    [
-                        edge.id,
-                        [section.startPoint, ...(section.bendPoints ?? []), section.endPoint].map(
-                            (point) => ({ x: point.x, y: point.y }),
-                        ),
-                    ] as const,
-                ];
+                const route = [
+                    section.startPoint,
+                    ...(section.bendPoints ?? []),
+                    section.endPoint,
+                ].map((point) => ({ x: point.x, y: point.y }));
+
+                if (!GraphAutoLayout.routeFitsModel(route, connection, nodes, positions)) {
+                    return [];
+                }
+
+                return [[edge.id, route] as const];
             }),
         );
         return { positions, routes };
@@ -98,5 +102,64 @@ export class GraphAutoLayout {
                 targets: [connection.target],
             })),
         };
+    }
+
+    private static routeFitsModel(
+        route: readonly GraphEdgePoint[],
+        connection: WorkflowConnection,
+        nodes: readonly DirectorNode[],
+        automaticPositions: ReadonlyMap<string, GraphNodePosition>,
+    ): boolean {
+        const source = nodes.find((node) => node.id === connection.source);
+        const target = nodes.find((node) => node.id === connection.target);
+
+        if (source?.position || target?.position) {
+            return false;
+        }
+
+        return !nodes.some((node) => {
+            if (node.id === connection.source || node.id === connection.target) {
+                return false;
+            }
+
+            const position = node.position ?? automaticPositions.get(node.id);
+
+            if (!position) {
+                return false;
+            }
+
+            return GraphAutoLayout.routeCrossesNode(route, position);
+        });
+    }
+
+    private static routeCrossesNode(
+        route: readonly GraphEdgePoint[],
+        position: GraphNodePosition,
+    ): boolean {
+        const padding = 8;
+        const left = position.x - padding;
+        const right = position.x + nodeWidth + padding;
+        const top = position.y - padding;
+        const bottom = position.y + nodeHeight + padding;
+
+        return route.slice(1).some((end, index) => {
+            const start = route[index]!;
+
+            if (start.x === end.x) {
+                return (
+                    start.x > left &&
+                    start.x < right &&
+                    Math.max(start.y, end.y) > top &&
+                    Math.min(start.y, end.y) < bottom
+                );
+            }
+
+            return (
+                start.y > top &&
+                start.y < bottom &&
+                Math.max(start.x, end.x) > left &&
+                Math.min(start.x, end.x) < right
+            );
+        });
     }
 }

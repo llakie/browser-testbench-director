@@ -220,7 +220,11 @@ try {
     const stream = probe.streams?.find((candidate) => candidate.codec_type === 'video');
     const audioStream = probe.streams?.find((candidate) => candidate.codec_type === 'audio');
     assert.ok(stream?.width && stream.height, 'Recording must have video dimensions.');
-    assert.equal(audioStream?.codec_name, 'aac', 'Recording must contain the mixed audio node.');
+    assert.equal(
+        audioStream?.codec_name,
+        'aac',
+        'Recording must preserve the captured target audio.',
+    );
 
     const sessionRequest = await controller.evaluate<string | null>(`
         return window.__directorRecordingRequests.find(

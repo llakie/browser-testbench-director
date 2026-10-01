@@ -39,6 +39,16 @@ const GraphNode = dia.Element.define(
                 fontWeight: 900,
                 pointerEvents: 'none',
             },
+            statusIcon: {
+                d: 'M 194 12.5 V 17 L 197 18.5',
+                fill: 'none',
+                stroke: 'var(--color-status-pending)',
+                strokeWidth: 1.5,
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                pointerEvents: 'none',
+                display: 'none',
+            },
             playButton: {
                 cx: 190,
                 cy: 85,
@@ -120,6 +130,7 @@ const GraphNode = dia.Element.define(
             { tagName: 'text', selector: 'headerText' },
             { tagName: 'text', selector: 'bodyText' },
             { tagName: 'circle', selector: 'statusRing' },
+            { tagName: 'path', selector: 'statusIcon' },
             { tagName: 'text', selector: 'statusText' },
             { tagName: 'circle', selector: 'playButton' },
             { tagName: 'path', selector: 'playIcon' },
@@ -220,9 +231,6 @@ export class JointLayerGraph {
         this.#paper.on('link:pointerclick', (view: dia.LinkView) => {
             this.selectLink(view);
         });
-        this.#paper.on('link:label:pointerclick', (view: dia.LinkView) => {
-            this.selectLink(view);
-        });
         this.#paper.on('connection:select', (view: dia.LinkView, event: Event) => {
             event.stopPropagation();
             this.selectLink(view);
@@ -306,6 +314,8 @@ export class JointLayerGraph {
         recordingActive = false,
         lockedNodeIds: ReadonlySet<string> = new Set(),
         playbackTriggerNodeId: string | null = null,
+        executionRunning = false,
+        recordingReady = true,
     ): void {
         const fitAutomaticLayout = !this.#preserveViewportOnNextRender;
         this.#preserveViewportOnNextRender = false;
@@ -323,14 +333,15 @@ export class JointLayerGraph {
         const targetPorts = new Map<string, string>();
         const sourcePorts = new Map<string, string>();
         const routeKey = this.#layoutKey(nodes, connections);
-        const useAutomaticRoutes =
-            nodes.every((node) => node.position === null) && routeKey === this.#automaticRouteKey;
+        const useAutomaticRoutes = routeKey === this.#automaticRouteKey;
 
         for (const [index, node] of nodes.entries()) {
             const execution = states[node.id];
             const locked = lockedNodeIds.has(node.id);
             const stoppingPlayback = playbackTriggerNodeId === node.id;
             const stoppingRecording = recordingActive && node.type === 'video-output';
+            const playUnavailable =
+                node.type === 'video-output' && !recordingReady && !stoppingRecording;
             const connected = connectedNodeIds.has(node.id);
             const inputFileName = node.type === 'input' ? inputFileNames[node.id] : undefined;
             const incoming = incomingConnections.get(node.id) ?? [];
@@ -432,14 +443,22 @@ export class JointLayerGraph {
                     lineHeight: 20,
                 },
                 playButton: {
-                    display: ['input', 'capability'].includes(node.type) ? 'none' : 'block',
+                    display: ['input', 'capability', 'audio'].includes(node.type)
+                        ? 'none'
+                        : 'block',
                     class: staleNodeIds.has(node.id) ? 'is-stale' : '',
                     cursor:
-                        locked && !stoppingPlayback && !stoppingRecording
+                        playUnavailable || (locked && !stoppingPlayback && !stoppingRecording)
                             ? 'not-allowed'
                             : 'pointer',
                     pointerEvents:
-                        locked && !stoppingPlayback && !stoppingRecording ? 'none' : 'auto',
+                        playUnavailable || (locked && !stoppingPlayback && !stoppingRecording)
+                            ? 'none'
+                            : 'auto',
+                    opacity:
+                        playUnavailable || (locked && !stoppingPlayback && !stoppingRecording)
+                            ? 0.35
+                            : 1,
                     fill:
                         node.type === 'video-output'
                             ? 'var(--color-danger-soft)'
@@ -451,7 +470,9 @@ export class JointLayerGraph {
                     strokeWidth: staleNodeIds.has(node.id) ? 2.5 : 1,
                 },
                 playIcon: {
-                    display: ['input', 'capability'].includes(node.type) ? 'none' : 'block',
+                    display: ['input', 'capability', 'audio'].includes(node.type)
+                        ? 'none'
+                        : 'block',
                     d:
                         stoppingPlayback || stoppingRecording
                             ? 'M5 5h6v6H5z'
@@ -462,6 +483,7 @@ export class JointLayerGraph {
                         node.type === 'video-output'
                             ? 'var(--color-recording-strong)'
                             : 'var(--color-play)',
+                    opacity: locked && !stoppingPlayback && !stoppingRecording ? 0.35 : 1,
                 },
                 fileButton: {
                     display: node.type === 'input' && !inputFileName ? 'block' : 'none',
@@ -480,7 +502,8 @@ export class JointLayerGraph {
                 clearText: {
                     display: inputFileName ? 'block' : 'none',
                 },
-                statusRing: JointLayerGraph.statusRing(execution),
+                statusRing: JointLayerGraph.statusRing(execution, executionRunning),
+                statusIcon: JointLayerGraph.statusIcon(execution, executionRunning),
                 statusText: JointLayerGraph.statusText(execution),
             });
             const title = [connected ? '' : disconnectedLabel, JointLayerGraph.nodeDetail(node)]
@@ -645,9 +668,7 @@ export class JointLayerGraph {
 
         const layoutKey = this.#layoutKey(nodes, connections);
         this.#automaticPositions = layout.positions;
-        this.#automaticRoutes = nodes.every((node) => node.position === null)
-            ? layout.routes
-            : new Map();
+        this.#automaticRoutes = layout.routes;
         this.#automaticLayoutKey = layoutKey;
         this.#automaticRouteKey = this.#automaticRoutes.size ? layoutKey : '';
 
@@ -709,13 +730,6 @@ export class JointLayerGraph {
             const selected = String(link.id) === id;
             link.attr('line/stroke', selected ? 'var(--color-accent)' : 'var(--color-text-muted)');
             link.attr('line/strokeWidth', selected ? 3 : 1.5);
-            link.label(0, {
-                attrs: {
-                    connectionHandle: {
-                        fill: selected ? 'var(--color-accent)' : 'var(--color-text-muted)',
-                    },
-                },
-            });
         }
 
         this.#callbacks.selectConnection(id);
@@ -736,20 +750,6 @@ export class JointLayerGraph {
                 cursor: 'pointer',
                 event: 'connection:select',
                 targetMarker: null,
-            },
-        });
-        link.appendLabel({
-            position: { distance: 0.5 },
-            markup: [{ tagName: 'circle', selector: 'connectionHandle' }],
-            attrs: {
-                connectionHandle: {
-                    r: 6,
-                    fill: 'var(--color-text-muted)',
-                    stroke: 'var(--color-surface-raised)',
-                    strokeWidth: 2,
-                    cursor: 'pointer',
-                    event: 'connection:select',
-                },
             },
         });
         return link;
@@ -848,7 +848,13 @@ export class JointLayerGraph {
     #layoutKey(nodes: readonly DirectorNode[], connections: readonly WorkflowConnection[]): string {
         const height = this.#paper.el.clientHeight;
         const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
-        return `${nodes.map((node) => node.id).join(',')}|${connections
+        return `${nodes
+            .map((node) =>
+                node.position
+                    ? `${node.id}@${node.position.x},${node.position.y}`
+                    : `${node.id}@auto`,
+            )
+            .join(',')}|${connections
             .map((connection) => `${connection.source}>${connection.target}`)
             .join(',')}|${aspectRatio.toFixed(2)}`;
     }
@@ -909,12 +915,16 @@ export class JointLayerGraph {
         return selected ? 'var(--color-accent)' : 'var(--color-border)';
     }
 
-    private static statusRing(state?: NodeExecutionState): Record<string, unknown> {
-        if (!state || state.status === 'idle') {
+    private static statusRing(
+        state: NodeExecutionState | undefined,
+        executionRunning: boolean,
+    ): Record<string, unknown> {
+        if (!state || (state.status === 'idle' && !executionRunning)) {
             return { display: 'none' };
         }
 
         const colors = {
+            idle: 'var(--color-status-pending)',
             running: 'var(--color-status-running)',
             success: 'var(--color-status-success)',
             error: 'var(--color-status-error)',
@@ -922,11 +932,22 @@ export class JointLayerGraph {
         } as const;
         return {
             display: 'block',
-            class: `graph-node-status is-${state.status}`,
-            fill: state.status === 'running' ? 'none' : colors[state.status],
+            class: `graph-node-status is-${state.status === 'idle' ? 'pending' : state.status}`,
+            fill: ['idle', 'running'].includes(state.status) ? 'none' : colors[state.status],
             stroke: colors[state.status],
-            strokeWidth: state.status === 'running' ? 2 : 0,
+            strokeWidth: ['idle', 'running'].includes(state.status) ? 2 : 0,
             strokeDasharray: state.status === 'running' ? '8 5' : 'none',
+        };
+    }
+
+    private static statusIcon(
+        state: NodeExecutionState | undefined,
+        executionRunning: boolean,
+    ): Record<string, unknown> {
+        const pending = executionRunning && state?.status === 'idle';
+        return {
+            display: pending ? 'block' : 'none',
+            class: 'graph-node-pending-icon',
         };
     }
 

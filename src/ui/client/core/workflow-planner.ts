@@ -85,7 +85,9 @@ export class WorkflowPlanner {
         }
 
         if (mode === 'current') {
-            const step = WorkflowPlanner.step(project, selected, 'live', new Set());
+            const currentNode =
+                selected.type === 'audio' ? { ...selected, waitForEnd: true } : selected;
+            const step = WorkflowPlanner.step(project, currentNode, 'live', new Set());
             const selectedInputs = step.inputId
                 ? inputs.filter((input) => input.id === step.inputId)
                 : [];
@@ -99,11 +101,20 @@ export class WorkflowPlanner {
             };
         }
 
-        const component = WorkflowGraph.componentNodeIds(project, selected.id)
+        const predecessors = WorkflowGraph.componentNodeIds(project, selected.id)
             .map((id) => nodes.get(id))
             .filter(WorkflowPlanner.isExecutableNode);
-        const selectedIndex = component.findIndex((node) => node.id === selected.id);
-        const included = new Set(component.slice(0, selectedIndex + 1).map((node) => node.id));
+        const included = new Set(predecessors.map((node) => node.id));
+        const sideEffects =
+            mode === 'node'
+                ? WorkflowPlanner.sideEffectAudioIds(project, executable, included)
+                : new Set<string>();
+
+        for (const id of sideEffects) {
+            included.add(id);
+        }
+
+        const plannedNodes = executable.filter((node) => included.has(node.id));
 
         return {
             mode,
@@ -111,17 +122,47 @@ export class WorkflowPlanner {
             inputs,
             cameraInputId,
             resetWebsite: true,
-            steps: component
-                .slice(0, selectedIndex + 1)
-                .map((node, index) =>
-                    WorkflowPlanner.step(
-                        project,
-                        node,
-                        mode === 'prepare' && index < selectedIndex ? 'catchup' : 'live',
-                        included,
-                    ),
+            steps: plannedNodes.map((node) =>
+                WorkflowPlanner.step(
+                    project,
+                    sideEffects.has(node.id) && node.type === 'audio'
+                        ? { ...node, waitForEnd: false }
+                        : node,
+                    mode === 'prepare' && node.id !== selected.id ? 'catchup' : 'live',
+                    included,
                 ),
+            ),
         };
+    }
+
+    private static sideEffectAudioIds(
+        project: DirectorProject,
+        executable: readonly ExecutableNode[],
+        included: ReadonlySet<string>,
+    ): Set<string> {
+        const sideEffects = new Set<string>();
+        let changed = true;
+
+        while (changed) {
+            changed = false;
+
+            for (const node of executable) {
+                if (node.type !== 'audio' || included.has(node.id) || sideEffects.has(node.id)) {
+                    continue;
+                }
+
+                const launchedByPlan = WorkflowGraph.predecessorIds(project, node.id).some(
+                    (id) => included.has(id) || sideEffects.has(id),
+                );
+
+                if (launchedByPlan) {
+                    sideEffects.add(node.id);
+                    changed = true;
+                }
+            }
+        }
+
+        return sideEffects;
     }
 
     private static step(

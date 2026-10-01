@@ -18,6 +18,28 @@
                     <span>{{ activeNodeError }}</span>
                 </p>
                 <button
+                    v-if="activeVideoOutput"
+                    :class="[
+                                'icon-button',
+                                'recording-control',
+                                { 'is-recording': recordingActive },
+                            ]"
+                    type="button"
+                    data-testid="record-video-output"
+                    :disabled="
+                        !recordingActive &&
+                        (!browserSessionInputsReady || browserTargetOpening || executionRunning)
+                    "
+                    :aria-label="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
+                    :title="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
+                    @click="playNode(activeVideoOutput.id)"
+                >
+                    <span
+                        :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"
+                        aria-hidden="true"
+                    ></span>
+                </button>
+                <button
                     v-if="activeLayer || activeJavaScript || activeBrowserAction || activeAudio"
                     class="icon-button direct-run-control"
                     type="button"
@@ -712,7 +734,8 @@
                         type="text"
                         data-testid="video-output-filename"
                         placeholder="video.mp4"
-                        @input="markDirty(); renderGraph()"
+                        @input="markDirty"
+                        @change="renderGraph"
                     />
                 </label>
             </div>

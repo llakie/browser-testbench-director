@@ -69,6 +69,19 @@
             >
                 <span class="bi bi-flask-fill" aria-hidden="true"></span>
             </button>
+            <a
+                v-if="browserTestbenchRunning && browserTestbenchUrl"
+                class="testbench-open-link"
+                data-testid="open-browser-testbench"
+                :href="browserTestbenchUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="t('preview.testbench.openTitle')"
+                :title="t('preview.testbench.openTitle')"
+            >
+                <span>{{ t('preview.testbench.open') }}</span>
+                <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+            </a>
             <button
                 class="icon-button"
                 type="button"
@@ -162,6 +175,18 @@
                         <i class="bi bi-flask-fill" aria-hidden="true"></i>
                         <span>{{ browserTestbenchLifecycleLabel }}</span>
                     </button>
+                    <a
+                        v-if="browserTestbenchRunning && browserTestbenchUrl"
+                        :href="browserTestbenchUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="mobile-open-browser-testbench"
+                        :aria-label="t('preview.testbench.openTitle')"
+                        @click="closeMobileMenu"
+                    >
+                        <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+                        <span>{{ t('preview.testbench.open') }}</span>
+                    </a>
                     <span class="mobile-project-menu__divider" aria-hidden="true"></span>
                     <button
                         type="button"

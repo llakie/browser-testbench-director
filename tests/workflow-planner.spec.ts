@@ -178,6 +178,69 @@ test('Node-Wiedergabe spielt die Timeline bis zur gewählten Node vollständig l
     );
 });
 
+test('Node-Wiedergabe nimmt gestartete Audio-Seitenzweige bis zum Ziel mit', () => {
+    const project = projectWithScript();
+    project.nodes.push(
+        {
+            id: 'soundtrack-input',
+            type: 'input',
+            name: 'Soundtrack',
+            position: null,
+            accept: 'audio/*',
+            required: true,
+        },
+        {
+            id: 'background-music',
+            type: 'audio',
+            name: 'Background music',
+            position: null,
+            volume: 1,
+            envelope: [
+                { time: 0, gain: 1 },
+                { time: 1, gain: 1 },
+            ],
+            waitForEnd: true,
+        },
+        {
+            id: 'unrelated-future',
+            type: 'javascript',
+            name: 'Unrelated future step',
+            position: null,
+            source: '',
+        },
+    );
+    project.connections.push(
+        {
+            id: 'soundtrack-input--background-music',
+            source: 'soundtrack-input',
+            target: 'background-music',
+        },
+        {
+            id: 'layer-1--background-music',
+            source: 'layer-1',
+            target: 'background-music',
+        },
+        {
+            id: 'reveal-price--unrelated-future',
+            source: 'reveal-price',
+            target: 'unrelated-future',
+        },
+    );
+
+    const plan = WorkflowPlanner.plan(project, 'node', 'reveal-price');
+    const audio = plan.steps.find((step) => step.node.id === 'background-music');
+
+    assert.deepEqual(
+        plan.steps.map((step) => step.node.id),
+        ['layer-1', 'reveal-price', 'background-music'],
+    );
+    assert.equal(audio?.node.type, 'audio');
+
+    if (audio?.node.type === 'audio') {
+        assert.equal(audio.node.waitForEnd, false);
+    }
+});
+
 test('Zustandsvorbereitung beschleunigt nur die Vorgänger der gewählten Node', () => {
     const plan = WorkflowPlanner.plan(projectWithScript(), 'prepare', 'reveal-price');
 
@@ -198,6 +261,46 @@ test('Sekundäre Einzelwiedergabe verändert den bestehenden Website-Zustand ohn
         plan.steps.map((step) => step.node.id),
         ['reveal-price'],
     );
+});
+
+test('Audio-Einzelwiedergabe wartet unabhängig von der Workflow-Einstellung auf das Ende', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push(
+        {
+            id: 'soundtrack',
+            type: 'input',
+            name: 'Soundtrack',
+            position: null,
+            accept: 'audio/*',
+            required: true,
+        },
+        {
+            id: 'play-soundtrack',
+            type: 'audio',
+            name: 'Play soundtrack',
+            position: null,
+            volume: 1,
+            envelope: [
+                { time: 0, gain: 1 },
+                { time: 1, gain: 1 },
+            ],
+            waitForEnd: false,
+        },
+    );
+    project.connections.push({
+        id: 'soundtrack--play-soundtrack',
+        source: 'soundtrack',
+        target: 'play-soundtrack',
+    });
+
+    const plan = WorkflowPlanner.plan(project, 'current', 'play-soundtrack');
+    const audio = plan.steps[0]?.node;
+
+    assert.equal(audio?.type, 'audio');
+
+    if (audio?.type === 'audio') {
+        assert.equal(audio.waitForEnd, true);
+    }
 });
 
 test('Planer weist unbekannte oder nicht ausführbare Nodes zurück', () => {
