@@ -106,6 +106,15 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         'silence.wav',
         'audio: properties must show the connected audio filename.',
     );
+    await session.click('[data-testid="audio-envelope-summary"]');
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="audio-envelope-group"]').open &&
+                !document.querySelector('[data-testid="audio-playback-group"]').open;
+        `),
+        true,
+        'audio: opening the envelope closes playback settings.',
+    );
     await assertEnvelopeSpacing(session, 'desktop');
     await session.click('[data-testid="audio-envelope-editor"] svg');
     await session.waitForCount('[data-testid="audio-envelope-point"]', 3, 5_000);

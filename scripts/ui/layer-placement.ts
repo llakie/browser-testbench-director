@@ -139,17 +139,22 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
     );
     const fieldLabels = await session.evaluate<{
         reference: string;
+        axes: string[];
         offsets: string[];
         timing: string;
     }>(`
         return {
             reference: document.querySelector('.layer-reference-field > span').textContent.trim(),
+            axes: [...document.querySelectorAll('.layer-axis-field > span')]
+                .map((label) => label.textContent.trim()),
             offsets: [...document.querySelectorAll('.layer-offset-controls label > span:first-child')]
                 .map((label) => label.textContent.trim()),
             timing: document.querySelector('.layer-playback-properties__title').textContent.trim(),
         };
     `);
     assert.match(fieldLabels.reference, /Positionsquelle|Position source/u);
+    assert.match(fieldLabels.axes[0] ?? '', /Horizontal/u);
+    assert.match(fieldLabels.axes[1] ?? '', /Vertikal|Vertical/u);
     assert.deepEqual(fieldLabels.offsets, ['X', 'Y']);
     assert.equal(fieldLabels.timing, 'Timing');
     assert.ok(
@@ -223,6 +228,17 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
     );
     await session.click('[data-testid="vertical-bottom"]');
     await session.screenshot(join(outputDirectory, 'alignment-controls.png'), true);
+    await session.setViewport(390, 844);
+    await session.click('[data-testid="mobile-editor-tab"]');
+    const mobileAlignmentFits = await session.evaluate<boolean>(`
+        const body = document.querySelector('[data-testid="editor-properties-scroll"]');
+        const controls = body.querySelector('.layer-alignment-controls');
+        return body.scrollWidth <= body.clientWidth &&
+            controls.getBoundingClientRect().right <= body.getBoundingClientRect().right;
+    `);
+    assert.equal(mobileAlignmentFits, true, 'placement: mobile controls must fit the panel.');
+    await session.screenshot(join(outputDirectory, 'alignment-controls-mobile.png'), true);
+    await session.setViewport(1440, 1000);
     await playGraphNode(session, 'anchored-child');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement(

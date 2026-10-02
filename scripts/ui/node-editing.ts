@@ -125,7 +125,11 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="add-merge-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.select('[data-testid="merge-wait-for"]', 'any');
-    await assertEditorSectionLayout(session, '.automation-properties', '[data-testid="merge-wait-for"]');
+    await assertEditorSectionLayout(
+        session,
+        '.automation-properties',
+        '[data-testid="merge-wait-for"]',
+    );
     assert.equal(
         (await session.state('[data-testid="merge-wait-for"]')).value,
         'any',
@@ -144,7 +148,11 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         /Neuer Layer|New layer/u,
         'nodes: a new layer needs its localized default name.',
     );
-    await assertEditorSectionLayout(session, '.layer-playback-properties', '[data-testid="layer-duration"]');
+    await assertEditorSectionLayout(
+        session,
+        '.layer-playback-properties',
+        '[data-testid="layer-duration"]',
+    );
     await session.fill('[data-testid="layer-duration"]', '1200');
     await session.click('[data-testid="layer-remove-after"]');
     assert.equal(
@@ -209,7 +217,8 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="node-category-layers"]');
     await session.click('[data-testid="add-text-layer-node"]');
     await session.waitForElement('[data-testid="text-layer-editor"]', 5_000);
-    await assertEditorSectionLayout(session, '.text-layer-editor__fields');
+    await assertTextAccordionState(session, 'lines');
+    assert.match((await session.state('[data-testid="text-layer-font-summary"]')).text, /8 vw/u);
     assert.equal(
         await session.evaluate<boolean>(
             `return document.querySelector('[data-testid="text-layer-remove-0"]')?.disabled ?? false;`,
@@ -221,12 +230,15 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         const select = document.querySelector('[data-testid="text-layer-block-effect"]');
         return {
             heading: select.closest('.text-layer-editor__section')
-                .querySelector('.text-layer-editor__section-title').textContent.trim(),
+                .closest('details').querySelector('summary').textContent.trim(),
             field: select.closest('label').textContent.trim(),
         };
     `);
     assert.match(effectLabels.heading, /Layer-Effekt|Layer effect/u);
     assert.match(effectLabels.field, /Anfang|Start/u);
+    await session.click('[data-testid="text-layer-font-summary"]');
+    await assertTextAccordionState(session, 'font');
+    await assertEditorSectionLayout(session, '.text-layer-editor__fields');
     const selectAppearance = await session.evaluate<{
         nativeAppearance: string;
         hasCustomCaret: boolean;
@@ -243,6 +255,8 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     assert.equal(selectAppearance.nativeAppearance, 'none');
     assert.equal(selectAppearance.hasCustomCaret, true);
     assert.ok(selectAppearance.rightPadding >= 38);
+    await session.click('[data-testid="text-layer-effect-summary"]');
+    await assertTextAccordionState(session, 'effect');
     await session.select('[data-testid="text-layer-block-effect"]', 'fly');
     const blockEffectControls = await session.evaluate<{
         durationUnitRight: boolean;
@@ -274,183 +288,68 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         consistentFontSize: true,
     });
     await session.select('[data-testid="text-layer-block-effect"]', 'none');
+    await session.click('[data-testid="text-layer-font-summary"]');
+    await assertTextAccordionState(session, 'font');
     const fontLayout = await session.evaluate<{
-        title: string;
         sliderHeight: number;
         selectHeight: number;
         fieldRows: number;
-        fieldGaps: number[];
-        standardGap: number;
+        overflow: boolean;
     }>(`
         const fields = document.querySelector('.text-layer-editor__fields');
         const labels = [...fields.querySelectorAll('label')];
-        const slider = document.querySelector('[data-testid="text-layer-size"]');
-        const select = document.querySelector('[data-testid="text-layer-font"]');
         return {
-            title: fields.querySelector('.text-layer-editor__section-title').textContent.trim(),
-            sliderHeight: slider.getBoundingClientRect().height,
-            selectHeight: select.getBoundingClientRect().height,
+            sliderHeight: document.querySelector('[data-testid="text-layer-size"]')
+                .getBoundingClientRect().height,
+            selectHeight: document.querySelector('[data-testid="text-layer-font"]')
+                .getBoundingClientRect().height,
             fieldRows: new Set(labels.map(label => Math.round(label.getBoundingClientRect().top))).size,
-            fieldGaps: labels.slice(1).map((label, index) =>
-                label.getBoundingClientRect().left - labels[index].getBoundingClientRect().right,
-            ),
-            standardGap: parseFloat(getComputedStyle(document.documentElement)
-                .getPropertyValue('--space-3')),
+            overflow: fields.scrollWidth > fields.clientWidth,
         };
     `);
-    assert.match(fontLayout.title, /Schriftart|Font/u);
     assert.equal(fontLayout.sliderHeight, fontLayout.selectHeight);
     assert.equal(fontLayout.fieldRows, 1, 'text layers: desktop font settings fit in one row.');
-    assert.ok(fontLayout.fieldGaps.every((gap) => Math.abs(gap - fontLayout.standardGap) < 1));
-    const propertyRows = await session.evaluate<{
-        alignment: number;
-        duration: number;
-        font: number;
-        effect: number;
-    }>(`
-        return Object.fromEntries([
-            ['alignment', '.layer-alignment-field'],
-            ['duration', '.layer-playback-properties'],
-            ['font', '.text-layer-editor__fields'],
-            ['effect', '.text-layer-editor__section--effect'],
-        ].map(([name, selector]) => [
-            name,
-            Math.round(document.querySelector(selector).getBoundingClientRect().top),
-        ]));
-    `);
-    assert.notEqual(propertyRows.alignment, propertyRows.duration);
-    assert.notEqual(propertyRows.font, propertyRows.effect);
-    await session.click('[data-testid="maximize-editor"]');
-    const expandedPropertyRows = await session.evaluate<{
-        alignment: number;
-        duration: number;
-        font: number;
-        effect: number;
-        overflow: boolean;
-    }>(`
-        const panel = document.querySelector('[data-testid="editor-properties-scroll"]');
-        return {
-            alignment: Math.round(document.querySelector('.layer-alignment-field').getBoundingClientRect().top),
-            duration: Math.round(document.querySelector('.layer-playback-properties').getBoundingClientRect().top),
-            font: Math.round(document.querySelector('.text-layer-editor__fields').getBoundingClientRect().top),
-            effect: Math.round(document.querySelector('.text-layer-editor__section--effect').getBoundingClientRect().top),
-            overflow: panel.scrollWidth > panel.clientWidth,
-        };
-    `);
-    assert.equal(expandedPropertyRows.alignment, expandedPropertyRows.duration);
-    assert.equal(expandedPropertyRows.font, expandedPropertyRows.effect);
-    assert.equal(expandedPropertyRows.overflow, false);
-    await session.click('[data-testid="maximize-editor"]');
+    assert.equal(fontLayout.overflow, false);
+    await session.click('[data-testid="text-layer-layout-summary"]');
+    await assertTextAccordionState(session, 'layout');
+    await assertEditorSectionLayout(
+        session,
+        '.layer-playback-properties',
+        '[data-testid="layer-duration"]',
+    );
+    await session.fill('[data-testid="layer-duration"]', '1000');
+    assert.match(
+        (await session.state('[data-testid="text-layer-layout-summary"]')).text,
+        /1000 ms/u,
+    );
+    await session.click('[data-testid="text-layer-effect-summary"]');
+    await assertTextAccordionState(session, 'effect');
     await session.setViewport(1920, 1000);
     await session.click('[data-testid="maximize-editor"]');
-    const widePropertyRow = await session.evaluate<{
-        top: number[];
-        left: number[];
-        bottom: number[];
-        contentsTopAligned: boolean;
-        effectSelectFillsCell: boolean;
-        overflow: boolean;
-    }>(`
-        const selectors = [
-            '.text-layer-editor__fields',
-            '.layer-alignment-field',
-            '.text-layer-editor__section--effect',
-            '.layer-playback-properties',
-        ];
-        const bounds = selectors.map((selector) =>
-            document.querySelector(selector).getBoundingClientRect(),
-        );
-        const effect = document.querySelector('.text-layer-editor__section--effect');
-        const select = document.querySelector('[data-testid="text-layer-block-effect"]');
-        const padding = getComputedStyle(effect);
-        return {
-            top: bounds.map((rect) => Math.round(rect.top)),
-            left: bounds.map((rect) => Math.round(rect.left)),
-            bottom: bounds.map((rect) => Math.round(rect.bottom)),
-            contentsTopAligned: selectors.every((selector) =>
-                getComputedStyle(document.querySelector(selector)).alignContent === 'start',
-            ) && getComputedStyle(
-                document.querySelector('.layer-playback-properties'),
-            ).alignItems === 'start',
-            effectSelectFillsCell: Math.abs(
-                select.getBoundingClientRect().width -
-                (effect.getBoundingClientRect().width -
-                    parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight) -
-                    parseFloat(padding.borderRightWidth)),
-            ) < 1,
-            overflow: document.querySelector('[data-testid="editor-properties-scroll"]').scrollWidth >
-                document.querySelector('[data-testid="editor-properties-scroll"]').clientWidth,
-        };
+    const wideOverflow = await session.evaluate<boolean>(`
+        const panel = document.querySelector('[data-testid="editor-properties-scroll"]');
+        return panel.scrollWidth > panel.clientWidth;
     `);
-    assert.equal(new Set(widePropertyRow.top).size, 1);
-    assert.equal(new Set(widePropertyRow.bottom).size, 1);
-    assert.equal(widePropertyRow.contentsTopAligned, true);
-    assert.deepEqual(
-        widePropertyRow.left,
-        [...widePropertyRow.left].sort((a, b) => a - b),
-    );
-    assert.equal(widePropertyRow.effectSelectFillsCell, true);
-    assert.equal(widePropertyRow.overflow, false);
-    await session.fill('[data-testid="layer-duration"]', '1000');
-    await session.select('[data-testid="text-layer-block-effect"]', 'fly');
-    const effectTimingRows = await session.evaluate<{
-        headingsAligned: boolean;
-        fieldLabelsAligned: boolean;
-        firstControlsAligned: boolean;
-        secondControlsAligned: boolean;
-    }>(`
-        const effect = document.querySelector('.text-layer-editor__section--effect');
-        const timing = document.querySelector('.layer-playback-properties');
-        const sameTop = (first, second) =>
-            Math.abs(first.getBoundingClientRect().top - second.getBoundingClientRect().top) < 1;
-        return {
-            headingsAligned: sameTop(
-                effect.querySelector('.text-layer-editor__section-title'),
-                timing.querySelector('.layer-playback-properties__title'),
-            ),
-            fieldLabelsAligned: sameTop(
-                effect.querySelector('.text-layer-editor__effect > label > span'),
-                timing.querySelector('label > span'),
-            ),
-            firstControlsAligned: sameTop(
-                effect.querySelector('[data-testid="text-layer-block-effect"]'),
-                timing.querySelector('[data-testid="layer-duration"]'),
-            ),
-            secondControlsAligned: sameTop(
-                effect.querySelector('[data-testid="text-layer-block-duration"]'),
-                timing.querySelector('.layer-playback-properties__toggle'),
-            ),
-        };
-    `);
-    assert.deepEqual(effectTimingRows, {
-        headingsAligned: true,
-        fieldLabelsAligned: true,
-        firstControlsAligned: true,
-        secondControlsAligned: true,
-    });
-    await session.select('[data-testid="text-layer-block-effect"]', 'none');
-    await session.fill('[data-testid="layer-duration"]', '0');
+    assert.equal(wideOverflow, false, 'text layers: expanded properties must not overflow.');
     await session.screenshot(join(outputDirectory, 'text-layer-settings-wide.png'), true);
     await session.click('[data-testid="maximize-editor"]');
     await session.setViewport(390, 844);
     await session.click('[data-testid="mobile-editor-tab"]');
-    await assertEditorSectionLayout(session, '.text-layer-editor__fields');
-    const mobileFontLayout = await session.evaluate<{
-        rows: number;
-        overflow: boolean;
-        maxWidthFieldRatio: number;
-    }>(`
+    await session.click('[data-testid="text-layer-font-summary"]');
+    await assertTextAccordionState(session, 'font');
+    const mobileFontLayout = await session.evaluate<{ rows: number; overflow: boolean }>(`
         const fields = document.querySelector('.text-layer-editor__fields');
         const labels = [...fields.querySelectorAll('label')];
         return {
             rows: new Set(labels.map(label => Math.round(label.getBoundingClientRect().top))).size,
             overflow: fields.scrollWidth > fields.clientWidth,
-            maxWidthFieldRatio: labels[4].getBoundingClientRect().width / fields.clientWidth,
         };
     `);
-    assert.equal(mobileFontLayout.rows, 2, 'text layers: mobile font settings use two rows.');
+    assert.equal(mobileFontLayout.rows, 4, 'text layers: mobile font settings use compact rows.');
     assert.equal(mobileFontLayout.overflow, false);
-    assert.ok(mobileFontLayout.maxWidthFieldRatio < 0.4);
+    await session.screenshot(join(outputDirectory, 'text-layer-font-mobile.png'), true);
+    await session.click('[data-testid="text-layer-lines-summary"]');
+    await assertTextAccordionState(session, 'lines');
     const mobileLineLayout = await session.evaluate<{ contentRow: boolean; optionRow: boolean }>(`
         const line = document.querySelector('.text-layer-editor__line-fields');
         const text = line.querySelector('[data-testid="text-layer-line-0"]');
@@ -465,7 +364,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         };
     `);
     assert.deepEqual(mobileLineLayout, { contentRow: true, optionRow: true });
-    await session.screenshot(join(outputDirectory, 'text-layer-font-mobile.png'), true);
+    await session.screenshot(join(outputDirectory, 'text-layer-lines-mobile.png'), true);
     await session.setViewport(1440, 1000);
     await session.select('[data-testid="text-layer-effect-0"]', 'fly');
     const narrowLineLayout = await session.evaluate<{ settingsBelow: boolean }>(`
@@ -592,6 +491,8 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.waitForCount('.text-layer-editor__line', 3, 5_000);
     await session.click('[data-testid="text-layer-remove-2"]');
     await session.waitForCount('.text-layer-editor__line', 2, 5_000);
+    await session.click('[data-testid="text-layer-layout-summary"]');
+    await assertTextAccordionState(session, 'layout');
     await session.fill('[data-testid="placement-offset-x"]', '5');
     await session.fill('[data-testid="placement-offset-y"]', '10');
     await session.click('[data-testid="play-node-current"]');
@@ -622,6 +523,12 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     assert.ok(Math.abs(textPreview.anchorLeft - textPreview.width * 0.05) < 1);
     assert.ok(Math.abs(textPreview.anchorTop - textPreview.height * 0.1) < 1);
     await session.switchFrame();
+    await session.waitForScript(
+        `return !document.querySelector('[data-testid="editor-properties-scroll"]')?.inert;`,
+        [],
+        10_000,
+    );
+    await ensureTextAccordionOpen(session, 'layout');
     await session.fill('[data-testid="layer-duration"]', '300');
     await session.waitForElement('.layer-duration-warning', 5_000);
     const durationWarning = await session.evaluate<{
@@ -776,6 +683,15 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="add-browser-wait-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.fill('[data-testid="browser-wait-selector"]', '#camera-ready');
+    await session.click('[data-testid="browser-wait-timing-summary"]');
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="browser-wait-timing-group"]').open &&
+                !document.querySelector('[data-testid="browser-wait-condition-group"]').open;
+        `),
+        true,
+        'nodes: opening wait timing closes the condition settings.',
+    );
     await session.fill('[data-testid="browser-wait-timeout"]', '90000');
     assert.equal(
         await session.evaluate<boolean>(
@@ -797,6 +713,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         '90000',
         'nodes: a browser wait timeout must be editable.',
     );
+    await session.click('[data-testid="browser-wait-condition-summary"]');
     await session.select('[data-testid="browser-wait-condition"]', 'url');
     await session.fill('[data-testid="browser-wait-url"]', '/price-check/value');
     await session.select('[data-testid="browser-wait-condition"]', 'script');
@@ -919,4 +836,31 @@ async function assertEditorSectionLayout(
             `nodes: ${fieldSelector} needs equal side insets (${JSON.stringify(insets)}).`,
         );
     }
+}
+
+async function assertTextAccordionState(
+    session: RemoteSession,
+    expected: 'layout' | 'font' | 'effect' | 'lines',
+): Promise<void> {
+    const open = await session.evaluate<string[]>(`
+        return [...document.querySelectorAll('details[name="text-layer-properties"]')]
+            .filter((section) => section.open)
+            .map((section) => section.dataset.testid ?? '');
+    `);
+    assert.deepEqual(open, [`text-layer-${expected}-group`]);
+}
+
+async function ensureTextAccordionOpen(
+    session: RemoteSession,
+    section: 'layout' | 'font' | 'effect' | 'lines',
+): Promise<void> {
+    const isOpen = await session.evaluate<boolean>(`
+        return document.querySelector('[data-testid="text-layer-${section}-group"]')?.open ?? false;
+    `);
+
+    if (!isOpen) {
+        await session.click(`[data-testid="text-layer-${section}-summary"]`);
+    }
+
+    await assertTextAccordionState(session, section);
 }

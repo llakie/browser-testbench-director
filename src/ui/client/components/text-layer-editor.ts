@@ -25,6 +25,13 @@ export const TextLayerEditor = defineComponent({
             const text = this.layer.text!;
             return text.font === 'project' ? `input:${text.fontInputId}` : text.font;
         },
+        fontSummary(): string {
+            const text = this.layer.text!;
+            return text.font === 'project'
+                ? (this.fontInputs.find((input) => input.id === text.fontInputId)?.name ??
+                      text.font)
+                : text.font;
+        },
     },
     methods: {
         t(key: string, parameters: Record<string, string | number> = {}): string {
