@@ -417,7 +417,9 @@ export class JointLayerGraph {
                               : node.type === 'capability'
                                 ? 'CAPABILITY'
                                 : node.type === 'layer'
-                                  ? 'LAYER'
+                                  ? node.text
+                                      ? 'TEXT'
+                                      : 'LAYER'
                                   : node.type === 'merge'
                                     ? 'MERGE'
                                     : node.type === 'audio'
@@ -570,7 +572,9 @@ export class JointLayerGraph {
                   : node.type === 'capability'
                     ? 'Virtual camera'
                     : node.type === 'layer'
-                      ? 'HTML  ·  CSS  ·  JS'
+                      ? node.text
+                          ? node.text.lines.map((line) => line.text).join(' · ')
+                          : 'HTML  ·  CSS  ·  JS'
                       : node.type === 'merge'
                         ? `Wait ${node.waitFor}`
                         : node.type === 'audio'

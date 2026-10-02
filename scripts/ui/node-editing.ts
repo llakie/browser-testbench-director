@@ -9,7 +9,28 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return document.querySelector('[data-testid="delete-node"]') === null;`,
+        ),
+        true,
+        'nodes: no delete button may appear without a selected node.',
+    );
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return document.querySelector('[data-testid="duplicate-node"]').disabled;`,
+        ),
+        true,
+        'nodes: duplication needs an explicitly selected node.',
+    );
     await session.click('[model-id="website-root"] [joint-selector="body"]');
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return document.querySelector('[data-testid="duplicate-node"]').disabled;`,
+        ),
+        true,
+        'nodes: the website root is selected but cannot be duplicated.',
+    );
     await session.waitForElement(
         '[model-id="website-root"] [joint-selector="outline"][stroke-width="2"]',
         5_000,
@@ -40,6 +61,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     );
 
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-browser"]');
     await session.click('[data-testid="add-javascript-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
     await session.waitForElement('.source-editor textarea', 5_000);
@@ -67,7 +89,18 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         [],
         5_000,
     );
-    await session.click('[data-testid="node-actions-trigger"]');
+    const duplicateControl = await session.evaluate<{ enabled: boolean; outsideMenu: boolean }>(`
+        const button = document.querySelector('[data-testid="duplicate-node"]');
+        return {
+            enabled: !button.disabled,
+            outsideMenu: !button.closest('.action-flyout__menu'),
+        };
+    `);
+    assert.deepEqual(
+        duplicateControl,
+        { enabled: true, outsideMenu: true },
+        'nodes: duplication must be a direct toolbar action for the selected node.',
+    );
     await session.click('[data-testid="duplicate-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     assert.match(
@@ -77,8 +110,16 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     );
     await session.click('[data-testid="delete-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return document.querySelector('[data-testid="duplicate-node"]').disabled;`,
+        ),
+        true,
+        'nodes: duplication must disable after selection is cleared.',
+    );
 
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-flow"]');
     await session.click('[data-testid="add-merge-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.select('[data-testid="merge-wait-for"]', 'any');
@@ -91,6 +132,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-layers"]');
     await session.click('[data-testid="add-layer-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.waitForElement('#source-tab-html', 5_000);
@@ -108,6 +150,37 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         true,
         'nodes: a layer can be configured as a finite clip.',
     );
+    const durationLayout = await session.evaluate<{
+        fullWidth: boolean;
+        toggleBelow: boolean;
+        toggleMatchesInputHeight: boolean;
+        toggleContentCentered: boolean;
+    }>(`
+        const input = document.querySelector('[data-testid="layer-duration"]');
+        const label = input.closest('label');
+        const toggle = document.querySelector('.layer-playback-properties__toggle');
+        const checkbox = toggle.querySelector('input');
+        const text = toggle.querySelector('span');
+        const toggleBounds = toggle.getBoundingClientRect();
+        const toggleCenter = toggleBounds.top + toggleBounds.height / 2;
+        return {
+            fullWidth: Math.abs(input.getBoundingClientRect().width -
+                label.getBoundingClientRect().width) < 1,
+            toggleBelow: toggleBounds.top >= input.getBoundingClientRect().bottom,
+            toggleMatchesInputHeight: Math.abs(toggleBounds.height -
+                input.getBoundingClientRect().height) < 1,
+            toggleContentCentered: [checkbox, text].every((element) => {
+                const bounds = element.getBoundingClientRect();
+                return Math.abs(bounds.top + bounds.height / 2 - toggleCenter) < 1;
+            }),
+        };
+    `);
+    assert.deepEqual(durationLayout, {
+        fullWidth: true,
+        toggleBelow: true,
+        toggleMatchesInputHeight: true,
+        toggleContentCentered: true,
+    });
     const createdLayer = await session.evaluate<{ disconnected: boolean; editorHeight: number }>(`
         const selected = [...document.querySelectorAll('[data-testid="graph-canvas"] .joint-element')]
             .find((node) => /Neuer Layer|New layer/u.test(
@@ -129,6 +202,558 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-layers"]');
+    await session.click('[data-testid="add-text-layer-node"]');
+    await session.waitForElement('[data-testid="text-layer-editor"]', 5_000);
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return document.querySelector('[data-testid="text-layer-remove-0"]')?.disabled ?? false;`,
+        ),
+        true,
+        'text layers: the only line cannot be removed.',
+    );
+    const effectLabels = await session.evaluate<{ heading: string; field: string }>(`
+        const select = document.querySelector('[data-testid="text-layer-block-effect"]');
+        return {
+            heading: select.closest('.text-layer-editor__section')
+                .querySelector('.text-layer-editor__section-title').textContent.trim(),
+            field: select.closest('label').textContent.trim(),
+        };
+    `);
+    assert.match(effectLabels.heading, /Layer-Effekt|Layer effect/u);
+    assert.match(effectLabels.field, /Anfang|Start/u);
+    const selectAppearance = await session.evaluate<{
+        nativeAppearance: string;
+        hasCustomCaret: boolean;
+        rightPadding: number;
+    }>(`
+        const select = document.querySelector('[data-testid="text-layer-font"]');
+        const style = getComputedStyle(select);
+        return {
+            nativeAppearance: style.appearance,
+            hasCustomCaret: style.backgroundImage !== 'none',
+            rightPadding: parseFloat(style.paddingRight),
+        };
+    `);
+    assert.equal(selectAppearance.nativeAppearance, 'none');
+    assert.equal(selectAppearance.hasCustomCaret, true);
+    assert.ok(selectAppearance.rightPadding >= 38);
+    await session.select('[data-testid="text-layer-block-effect"]', 'fly');
+    const blockEffectControls = await session.evaluate<{
+        durationUnitRight: boolean;
+        directionPrefixLeft: boolean;
+        consistentFontSize: boolean;
+    }>(`
+        const duration = document.querySelector('[data-testid="text-layer-block-duration"]');
+        const direction = document.querySelector('[data-testid="text-layer-block-direction"]');
+        const unit = duration.nextElementSibling;
+        const prefix = direction.previousElementSibling;
+        const fontSize = getComputedStyle(
+            document.querySelector('[data-testid="text-layer-font"]'),
+        ).fontSize;
+        return {
+            durationUnitRight: unit.textContent.trim() === 'ms' &&
+                unit.getBoundingClientRect().left >= duration.getBoundingClientRect().right,
+            directionPrefixLeft: /von|from/u.test(prefix.textContent.trim()) &&
+                prefix.getBoundingClientRect().right <= direction.getBoundingClientRect().left,
+            consistentFontSize: [
+                '[data-testid="text-layer-block-effect"]',
+                '[data-testid="text-layer-block-duration"]',
+                '[data-testid="text-layer-block-direction"]',
+            ].every((selector) => getComputedStyle(document.querySelector(selector)).fontSize === fontSize),
+        };
+    `);
+    assert.deepEqual(blockEffectControls, {
+        durationUnitRight: true,
+        directionPrefixLeft: true,
+        consistentFontSize: true,
+    });
+    await session.select('[data-testid="text-layer-block-effect"]', 'none');
+    const fontLayout = await session.evaluate<{
+        title: string;
+        sliderHeight: number;
+        selectHeight: number;
+        fieldRows: number;
+        fieldGaps: number[];
+        standardGap: number;
+    }>(`
+        const fields = document.querySelector('.text-layer-editor__fields');
+        const labels = [...fields.querySelectorAll('label')];
+        const slider = document.querySelector('[data-testid="text-layer-size"]');
+        const select = document.querySelector('[data-testid="text-layer-font"]');
+        return {
+            title: fields.querySelector('.text-layer-editor__section-title').textContent.trim(),
+            sliderHeight: slider.getBoundingClientRect().height,
+            selectHeight: select.getBoundingClientRect().height,
+            fieldRows: new Set(labels.map(label => Math.round(label.getBoundingClientRect().top))).size,
+            fieldGaps: labels.slice(1).map((label, index) =>
+                label.getBoundingClientRect().left - labels[index].getBoundingClientRect().right,
+            ),
+            standardGap: parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--space-3')),
+        };
+    `);
+    assert.match(fontLayout.title, /Schriftart|Font/u);
+    assert.equal(fontLayout.sliderHeight, fontLayout.selectHeight);
+    assert.equal(fontLayout.fieldRows, 1, 'text layers: desktop font settings fit in one row.');
+    assert.ok(fontLayout.fieldGaps.every((gap) => Math.abs(gap - fontLayout.standardGap) < 1));
+    const propertyRows = await session.evaluate<{
+        alignment: number;
+        duration: number;
+        font: number;
+        effect: number;
+    }>(`
+        return Object.fromEntries([
+            ['alignment', '.layer-alignment-field'],
+            ['duration', '.layer-playback-properties'],
+            ['font', '.text-layer-editor__fields'],
+            ['effect', '.text-layer-editor__section--effect'],
+        ].map(([name, selector]) => [
+            name,
+            Math.round(document.querySelector(selector).getBoundingClientRect().top),
+        ]));
+    `);
+    assert.notEqual(propertyRows.alignment, propertyRows.duration);
+    assert.notEqual(propertyRows.font, propertyRows.effect);
+    await session.click('[data-testid="maximize-editor"]');
+    const expandedPropertyRows = await session.evaluate<{
+        alignment: number;
+        duration: number;
+        font: number;
+        effect: number;
+        overflow: boolean;
+    }>(`
+        const panel = document.querySelector('[data-testid="editor-properties-scroll"]');
+        return {
+            alignment: Math.round(document.querySelector('.layer-alignment-field').getBoundingClientRect().top),
+            duration: Math.round(document.querySelector('.layer-playback-properties').getBoundingClientRect().top),
+            font: Math.round(document.querySelector('.text-layer-editor__fields').getBoundingClientRect().top),
+            effect: Math.round(document.querySelector('.text-layer-editor__section--effect').getBoundingClientRect().top),
+            overflow: panel.scrollWidth > panel.clientWidth,
+        };
+    `);
+    assert.equal(expandedPropertyRows.alignment, expandedPropertyRows.duration);
+    assert.equal(expandedPropertyRows.font, expandedPropertyRows.effect);
+    assert.equal(expandedPropertyRows.overflow, false);
+    await session.click('[data-testid="maximize-editor"]');
+    await session.setViewport(1920, 1000);
+    await session.click('[data-testid="maximize-editor"]');
+    const widePropertyRow = await session.evaluate<{
+        top: number[];
+        left: number[];
+        bottom: number[];
+        contentsTopAligned: boolean;
+        effectSelectFillsCell: boolean;
+        overflow: boolean;
+    }>(`
+        const selectors = [
+            '.text-layer-editor__fields',
+            '.layer-alignment-field',
+            '.text-layer-editor__section--effect',
+            '.layer-playback-properties',
+        ];
+        const bounds = selectors.map((selector) =>
+            document.querySelector(selector).getBoundingClientRect(),
+        );
+        const effect = document.querySelector('.text-layer-editor__section--effect');
+        const select = document.querySelector('[data-testid="text-layer-block-effect"]');
+        const padding = getComputedStyle(effect);
+        return {
+            top: bounds.map((rect) => Math.round(rect.top)),
+            left: bounds.map((rect) => Math.round(rect.left)),
+            bottom: bounds.map((rect) => Math.round(rect.bottom)),
+            contentsTopAligned: selectors.every((selector) =>
+                getComputedStyle(document.querySelector(selector)).alignContent === 'start',
+            ) && getComputedStyle(
+                document.querySelector('.layer-playback-properties'),
+            ).alignItems === 'start',
+            effectSelectFillsCell: Math.abs(
+                select.getBoundingClientRect().width -
+                (effect.getBoundingClientRect().width -
+                    parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight) -
+                    parseFloat(padding.borderRightWidth)),
+            ) < 1,
+            overflow: document.querySelector('[data-testid="editor-properties-scroll"]').scrollWidth >
+                document.querySelector('[data-testid="editor-properties-scroll"]').clientWidth,
+        };
+    `);
+    assert.equal(new Set(widePropertyRow.top).size, 1);
+    assert.equal(new Set(widePropertyRow.bottom).size, 1);
+    assert.equal(widePropertyRow.contentsTopAligned, true);
+    assert.deepEqual(
+        widePropertyRow.left,
+        [...widePropertyRow.left].sort((a, b) => a - b),
+    );
+    assert.equal(widePropertyRow.effectSelectFillsCell, true);
+    assert.equal(widePropertyRow.overflow, false);
+    await session.fill('[data-testid="layer-duration"]', '1000');
+    await session.select('[data-testid="text-layer-block-effect"]', 'fly');
+    const effectTimingRows = await session.evaluate<{
+        headingsAligned: boolean;
+        fieldLabelsAligned: boolean;
+        firstControlsAligned: boolean;
+        secondControlsAligned: boolean;
+    }>(`
+        const effect = document.querySelector('.text-layer-editor__section--effect');
+        const timing = document.querySelector('.layer-playback-properties');
+        const sameTop = (first, second) =>
+            Math.abs(first.getBoundingClientRect().top - second.getBoundingClientRect().top) < 1;
+        return {
+            headingsAligned: sameTop(
+                effect.querySelector('.text-layer-editor__section-title'),
+                timing.querySelector('.layer-playback-properties__title'),
+            ),
+            fieldLabelsAligned: sameTop(
+                effect.querySelector('.text-layer-editor__effect > label > span'),
+                timing.querySelector('label > span'),
+            ),
+            firstControlsAligned: sameTop(
+                effect.querySelector('[data-testid="text-layer-block-effect"]'),
+                timing.querySelector('[data-testid="layer-duration"]'),
+            ),
+            secondControlsAligned: sameTop(
+                effect.querySelector('[data-testid="text-layer-block-duration"]'),
+                timing.querySelector('.layer-playback-properties__toggle'),
+            ),
+        };
+    `);
+    assert.deepEqual(effectTimingRows, {
+        headingsAligned: true,
+        fieldLabelsAligned: true,
+        firstControlsAligned: true,
+        secondControlsAligned: true,
+    });
+    await session.select('[data-testid="text-layer-block-effect"]', 'none');
+    await session.fill('[data-testid="layer-duration"]', '0');
+    await session.screenshot(join(outputDirectory, 'text-layer-settings-wide.png'), true);
+    await session.click('[data-testid="maximize-editor"]');
+    await session.setViewport(390, 844);
+    await session.click('[data-testid="mobile-editor-tab"]');
+    const mobileFontLayout = await session.evaluate<{
+        rows: number;
+        overflow: boolean;
+        maxWidthFieldRatio: number;
+    }>(`
+        const fields = document.querySelector('.text-layer-editor__fields');
+        const labels = [...fields.querySelectorAll('label')];
+        return {
+            rows: new Set(labels.map(label => Math.round(label.getBoundingClientRect().top))).size,
+            overflow: fields.scrollWidth > fields.clientWidth,
+            maxWidthFieldRatio: labels[4].getBoundingClientRect().width / fields.clientWidth,
+        };
+    `);
+    assert.equal(mobileFontLayout.rows, 2, 'text layers: mobile font settings use two rows.');
+    assert.equal(mobileFontLayout.overflow, false);
+    assert.ok(mobileFontLayout.maxWidthFieldRatio < 0.4);
+    const mobileLineLayout = await session.evaluate<{ contentRow: boolean; optionRow: boolean }>(`
+        const line = document.querySelector('.text-layer-editor__line-fields');
+        const text = line.querySelector('[data-testid="text-layer-line-0"]');
+        const color = line.querySelector('input[type="color"]');
+        const options = line.querySelector('.text-layer-editor__line-options');
+        return {
+            contentRow: Math.round(text.getBoundingClientRect().top) ===
+                Math.round(color.getBoundingClientRect().top),
+            optionRow: new Set([...options.children].map((element) =>
+                Math.round(element.getBoundingClientRect().top),
+            )).size === 1,
+        };
+    `);
+    assert.deepEqual(mobileLineLayout, { contentRow: true, optionRow: true });
+    await session.screenshot(join(outputDirectory, 'text-layer-font-mobile.png'), true);
+    await session.setViewport(1440, 1000);
+    await session.select('[data-testid="text-layer-effect-0"]', 'fly');
+    const narrowLineLayout = await session.evaluate<{ settingsBelow: boolean }>(`
+        const options = document.querySelector('.text-layer-editor__line-options');
+        return {
+            settingsBelow: options.querySelector('.text-layer-editor__effect').getBoundingClientRect().top >
+                options.querySelector('select').getBoundingClientRect().top,
+        };
+    `);
+    assert.equal(narrowLineLayout.settingsBelow, true);
+    await session.click('[data-testid="maximize-editor"]');
+    const wideLineLayout = await session.evaluate<{
+        controlsBottomAligned: boolean;
+        settingsToRight: boolean;
+        overflow: boolean;
+    }>(`
+        const options = document.querySelector('.text-layer-editor__line-options');
+        const bounds = [...options.children].map((element) => element.getBoundingClientRect());
+        const effectSelect = options.querySelector('[data-testid="text-layer-effect-0"]');
+        const duration = options.querySelector('[data-testid="text-layer-line-duration-0"]');
+        const direction = options.querySelector('[data-testid="text-layer-line-direction-0"]');
+        const rowBottom = effectSelect.getBoundingClientRect().bottom;
+        const panel = document.querySelector('[data-testid="editor-properties-scroll"]');
+        return {
+            controlsBottomAligned: [duration, direction].every((control) =>
+                Math.abs(control.getBoundingClientRect().bottom - rowBottom) < 1,
+            ),
+            settingsToRight: bounds[2].left > bounds[1].left,
+            overflow: panel.scrollWidth > panel.clientWidth,
+        };
+    `);
+    assert.deepEqual(wideLineLayout, {
+        controlsBottomAligned: true,
+        settingsToRight: true,
+        overflow: false,
+    });
+    await session.screenshot(join(outputDirectory, 'text-layer-line-wide.png'), true);
+    await session.click('[data-testid="maximize-editor"]');
+    await session.select('[data-testid="text-layer-effect-0"]', 'none');
+    await session.fill('[data-testid="text-layer-line-0"]', 'Guess');
+    const addLineControl = await session.evaluate<{
+        centered: boolean;
+        iconOnly: boolean;
+        named: boolean;
+    }>(`
+        const button = document.querySelector('[data-testid="text-layer-add-line"]');
+        const section = button.closest('.text-layer-editor__section');
+        const buttonBounds = button.getBoundingClientRect();
+        const sectionBounds = section.getBoundingClientRect();
+        return {
+            centered: Math.abs(
+                (buttonBounds.left + buttonBounds.right) / 2 -
+                (sectionBounds.left + sectionBounds.right) / 2,
+            ) < 1,
+            iconOnly: Boolean(button.querySelector('.bi-plus')) && !button.textContent.trim(),
+            named: Boolean(button.getAttribute('aria-label')),
+        };
+    `);
+    assert.deepEqual(addLineControl, { centered: true, iconOnly: true, named: true });
+    await session.click('[data-testid="text-layer-add-line"]');
+    await session.waitForCount('.text-layer-editor__line', 2, 5_000);
+    const colorField = await session.evaluate<{
+        colorHeight: number;
+        selectHeight: number;
+        colorPadding: string;
+    }>(`
+        const color = document.querySelector('.text-layer-editor__line-content input[type="color"]');
+        const select = document.querySelector('.text-layer-editor__line-options select');
+        return {
+            colorHeight: color.getBoundingClientRect().height,
+            selectHeight: select.getBoundingClientRect().height,
+            colorPadding: getComputedStyle(color).paddingTop,
+        };
+    `);
+    assert.equal(colorField.colorHeight, colorField.selectHeight);
+    assert.equal(colorField.colorPadding, '0px');
+    const lineActions = await session.evaluate<{ deleteInHeader: boolean; moveButtons: number }>(`
+        const line = document.querySelectorAll('.text-layer-editor__line')[1];
+        return {
+            deleteInHeader: Boolean(line.querySelector('summary [data-testid="text-layer-remove-1"]')),
+            moveButtons: line.querySelectorAll('.text-layer-editor__line-fields button').length,
+        };
+    `);
+    assert.deepEqual(lineActions, { deleteInHeader: true, moveButtons: 0 });
+    await session.evaluate(`document.querySelectorAll('.text-layer-editor__line')[1].open = true;`);
+    await session.fill('[data-testid="text-layer-line-1"]', 'The price');
+    await session.fill('[data-testid="text-layer-offset-1"]', '500');
+    await session.select('[data-testid="text-layer-effect-1"]', 'fly');
+    const lineEffectControls = await session.evaluate<{
+        durationUnitRight: boolean;
+        directionPrefixLeft: boolean;
+    }>(`
+        const duration = document.querySelector('[data-testid="text-layer-line-duration-1"]');
+        const direction = document.querySelector('[data-testid="text-layer-line-direction-1"]');
+        const unit = duration.nextElementSibling;
+        const prefix = direction.previousElementSibling;
+        return {
+            durationUnitRight: unit.textContent.trim() === 'ms' &&
+                unit.getBoundingClientRect().left >= duration.getBoundingClientRect().right,
+            directionPrefixLeft: /von|from/u.test(prefix.textContent.trim()) &&
+                prefix.getBoundingClientRect().right <= direction.getBoundingClientRect().left,
+        };
+    `);
+    assert.deepEqual(lineEffectControls, {
+        durationUnitRight: true,
+        directionPrefixLeft: true,
+    });
+    await session.drag('[data-testid="text-layer-drag-1"]', '[data-testid="text-layer-drag-0"]');
+    const reorderedLines = await session.evaluate<{
+        text: string[];
+        offsets: string[];
+    }>(`
+        return {
+            text: [...document.querySelectorAll('.text-layer-editor__line summary')]
+                .map((summary) => summary.textContent?.trim() ?? ''),
+            offsets: [...document.querySelectorAll('[data-testid^="text-layer-offset-"]')]
+                .map((input) => input.value),
+        };
+    `);
+    assert.deepEqual(reorderedLines.text, ['The price', 'Guess']);
+    assert.deepEqual(reorderedLines.offsets, ['500']);
+    await session.drag('[data-testid="text-layer-drag-0"]', '[data-testid="text-layer-drag-1"]');
+    await session.click('[data-testid="text-layer-add-line"]');
+    await session.waitForCount('.text-layer-editor__line', 3, 5_000);
+    await session.click('[data-testid="text-layer-remove-2"]');
+    await session.waitForCount('.text-layer-editor__line', 2, 5_000);
+    await session.fill('[data-testid="placement-offset-x"]', '5');
+    await session.fill('[data-testid="placement-offset-y"]', '10');
+    await session.click('[data-testid="play-node-current"]');
+    await session.switchFrame('.preview-viewport iframe');
+    await session.waitForElement('.text-layer', 5_000);
+    const textPreview = await session.evaluate<{
+        id: string;
+        lines: string[];
+        anchorLeft: number;
+        anchorTop: number;
+        width: number;
+        height: number;
+    }>(`
+        const layer = document.querySelector('.text-layer');
+        const anchor = layer?.closest('.director-layer__anchor');
+        return {
+            id: layer?.id ?? '',
+            lines: [...(layer?.querySelectorAll('.text-layer__line') ?? [])]
+                .map((line) => line.textContent ?? ''),
+            anchorLeft: anchor?.getBoundingClientRect().left ?? -1,
+            anchorTop: anchor?.getBoundingClientRect().top ?? -1,
+            width: window.innerWidth,
+            height: window.innerHeight,
+        };
+    `);
+    assert.match(textPreview.id, /^tl-[a-z0-9]+$/u);
+    assert.deepEqual(textPreview.lines, ['Guess', 'The price']);
+    assert.ok(Math.abs(textPreview.anchorLeft - textPreview.width * 0.05) < 1);
+    assert.ok(Math.abs(textPreview.anchorTop - textPreview.height * 0.1) < 1);
+    await session.switchFrame();
+    await session.fill('[data-testid="layer-duration"]', '300');
+    await session.waitForElement('.layer-duration-warning', 5_000);
+    const durationWarning = await session.evaluate<{
+        beneathName: boolean;
+        outsideTiming: boolean;
+        small: boolean;
+        described: boolean;
+        matchesDeleteColor: boolean;
+        timingRowsUnchanged: boolean;
+    }>(`
+        const warning = document.querySelector('.layer-duration-warning');
+        const input = document.querySelector('[data-testid="layer-duration"]');
+        const name = document.querySelector('[data-testid="node-name"]');
+        const toggle = document.querySelector('.layer-playback-properties__toggle');
+        return {
+            beneathName: warning.closest('.panel__header--editor') !== null &&
+                warning.getBoundingClientRect().top >= name.getBoundingClientRect().bottom,
+            outsideTiming: warning.closest('.layer-playback-properties') === null,
+            small: parseFloat(getComputedStyle(warning).fontSize) <= 10,
+            described: input.getAttribute('aria-describedby') === warning.id,
+            matchesDeleteColor: getComputedStyle(warning).color === getComputedStyle(
+                document.querySelector('[data-testid="delete-node"]'),
+            ).color,
+            timingRowsUnchanged: Math.abs(
+                toggle.getBoundingClientRect().top - input.getBoundingClientRect().bottom -
+                parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--space-2')),
+            ) < 1,
+        };
+    `);
+    assert.deepEqual(durationWarning, {
+        beneathName: true,
+        outsideTiming: true,
+        small: true,
+        described: true,
+        matchesDeleteColor: true,
+        timingRowsUnchanged: true,
+    });
+    await session.screenshot(join(outputDirectory, 'text-layer-editor.png'), true);
+    await session.evaluate(`
+        document.querySelector('.text-layer-editor__line')?.scrollIntoView({ block: 'start' });
+    `);
+    await session.screenshot(join(outputDirectory, 'text-layer-lines.png'), true);
+    const convertControl = await session.evaluate<{
+        beforeDelete: boolean;
+        icon: boolean;
+        footerRemoved: boolean;
+    }>(`
+        const convert = document.querySelector('[data-testid="text-layer-convert"]');
+        const deleteButton = document.querySelector('[data-testid="delete-node"]');
+        return {
+            beforeDelete: convert.getBoundingClientRect().right <= deleteButton.getBoundingClientRect().left,
+            icon: Boolean(convert.querySelector('.bi-code')),
+            footerRemoved: !document.querySelector('.text-layer-editor__footer'),
+        };
+    `);
+    assert.deepEqual(convertControl, { beforeDelete: true, icon: true, footerRemoved: true });
+    await session.evaluate(`
+        window.__originalConfirm = window.confirm;
+        window.confirm = () => {
+            window.__nativeConfirmCalls = (window.__nativeConfirmCalls ?? 0) + 1;
+            return false;
+        };
+    `);
+    await session.click('[data-testid="text-layer-convert"]');
+    await session.waitForElement('[data-testid="action-dialog-backdrop"]', 5_000);
+    const dialogAppearance = await session.evaluate<{
+        modal: boolean;
+        blurred: boolean;
+        closeIsGhost: boolean;
+        cancelFocused: boolean;
+        nativeConfirmCalls: number;
+    }>(`
+        const backdrop = document.querySelector('[data-testid="action-dialog-backdrop"]');
+        const close = document.querySelector('[data-testid="action-dialog-close"]');
+        return {
+            modal: backdrop.querySelector('[role="dialog"]').getAttribute('aria-modal') === 'true',
+            blurred: getComputedStyle(backdrop).backdropFilter.includes('blur'),
+            closeIsGhost: getComputedStyle(close).backgroundColor === 'rgba(0, 0, 0, 0)',
+            cancelFocused: document.activeElement?.dataset.testid === 'action-dialog-cancel',
+            nativeConfirmCalls: window.__nativeConfirmCalls ?? 0,
+        };
+    `);
+    assert.deepEqual(dialogAppearance, {
+        modal: true,
+        blurred: true,
+        closeIsGhost: true,
+        cancelFocused: true,
+        nativeConfirmCalls: 0,
+    });
+    await session.screenshot(join(outputDirectory, 'text-layer-convert-dialog.png'), true);
+    await session.click('[data-testid="action-dialog-close"]');
+    await session.waitForState('[data-testid="action-dialog-backdrop"]', 'absent', 5_000);
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return Boolean(document.querySelector('[data-testid="text-layer-editor"]'));`,
+        ),
+        true,
+        'text layers: cancelling conversion must keep the visual editor.',
+    );
+    await session.click('[data-testid="text-layer-convert"]');
+    await session.waitForElement('[data-testid="action-dialog-backdrop"]', 5_000);
+    await session.evaluate(`
+        document.querySelector('[data-testid="action-dialog-backdrop"]')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    `);
+    await session.waitForState('[data-testid="action-dialog-backdrop"]', 'absent', 5_000);
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return Boolean(document.querySelector('[data-testid="text-layer-editor"]'));`,
+        ),
+        true,
+    );
+    await session.click('[data-testid="text-layer-convert"]');
+    await session.click('[data-testid="action-dialog-cancel"]');
+    await session.waitForState('[data-testid="action-dialog-backdrop"]', 'absent', 5_000);
+    await session.click('[data-testid="text-layer-convert"]');
+    await session.evaluate(`
+        document.activeElement.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        );
+    `);
+    await session.waitForState('[data-testid="action-dialog-backdrop"]', 'absent', 5_000);
+    await session.click('[data-testid="text-layer-convert"]');
+    await session.click('[data-testid="action-dialog-confirm"]');
+    await session.waitForElement('.source-editor textarea', 5_000);
+    await session.evaluate(
+        `window.confirm = window.__originalConfirm; delete window.__originalConfirm;`,
+    );
+    assert.match(
+        (await session.state('.source-editor textarea')).value ?? '',
+        /text-layer__line--the-price/u,
+        'nodes: conversion must keep readable generated markup.',
+    );
+    await session.click('[data-testid="delete-node"]');
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
+
+    await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-browser"]');
     await session.click('[data-testid="add-browser-action-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.fill('[data-testid="browser-action-selector"]', '#open-camera');
@@ -141,6 +766,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-browser"]');
     await session.click('[data-testid="add-browser-wait-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.fill('[data-testid="browser-wait-selector"]', '#camera-ready');

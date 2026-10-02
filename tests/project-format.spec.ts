@@ -336,6 +336,8 @@ test('Director-Projektformat speichert Viewport-, Layer- und DOM-Bezugsflächen'
     });
     const dom = ProjectNodes.createLayer(project, 'DOM');
     dom.placement.reference = { type: 'dom', selector: '#price-card' };
+    dom.placement.offsetXPercent = -5;
+    dom.placement.offsetYPercent = 10;
     project.nodes.push(dom);
     project.connections.push({ id: `${child.id}--${dom.id}`, source: child.id, target: dom.id });
 
@@ -345,6 +347,14 @@ test('Director-Projektformat speichert Viewport-, Layer- und DOM-Bezugsflächen'
         loaded.nodes.filter((node) => node.type === 'layer').map((node) => node.placement),
         [parent.placement, child.placement, dom.placement],
     );
+});
+
+test('Layer offsets must stay within the reference rectangle percentage range', () => {
+    const project = ProjectFormat.create();
+    const layer = project.nodes.find((node) => node.type === 'layer')!;
+    layer.placement.offsetYPercent = 101;
+
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /invalid placement/u);
 });
 
 test('Director-Projektformat lehnt unbekannte Parent-Layer ab', () => {
@@ -418,6 +428,7 @@ test('Lokale Vorschau verwendet den konfigurierten Datei-Input als virtuelle Kam
             mode: 'workflow',
             inputs: [],
             cameraInputId: 'camera',
+            globalStylesheetInputIds: [],
             website: project.nodes.find((node) => node.type === 'website')!,
             resetWebsite: true,
             steps: [],

@@ -5,6 +5,7 @@ interface PreviewRuntimeScriptValues {
     readonly executionId: number | null;
     readonly inputs: Readonly<Record<string, string>>;
     readonly cameraInputId: string | null;
+    readonly globalStylesheetInputIds: readonly string[];
 }
 
 export function renderPreviewRuntimeScript(values: PreviewRuntimeScriptValues): string {
@@ -13,12 +14,14 @@ const steps = ${JSON.stringify(values.steps)};
 const initialExecutionId = ${JSON.stringify(values.executionId)};
 const inputs = ${JSON.stringify(values.inputs)};
 const cameraInputId = ${JSON.stringify(values.cameraInputId)};
+let globalStylesheetInputIds = ${JSON.stringify(values.globalStylesheetInputIds)};
 const overlays = document.querySelector('#director-overlays') || (() => {
     const host = document.createElement('div');
     host.id = 'director-overlays';
     document.documentElement.append(host);
     return host;
 })();
+let globalStylesHost = null;
 const website = document.querySelector('.director-website');
 let activeController = new AbortController();
 let stepControllers = new Map();
@@ -26,6 +29,7 @@ const results = {};
 const referenceRects = new Map();
 const activeAudio = new Map();
 const audioBuffers = new Map();
+const globalStylesheets = new Map();
 let audioContext = null;
 let eventSequence = 0;
 let activeRun = null;
@@ -184,8 +188,8 @@ function referenceRect(reference) {
 function placeAnchor(step, anchor) {
     const rect = referenceRect(step.placement.reference);
     Object.assign(anchor.style, {
-        left: rect.left + 'px',
-        top: rect.top + 'px',
+        left: rect.left + rect.width * (step.placement.offsetXPercent || 0) / 100 + 'px',
+        top: rect.top + rect.height * (step.placement.offsetYPercent || 0) / 100 + 'px',
         width: rect.width + 'px',
         height: rect.height + 'px',
     });
@@ -201,7 +205,7 @@ function trackLayer(step, layer, anchor) {
     requestAnimationFrame(update);
 }
 
-function mountLayer(step) {
+async function mountLayer(step) {
     unmountLayer(step);
     const layer = document.createElement('div');
     layer.className = 'director-layer';
@@ -218,6 +222,25 @@ function mountLayer(step) {
     const style = document.createElement('style');
     style.dataset.directorNode = step.id;
     style.textContent = step.css;
+
+    if (step.fontInputId) {
+        const source = inputs[step.fontInputId];
+
+        if (!source) {
+            throw new Error('The selected project font is missing.');
+        }
+
+        const family = 'Director Font ' + step.fontInputId.replace(/[^a-zA-Z0-9_-]/g, '-');
+        style.textContent = '@font-face { font-family: "' + family + '"; src: url("' + source + '"); }\\n' + step.css;
+        overlays.append(style);
+
+        try {
+            await document.fonts.load('16px "' + family + '"');
+        } catch (error) {
+            style.remove();
+            throw error;
+        }
+    }
     const anchor = document.createElement('div');
     anchor.className = 'director-layer__anchor';
     anchor.dataset.horizontal = step.placement.horizontal;
@@ -425,7 +448,7 @@ async function execute(step, signal = activeController.signal) {
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
     if (step.type === 'audio') return playAudio(step, signal);
     if (step.type === 'layer' && step.placement.reference.type === 'dom') await websiteReady;
-    const root = step.type === 'layer' ? mountLayer(step) : null;
+    const root = step.type === 'layer' ? await mountLayer(step) : null;
     if (step.type === 'layer') {
         signal.addEventListener('abort', () => unmountLayer(step), { once: true });
     }
@@ -518,6 +541,60 @@ function remove(nodeId) {
 
 function setInputs(nextInputs) {
     Object.assign(inputs, nextInputs);
+}
+
+function setGlobalStylesheetInputIds(inputIds) {
+    globalStylesheetInputIds = [...inputIds];
+
+    for (const [inputId, current] of globalStylesheets) {
+        if (!globalStylesheetInputIds.includes(inputId)) {
+            current.element.remove();
+            globalStylesheets.delete(inputId);
+        }
+    }
+}
+
+async function installGlobalStylesheets() {
+    if (globalStylesheetInputIds.length === 0) {
+        return;
+    }
+
+    if (!globalStylesHost) {
+        globalStylesHost = document.createElement('div');
+        globalStylesHost.id = 'director-global-styles';
+        overlays.prepend(globalStylesHost);
+    }
+
+    for (const inputId of globalStylesheetInputIds) {
+        const source = inputs[inputId];
+
+        if (!source) {
+            throw new Error('The global stylesheet is missing: ' + inputId);
+        }
+
+        const current = globalStylesheets.get(inputId);
+
+        if (current?.source === source) {
+            continue;
+        }
+
+        const response = await fetch(source);
+
+        if (!response.ok) {
+            throw new Error('The global stylesheet could not be loaded: ' + inputId);
+        }
+
+        const style = document.createElement('style');
+        style.dataset.directorStylesheet = inputId;
+        style.textContent = await response.text();
+        if (current) {
+            current.element.replaceWith(style);
+        } else {
+            globalStylesHost.append(style);
+        }
+
+        globalStylesheets.set(inputId, { source, element: style });
+    }
 }
 
 function report(executionId, nodeId, status, error) {
@@ -618,6 +695,10 @@ async function run(nextSteps, executionId = null, options = {}) {
     };
     activeRun = runState;
     try {
+        if (nextSteps.length > 0) {
+            await installGlobalStylesheets();
+        }
+
         await preloadAudio(nextSteps);
         if (runState.recording) {
             if (!options.clockUrl) throw new TypeError('Recording clock URL is missing.');
@@ -741,6 +822,7 @@ window.__director = Object.freeze({
     stopAudio,
     remove,
     setInputs,
+    setGlobalStylesheetInputIds,
     ready,
 });
 ready.catch(showError);

@@ -35,15 +35,14 @@
     text-transform: uppercase;
 }
 
-.automation-properties select,
-.layer-placement-properties select,
-.placement-reference-select {
+.editor-panel select {
     appearance: none;
     padding-right: 38px;
     background-image: var(--select-chevron);
     background-repeat: no-repeat;
     background-position: right 13px center;
     background-size: 13px 13px;
+    cursor: pointer;
 }
 
 .icon-button:disabled {

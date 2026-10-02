@@ -69,6 +69,8 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         groupsAdjacent: boolean;
         label: string;
         maximizeRightGap: number;
+        offsetsInline: boolean;
+        offsetInputWidth: number;
     }>(`
         const field = document.querySelector('.layer-alignment-field');
         const controls = field.querySelector('.layer-alignment-controls');
@@ -85,6 +87,9 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
             const bounds = button.getBoundingClientRect();
             return { width: bounds.width, height: bounds.height };
         });
+        const offsetControls = controls.querySelector('.layer-offset-controls');
+        const offsetBounds = offsetControls.getBoundingClientRect();
+        const offsetInputWidth = offsetControls.querySelector('input').getBoundingClientRect().width;
         return {
             referenceOptions: [...placementControl.options].map((option) => option.value),
             buttonsSquare: buttons.every((button) => {
@@ -97,6 +102,10 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
                 verticalBounds.left - horizontalBounds.right <= 10,
             label: field.firstElementChild.textContent.trim(),
             maximizeRightGap: headerBounds.right - maximizeBounds.right,
+            offsetsInline:
+                offsetBounds.left > verticalBounds.right &&
+                Math.abs(offsetBounds.bottom - verticalBounds.bottom) < 2,
+            offsetInputWidth,
         };
     `);
     assert.deepEqual(
@@ -114,11 +123,35 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         true,
         'placement: horizontal and vertical groups must sit next to each other.',
     );
+    assert.equal(
+        alignmentGeometry.offsetsInline,
+        true,
+        'placement: X/Y offsets must share the desktop alignment row.',
+    );
+    assert.ok(
+        alignmentGeometry.offsetInputWidth <= 55,
+        'placement: X/Y offset inputs should remain compact.',
+    );
     assert.match(
         alignmentGeometry.label,
-        /Ausrichtung|Alignment/u,
+        /Layer-Ausrichtung|Layer alignment/u,
         'placement: the positioning options need one shared group label.',
     );
+    const fieldLabels = await session.evaluate<{
+        reference: string;
+        offsets: string[];
+        timing: string;
+    }>(`
+        return {
+            reference: document.querySelector('.layer-reference-field > span').textContent.trim(),
+            offsets: [...document.querySelectorAll('.layer-offset-controls label > span:first-child')]
+                .map((label) => label.textContent.trim()),
+            timing: document.querySelector('.layer-playback-properties__title').textContent.trim(),
+        };
+    `);
+    assert.match(fieldLabels.reference, /Positionsquelle|Position source/u);
+    assert.deepEqual(fieldLabels.offsets, ['X', 'Y']);
+    assert.equal(fieldLabels.timing, 'Timing');
     assert.ok(
         alignmentGeometry.maximizeRightGap >= 8 && alignmentGeometry.maximizeRightGap <= 12,
         `placement: maximize needs the standard right inset (${alignmentGeometry.maximizeRightGap}px).`,

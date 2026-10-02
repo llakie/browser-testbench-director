@@ -8,6 +8,7 @@ import { positionFlyout } from '../core/flyout-position.js';
 import { ProjectAssets } from '../core/project-assets.js';
 import { ProjectNodes } from '../core/project-nodes.js';
 import { SourceFormatter } from '../core/source-formatter.js';
+import { TextLayerSource } from '../core/text-layer-source.js';
 import type {
     DirectorNode,
     BrowserPermission,
@@ -131,6 +132,10 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             return ProjectNodes.createLayer(this.project, this.t('node.defaultLayerName'));
         }
 
+        if (type === 'text-layer') {
+            return ProjectNodes.createTextLayer(this.project, this.t('node.defaultTextLayerName'));
+        }
+
         if (type === 'javascript') {
             return ProjectNodes.createJavaScript(
                 this.project,
@@ -163,7 +168,11 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         return ProjectNodes.createBrowserWait(this.project, this.t('node.defaultBrowserWaitName'));
     },
     duplicateActiveNode(): void {
-        if (!this.activeNode || this.executionRunning) {
+        if (
+            !this.activeNode ||
+            !ProjectNodes.canDuplicate(this.activeNode) ||
+            this.executionRunning
+        ) {
             return;
         }
 
@@ -222,6 +231,36 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         this.markExecutionDirty();
         this.renderGraph();
         this.showNotice(this.t('node.deleted', { name: deleted.name }));
+    },
+    convertActiveTextLayer(): void {
+        const layer = this.activeLayer;
+
+        if (!layer?.text || this.activeNodeLocked) {
+            return;
+        }
+
+        this.pendingTextLayerConversionId = layer.id;
+    },
+    cancelTextLayerConversion(): void {
+        this.pendingTextLayerConversionId = null;
+    },
+    confirmTextLayerConversion(): void {
+        const layer = this.activeLayer;
+        const requestedId = this.pendingTextLayerConversionId;
+        this.pendingTextLayerConversionId = null;
+
+        if (!layer?.text || layer.id !== requestedId || this.activeNodeLocked) {
+            return;
+        }
+
+        layer.source = TextLayerSource.render(layer.text, layer.id);
+
+        if (layer.text.font === 'project') {
+            layer.fontInputId = layer.text.fontInputId;
+        }
+
+        delete layer.text;
+        this.markActiveNodeStale();
     },
     markDirty(): void {
         this.dirty = true;
@@ -813,7 +852,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
 
         this.activeLayer.placement = {
-            reference: this.activeLayer.placement.reference,
+            ...this.activeLayer.placement,
             horizontal,
             vertical: this.verticalAlignment,
         };
@@ -825,10 +864,24 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
 
         this.activeLayer.placement = {
-            reference: this.activeLayer.placement.reference,
+            ...this.activeLayer.placement,
             horizontal: this.horizontalAlignment,
             vertical,
         };
+        this.markActiveNodeStale();
+    },
+    setLayerOffset(axis: 'x' | 'y', event: Event): void {
+        if (!this.activeLayer) {
+            return;
+        }
+
+        const value = Number((event.target as HTMLInputElement).value);
+
+        if (!Number.isFinite(value)) {
+            return;
+        }
+
+        this.activeLayer.placement[axis === 'x' ? 'offsetXPercent' : 'offsetYPercent'] = value;
         this.markActiveNodeStale();
     },
     toggleDeviceMenu(): void {
@@ -849,6 +902,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     },
     toggleNodeMenu(): void {
         this.nodeMenuOpen = !this.nodeMenuOpen;
+        this.nodeMenuCategory = '';
 
         if (this.nodeMenuOpen) {
             this.positionFlyout('nodeFlyout');
@@ -880,6 +934,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
 
         this.nodeMenuOpen = false;
+        this.nodeMenuCategory = '';
     },
     selectViewportPreset(preset: ViewportPreset): void {
         const presetChanged = preset.id !== this.project.preview.preset;

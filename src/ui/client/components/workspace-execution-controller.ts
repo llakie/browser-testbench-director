@@ -223,12 +223,30 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const audioInputIds = new Set(
             plan.steps.map((step) => step.inputId).filter((id): id is string => Boolean(id)),
         );
+        const fontInputIds = new Set(
+            plan.steps
+                .map((step) =>
+                    step.node.type === 'layer'
+                        ? (step.node.fontInputId ??
+                          (step.node.text?.font === 'project'
+                              ? step.node.text.fontInputId
+                              : undefined))
+                        : undefined,
+                )
+                .filter((id): id is string => Boolean(id)),
+        );
 
         for (const input of plan.inputs) {
             this.updateExecution(runId, input.id, 'running');
             const file = this.inputFiles[input.id];
 
-            if (!file && (input.required || audioInputIds.has(input.id))) {
+            if (
+                !file &&
+                (input.required ||
+                    audioInputIds.has(input.id) ||
+                    fontInputIds.has(input.id) ||
+                    plan.globalStylesheetInputIds.includes(input.id))
+            ) {
                 throw new Error(this.t('input.missing', { name: input.name }));
             }
 
@@ -254,11 +272,29 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const audioInputIds = new Set(
             plan.steps.map((step) => step.inputId).filter((id): id is string => Boolean(id)),
         );
+        const fontInputIds = new Set(
+            plan.steps
+                .map((step) =>
+                    step.node.type === 'layer'
+                        ? (step.node.fontInputId ??
+                          (step.node.text?.font === 'project'
+                              ? step.node.text.fontInputId
+                              : undefined))
+                        : undefined,
+                )
+                .filter((id): id is string => Boolean(id)),
+        );
 
         for (const input of plan.inputs) {
             const file = this.inputFiles[input.id];
 
-            if (!file && (input.required || audioInputIds.has(input.id))) {
+            if (
+                !file &&
+                (input.required ||
+                    audioInputIds.has(input.id) ||
+                    fontInputIds.has(input.id) ||
+                    plan.globalStylesheetInputIds.includes(input.id))
+            ) {
                 throw new Error(this.t('input.missing', { name: input.name }));
             }
 
@@ -326,6 +362,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             await runtime.ready;
         } else {
             runtime.setInputs(this.inputData);
+            runtime.setGlobalStylesheetInputIds(plan.globalStylesheetInputIds);
             await runtime.run(PreviewDocument.runtimeSteps(plan), runId);
         }
 
@@ -346,8 +383,19 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             snapshot = {
                 ...snapshot,
                 website: previous.website,
-                inputs: previous.inputs,
+                inputs: [
+                    ...previous.inputs,
+                    ...snapshot.inputs.filter(
+                        (input) => !previous.inputs.some((existing) => existing.id === input.id),
+                    ),
+                ],
                 cameraInputId: previous.cameraInputId,
+                globalStylesheetInputIds: [
+                    ...new Set([
+                        ...previous.globalStylesheetInputIds,
+                        ...snapshot.globalStylesheetInputIds,
+                    ]),
+                ],
                 resetWebsite: true,
                 steps: [...previous.steps, ...snapshot.steps],
             };

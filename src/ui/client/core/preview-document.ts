@@ -10,6 +10,7 @@ export class PreviewDocument {
             mode: 'node',
             inputs: [],
             cameraInputId: null,
+            globalStylesheetInputIds: [],
             website: websiteUrl
                 ? {
                       id: 'website-root',
@@ -38,6 +39,7 @@ export class PreviewDocument {
             executionId,
             inputs,
             cameraInputId: plan.cameraInputId,
+            globalStylesheetInputIds: plan.globalStylesheetInputIds,
         });
 
         return renderPreviewShellTemplate({
@@ -131,6 +133,9 @@ export class PreviewDocument {
             css: step.node.source.css,
             placement: step.node.placement,
             playback: step.node.playback,
+            ...(step.node.fontInputId || step.node.text?.font === 'project'
+                ? { fontInputId: step.node.fontInputId ?? step.node.text!.fontInputId }
+                : {}),
         };
     }
 

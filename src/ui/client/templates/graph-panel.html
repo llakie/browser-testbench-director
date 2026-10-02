@@ -5,7 +5,7 @@
                 <div
                     data-workspace-ref="nodeFlyout"
                     class="action-flyout"
-                    @keydown.esc.stop.prevent="nodeMenuOpen = false"
+                    @keydown.esc.stop.prevent="nodeMenuCategory ? nodeMenuCategory = '' : nodeMenuOpen = false"
                 >
                     <button
                         class="icon-button"
@@ -21,110 +21,159 @@
                         <span class="bi bi-plus-lg" aria-hidden="true"></span>
                     </button>
                     <div v-if="nodeMenuOpen" class="flyout-menu action-flyout__menu" role="menu">
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-input-node"
-                            @click="addNode('input')"
-                        >
-                            <span class="bi bi-file-earmark-arrow-up" aria-hidden="true"></span>
-                            <span>{{ t('node.addInput') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-camera-capability-node"
-                            @click="addNode('camera-capability')"
-                        >
-                            <span class="bi bi-camera-video" aria-hidden="true"></span>
-                            <span>{{ t('node.addCameraCapability') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-layer-node"
-                            @click="addNode('layer')"
-                        >
-                            <span class="bi bi-layers" aria-hidden="true"></span>
-                            <span>{{ t('node.addLayer') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-javascript-node"
-                            @click="addNode('javascript')"
-                        >
-                            <span class="bi bi-braces" aria-hidden="true"></span>
-                            <span>{{ t('node.addJavaScript') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-browser-action-node"
-                            @click="addNode('browser-action')"
-                        >
-                            <span class="bi bi-cursor" aria-hidden="true"></span>
-                            <span>{{ t('node.addBrowserAction') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-browser-wait-node"
-                            @click="addNode('browser-wait')"
-                        >
-                            <span class="bi bi-hourglass-split" aria-hidden="true"></span>
-                            <span>{{ t('node.addBrowserWait') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-merge-node"
-                            @click="addNode('merge')"
-                        >
-                            <span class="bi bi-sign-merge-right" aria-hidden="true"></span>
-                            <span>{{ t('node.addMerge') }}</span>
-                        </button>
-                        <button
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-audio-node"
-                            @click="addNode('audio')"
-                        >
-                            <span class="bi bi-volume-up" aria-hidden="true"></span>
-                            <span>{{ t('node.addAudio') }}</span>
-                        </button>
-                        <button
-                            v-if="!project.nodes.some(node => node.type === 'video-output')"
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="add-video-output-node"
-                            @click="addNode('video-output')"
-                        >
-                            <span class="bi bi-camera-reels" aria-hidden="true"></span>
-                            <span>{{ t('node.addVideoOutput') }}</span>
-                        </button>
-                        <button
-                            v-if="activeNode && !activeWebsite"
-                            class="action-option"
-                            type="button"
-                            role="menuitem"
-                            data-testid="duplicate-node"
-                            @click="duplicateActiveNode"
-                        >
-                            <span class="bi bi-copy" aria-hidden="true"></span>
-                            <span>{{ t('node.duplicate') }}</span>
-                        </button>
+                        <template v-if="!nodeMenuCategory">
+                            <button
+                                v-for="category in ['inputs', 'layers', 'browser', 'flow']"
+                                :key="category"
+                                class="action-option action-option--category"
+                                type="button"
+                                role="menuitem"
+                                :data-testid="`node-category-${category}`"
+                                @click="nodeMenuCategory = category"
+                            >
+                                <span
+                                    :class="['bi', { inputs: 'bi-box-arrow-in-right', layers: 'bi-layers', browser: 'bi-cursor', flow: 'bi-diagram-3' }[category]]"
+                                    aria-hidden="true"
+                                ></span>
+                                <span>{{ t(`node.category.${category}`) }}</span>
+                                <span class="bi bi-chevron-right" aria-hidden="true"></span>
+                            </button>
+                        </template>
+                        <template v-else>
+                            <button
+                                class="action-option action-option--back"
+                                type="button"
+                                role="menuitem"
+                                data-testid="node-category-back"
+                                @click="nodeMenuCategory = ''"
+                            >
+                                <span class="bi bi-chevron-left" aria-hidden="true"></span>
+                                <span>{{ t(`node.category.${nodeMenuCategory}`) }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'inputs'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-input-node"
+                                @click="addNode('input')"
+                            >
+                                <span class="bi bi-file-earmark-arrow-up" aria-hidden="true"></span>
+                                <span>{{ t('node.addInput') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'inputs'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-camera-capability-node"
+                                @click="addNode('camera-capability')"
+                            >
+                                <span class="bi bi-camera-video" aria-hidden="true"></span>
+                                <span>{{ t('node.addCameraCapability') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'layers'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-layer-node"
+                                @click="addNode('layer')"
+                            >
+                                <span class="bi bi-layers" aria-hidden="true"></span>
+                                <span>{{ t('node.addLayer') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'layers'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-text-layer-node"
+                                @click="addNode('text-layer')"
+                            >
+                                <span class="bi bi-fonts" aria-hidden="true"></span>
+                                <span>{{ t('node.addTextLayer') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'browser'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-javascript-node"
+                                @click="addNode('javascript')"
+                            >
+                                <span class="bi bi-braces" aria-hidden="true"></span>
+                                <span>{{ t('node.addJavaScript') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'browser'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-browser-action-node"
+                                @click="addNode('browser-action')"
+                            >
+                                <span class="bi bi-cursor" aria-hidden="true"></span>
+                                <span>{{ t('node.addBrowserAction') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'browser'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-browser-wait-node"
+                                @click="addNode('browser-wait')"
+                            >
+                                <span class="bi bi-hourglass-split" aria-hidden="true"></span>
+                                <span>{{ t('node.addBrowserWait') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'flow'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-merge-node"
+                                @click="addNode('merge')"
+                            >
+                                <span class="bi bi-sign-merge-right" aria-hidden="true"></span>
+                                <span>{{ t('node.addMerge') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'layers'"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-audio-node"
+                                @click="addNode('audio')"
+                            >
+                                <span class="bi bi-volume-up" aria-hidden="true"></span>
+                                <span>{{ t('node.addAudio') }}</span>
+                            </button>
+                            <button
+                                v-if="nodeMenuCategory === 'flow' && !project.nodes.some(node => node.type === 'video-output')"
+                                class="action-option"
+                                type="button"
+                                role="menuitem"
+                                data-testid="add-video-output-node"
+                                @click="addNode('video-output')"
+                            >
+                                <span class="bi bi-camera-reels" aria-hidden="true"></span>
+                                <span>{{ t('node.addVideoOutput') }}</span>
+                            </button>
+                        </template>
                     </div>
                 </div>
+                <button
+                    class="icon-button"
+                    type="button"
+                    data-testid="duplicate-node"
+                    :disabled="!canDuplicateActiveNode || executionRunning"
+                    :aria-label="t('node.duplicate')"
+                    :title="t('node.duplicate')"
+                    @click="duplicateActiveNode"
+                >
+                    <span class="bi bi-copy" aria-hidden="true"></span>
+                </button>
                 <button
                     v-if="activeConnectionId"
                     class="icon-button"

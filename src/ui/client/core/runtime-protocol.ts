@@ -18,6 +18,7 @@ export interface RuntimeStep {
     readonly omitFromRecording?: boolean;
     readonly waitFor?: 'all' | 'any';
     readonly inputId?: string;
+    readonly fontInputId?: string;
     readonly volume?: number;
     readonly envelope?: readonly AudioEnvelopePoint[];
     readonly waitForEnd?: boolean;

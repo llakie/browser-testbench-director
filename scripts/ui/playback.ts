@@ -37,6 +37,68 @@ export async function verifyPlayback(session: RemoteSession): Promise<void> {
     await session.waitForCount('[data-testid="play-workflow"]', 1, 10_000);
 }
 
+export async function verifyGlobalStylesheet(session: RemoteSession): Promise<void> {
+    const project = ProjectFormat.create('Shared stylesheet');
+    const website = project.nodes.find((node) => node.type === 'website')!;
+    website.url = exampleSiteUrl;
+    const first = project.nodes.find((node) => node.type === 'layer')!;
+    first.source.html = '<p class="shared-color" id="shared-first">First</p>';
+    const second = ProjectNodes.createLayer(project, 'Second');
+    second.source.html = '<p class="shared-color" id="shared-second">Second</p>';
+    project.nodes.push(second);
+    project.connections.push({
+        id: `${first.id}--${second.id}`,
+        source: first.id,
+        target: second.id,
+    });
+    project.nodes.unshift({
+        id: 'shared-css',
+        type: 'input',
+        name: 'Shared CSS',
+        position: null,
+        accept: 'text/css',
+        required: false,
+    });
+    project.connections.push({
+        id: 'shared-css--website-root',
+        source: 'shared-css',
+        target: 'website-root',
+    });
+
+    const projectPath = join(outputDirectory, 'shared-stylesheet.btd.json');
+    const cssPath = join(outputDirectory, 'shared-stylesheet.css');
+    await Promise.all([
+        writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
+        writeFile(cssPath, '.shared-color { color: rgb(23, 129, 200); }', 'utf8'),
+    ]);
+    await session.upload('[data-testid="project-file-input"]', projectPath);
+    await session.waitForValue('.project-title input', 'Shared stylesheet', 10_000);
+    await selectGraphNode(session, 'shared-css');
+    await session.waitForElement('[data-testid="project-input-shared-css"]', 5_000);
+    await session.upload('[data-testid="project-input-shared-css"]', cssPath);
+    await selectGraphNode(session, first.id);
+    await session.click('[data-testid="play-node-current"]');
+    await session.switchFrame('.preview-viewport iframe');
+    await session.waitForElement('#shared-first', 5_000);
+    await session.waitForScript(
+        `return getComputedStyle(document.querySelector('#shared-first')).color === 'rgb(23, 129, 200)';`,
+        [],
+        5_000,
+    );
+    await session.switchFrame();
+
+    await playGraphNode(session, second.id);
+    await session.switchFrame('.preview-viewport iframe');
+    await session.waitForElement('#shared-second', 5_000);
+    const colors = await session.evaluate<string[]>(`
+        return ['shared-first', 'shared-second'].map((id) =>
+            getComputedStyle(document.getElementById(id)).color
+        );
+    `);
+    assert.deepEqual(colors, ['rgb(23, 129, 200)', 'rgb(23, 129, 200)']);
+    await session.switchFrame();
+}
+
 export async function verifyExecutionControls(session: RemoteSession): Promise<void> {
     await session.setViewport(1440, 1000);
     const project = ProjectFormat.create('Execution controls');

@@ -306,6 +306,7 @@ export async function verifyCenteredNodeInsertion(session: RemoteSession): Promi
     await session.click('[data-testid="graph-zoom-in"]');
     await session.click('[data-testid="graph-zoom-in"]');
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-browser"]');
     await session.click('[data-testid="add-javascript-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
     const centerOffset = await session.evaluate<{ x: number; y: number }>(`

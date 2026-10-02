@@ -134,6 +134,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
                 ...previewPlan,
                 inputs: workflowPlan.inputs,
                 cameraInputId: workflowPlan.cameraInputId,
+                globalStylesheetInputIds: workflowPlan.globalStylesheetInputIds,
             };
 
             if (this.remotePreviewSessionId) {

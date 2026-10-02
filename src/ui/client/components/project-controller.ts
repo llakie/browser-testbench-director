@@ -6,7 +6,7 @@ import {
 } from '../core/browser-testbench-preview.js';
 import { ProjectAssets } from '../core/project-assets.js';
 import { ProjectFiles } from '../core/project-files.js';
-import { ProjectFormat, type DirectorNode, type DirectorProject } from '../core/project-format.js';
+import { ProjectFormat, type DirectorProject } from '../core/project-format.js';
 import type { WorkspaceMethodMap } from './workspace-model.js';
 
 export const projectMethods: WorkspaceMethodMap = {
@@ -132,9 +132,7 @@ export const projectMethods: WorkspaceMethodMap = {
                 (target: BrowserTestbenchTarget) => target.ready && !target.busy,
             )?.id ??
             '';
-        this.activeNodeId = (this.project.nodes.find(
-            (node: DirectorNode) => node.type === 'layer',
-        ) ?? this.project.nodes[0])!.id;
+        this.activeNodeId = null;
         this.activeSource = 'html';
         this.deviceMenuOpen = false;
         this.mobileMenuOpen = false;

@@ -83,6 +83,18 @@
     padding-block: 0;
 }
 
+.action-option--category {
+    grid-template-columns: 20px minmax(0, 1fr) 12px;
+}
+
+.action-option--category > :last-child {
+    font-size: 10px;
+}
+
+.action-option--back {
+    color: var(--color-text);
+}
+
 .device-option__content {
     display: grid;
     min-width: 0;
@@ -189,7 +201,8 @@
 
 .layer-alignment-field {
     display: grid;
-    align-items: initial;
+    align-content: start;
+    align-items: start;
     gap: var(--space-2);
     flex: 0 0 auto;
     padding: 10px var(--properties-inline-padding);
@@ -204,9 +217,44 @@
 
 .layer-alignment-controls {
     display: flex;
-    align-items: center;
+    align-items: end;
     flex-wrap: wrap;
     gap: var(--space-3);
+}
+
+.layer-offset-controls,
+.layer-offset-controls__value {
+    display: flex;
+    align-items: center;
+    width: fit-content;
+}
+
+.layer-reference-field,
+.layer-offset-controls label {
+    display: grid;
+    gap: var(--space-2);
+    color: var(--color-text-muted);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.layer-offset-controls {
+    gap: var(--space-2);
+}
+
+.layer-offset-controls__value {
+    gap: var(--space-1);
+}
+
+.layer-offset-controls input {
+    width: 3.25rem;
+    height: var(--control-size);
+    padding-inline: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    color: var(--color-text);
+    background: var(--color-surface-inset);
+    font: inherit;
 }
 
 .placement-reference-select {

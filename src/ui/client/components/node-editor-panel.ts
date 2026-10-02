@@ -1,11 +1,12 @@
 import template from '../templates/node-editor-panel.html?raw';
 import { AudioEnvelopeEditor } from './audio-envelope-editor.js';
+import { TextLayerEditor } from './text-layer-editor.js';
 import { defineWorkspaceSection } from './workspace-section.js';
 
 export const NodeEditorPanel = defineWorkspaceSection({
     name: 'NodeEditorPanel',
     template,
-    components: { AudioEnvelopeEditor },
+    components: { AudioEnvelopeEditor, TextLayerEditor },
     bindings: [
         'activeBrowserAction',
         'activeBrowserWait',
@@ -16,6 +17,8 @@ export const NodeEditorPanel = defineWorkspaceSection({
         'activeInputAcceptId',
         'activeJavaScript',
         'activeLayer',
+        'activeTextLayerLatestEnd',
+        'fontInputNodes',
         'activeMerge',
         'activeNode',
         'activeNodeError',
@@ -32,6 +35,7 @@ export const NodeEditorPanel = defineWorkspaceSection({
         'blurInputAccept',
         'browserSessionInputsReady',
         'browserTargetOpening',
+        'convertActiveTextLayer',
         'deleteActiveNode',
         'editorPanelTitle',
         'executionRunning',
@@ -60,6 +64,7 @@ export const NodeEditorPanel = defineWorkspaceSection({
         'selectorPicking',
         'setBrowserWaitCondition',
         'setHorizontalAlignment',
+        'setLayerOffset',
         'setParentLayer',
         'setPlacementReference',
         'setVerticalAlignment',

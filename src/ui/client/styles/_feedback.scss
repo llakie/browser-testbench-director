@@ -69,6 +69,30 @@
     margin-left: auto;
 }
 
+.modal-action-dialog {
+    width: min(440px, 100%);
+}
+
+.modal-action-dialog .modal-action-dialog__close {
+    border-color: transparent;
+    background: transparent;
+}
+
+.modal-action-dialog .modal-action-dialog__close:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--color-surface-soft);
+}
+
+.setup-dialog .modal-action-dialog__message {
+    font-size: 12px;
+}
+
+.modal-action-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+}
+
 .project-settings-group {
     display: grid;
     gap: var(--space-4);

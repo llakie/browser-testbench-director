@@ -1,6 +1,7 @@
 import { defineComponent, markRaw } from 'vue';
 
 import { DirectorTopbar } from './director-topbar.js';
+import { ConfirmDialog } from './confirm-dialog.js';
 import { browserSessionMethods } from './browser-session-controller.js';
 import { GraphPanel } from './graph-panel.js';
 import { McpSetupDialog } from './mcp-setup-dialog.js';
@@ -26,9 +27,11 @@ import type { BrowserTestbenchTarget, RecordingMark } from '../core/browser-test
 import { ExecutionController, type ExecutionSnapshot } from '../core/execution-controller.js';
 import { JointLayerGraph } from '../core/joint-layer-graph.js';
 import { previewOutputSize } from '../core/media-presets.js';
+import { ProjectNodes } from '../core/project-nodes.js';
 import { PreviewAudioPlayback } from '../core/preview-audio-playback.js';
 import { ProjectFiles, type ProjectFileHandle } from '../core/project-files.js';
 import { StagePanGesture, StageZoomGesture } from '../core/stage-zoom-gesture.js';
+import { TextLayerSource } from '../core/text-layer-source.js';
 import { WorkflowPlanner, type WorkflowPlan } from '../core/workflow-planner.js';
 import { WorkflowGraph } from '../core/workflow-graph.js';
 import {
@@ -52,6 +55,7 @@ import { Translator } from '../core/translator.js';
 
 export const EditorWorkspace = defineComponent({
     components: {
+        ConfirmDialog,
         DirectorTopbar,
         GraphPanel,
         McpSetupDialog,
@@ -64,8 +68,7 @@ export const EditorWorkspace = defineComponent({
         const executionController = markRaw(new ExecutionController());
         return {
             project,
-            activeNodeId: (project.nodes.find((node) => node.type === 'layer') ?? project.nodes[0])!
-                .id as string | null,
+            activeNodeId: null as string | null,
             activeConnectionId: null as string | null,
             activeSource: 'html' as SourceType,
             sourceTypes: ['html', 'css', 'javascript'] as SourceType[],
@@ -96,6 +99,7 @@ export const EditorWorkspace = defineComponent({
             mobileActivePanel: 'graph' as WorkspacePanel,
             deviceMenuOpen: false,
             nodeMenuOpen: false,
+            nodeMenuCategory: '',
             viewportPresets,
             browserTargets: [] as BrowserTestbenchTarget[],
             inputFiles: {} as Record<string, File>,
@@ -125,6 +129,7 @@ export const EditorWorkspace = defineComponent({
             mcpSetupOpen: false,
             mobileMenuOpen: false,
             projectSettingsOpen: false,
+            pendingTextLayerConversionId: null as string | null,
             projectPermissionsOpen: false,
             browserPermissions: BROWSER_PERMISSIONS,
             mcpClients: [] as McpClientStatus[],
@@ -143,8 +148,14 @@ export const EditorWorkspace = defineComponent({
 
             return this.project.nodes.find((node) => node.id === this.activeNodeId) ?? null;
         },
+        canDuplicateActiveNode(): boolean {
+            return Boolean(this.activeNode && ProjectNodes.canDuplicate(this.activeNode));
+        },
         activeLayer(): LayerNode | null {
             return this.activeNode?.type === 'layer' ? this.activeNode : null;
+        },
+        activeTextLayerLatestEnd(): number {
+            return this.activeLayer?.text ? TextLayerSource.latestEnd(this.activeLayer.text) : 0;
         },
         activeWebsite(): WebsiteNode | null {
             return this.activeNode?.type === 'website' ? this.activeNode : null;
@@ -185,6 +196,12 @@ export const EditorWorkspace = defineComponent({
         },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');
+        },
+        fontInputNodes(): InputNode[] {
+            const connected = WorkflowGraph.connectedNodeIds(this.project);
+            return this.inputNodes.filter(
+                (input) => connected.has(input.id) && input.accept.includes('font/'),
+            );
         },
         workflowInputNodes(): InputNode[] {
             const connectedNodeIds = WorkflowGraph.connectedNodeIds(this.project);

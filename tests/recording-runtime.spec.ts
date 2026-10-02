@@ -62,6 +62,7 @@ test('Recording preloads and plays native audio exactly like preview, without du
             steps: [],
             executionId: null,
             cameraInputId: null,
+            globalStylesheetInputIds: [],
             inputs: { sound: 'tone.wav' },
         }),
         context,

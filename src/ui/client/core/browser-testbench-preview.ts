@@ -824,12 +824,21 @@ export class BrowserTestbenchPreview {
         );
     }
 
-    private static playerOrigin(): Promise<PlayerOrigin> {
+    private static async playerOrigin(): Promise<PlayerOrigin> {
         if (globalThis.location.protocol === 'http:') {
-            return Promise.resolve({ origin: globalThis.location.origin });
+            return { origin: globalThis.location.origin };
         }
 
-        return this.fetch<PlayerOrigin>('/director-api/player-origin', { method: 'GET' });
+        const player = await this.fetch<PlayerOrigin>('/director-api/player-origin', {
+            method: 'GET',
+        });
+        const origin = new URL(player.origin);
+
+        if (origin.hostname === '0.0.0.0' || origin.hostname === '[::]') {
+            origin.hostname = globalThis.location.hostname;
+        }
+
+        return { origin: origin.origin };
     }
 
     private static waitForDirectorRuntime(sessionId: string): Promise<unknown> {

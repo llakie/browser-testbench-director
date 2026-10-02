@@ -87,6 +87,18 @@
 
         <mcp-setup-dialog :workspace="$root"></mcp-setup-dialog>
         <project-settings-dialog :workspace="$root"></project-settings-dialog>
+        <confirm-dialog
+            :open="Boolean(pendingTextLayerConversionId)"
+            :title="t('textLayer.convert')"
+            :message="t('textLayer.convertConfirm')"
+            :confirm-label="t('textLayer.convertAction')"
+            :cancel-label="t('dialog.cancel')"
+            :close-label="t('dialog.close')"
+            :show-close-button="true"
+            :close-on-backdrop="true"
+            @confirm="confirmTextLayerConversion"
+            @cancel="cancelTextLayerConversion"
+        ></confirm-dialog>
         <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     </div>
 </template>

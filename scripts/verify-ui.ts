@@ -15,7 +15,7 @@ import {
 } from './ui/graph-layout.js';
 import { verifyPlacement } from './ui/layer-placement.js';
 import { verifyNodeEditing } from './ui/node-editing.js';
-import { verifyExecutionControls, verifyPlayback } from './ui/playback.js';
+import { verifyExecutionControls, verifyGlobalStylesheet, verifyPlayback } from './ui/playback.js';
 import { verifyPreviewDevices } from './ui/preview-devices.js';
 import {
     verifyLandscapeDock,
@@ -71,6 +71,7 @@ try {
     await verifyRuntimeDataFlow(browser);
     await verifyCameraSessionConfiguration(browser);
     await verifyExecutionControls(browser);
+    await verifyGlobalStylesheet(browser);
     await verifyPlayback(browser);
     await verifyPlacement(browser);
     await verifyProjectRoundtrip(browser);

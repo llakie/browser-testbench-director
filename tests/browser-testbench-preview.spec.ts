@@ -131,6 +131,47 @@ test('HTTPS-Editor öffnet Remote-Player über den zertifikatsfreien HTTP-Origin
     });
 });
 
+test('Director advertises its LAN host rather than the wildcard listener to remote targets', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    let sessionUrl = '';
+    Object.defineProperty(globalThis, 'location', {
+        value: new URL('https://192.168.1.20:5173/'),
+        configurable: true,
+    });
+    globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+
+        if (url === '/director-api/player-origin') {
+            return Response.json({ origin: 'http://0.0.0.0:61234' });
+        }
+
+        if (url === '/director-api/previews/nodes/layer-1') {
+            return Response.json({ url: '/director-preview/nodes/layer-1/token' });
+        }
+
+        if (url === '/browser-testbench-api/sessions') {
+            sessionUrl = String(JSON.parse(String(init.body)).url);
+        }
+
+        return Response.json({ id: 'session-1' });
+    };
+
+    try {
+        await BrowserTestbenchPreview.open('chrome', 'layer-1', '<!doctype html>');
+    } finally {
+        globalThis.fetch = originalFetch;
+
+        if (originalLocation) {
+            Object.defineProperty(globalThis, 'location', originalLocation);
+        } else {
+            delete (globalThis as { location?: Location }).location;
+        }
+    }
+
+    assert.equal(sessionUrl, 'http://192.168.1.20:61234/director-preview/nodes/layer-1/token');
+});
+
 test('Recording session declares its capability before opening and retains project settings', async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');

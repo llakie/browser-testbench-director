@@ -16,6 +16,7 @@ export interface WorkflowPlan {
     readonly website: WebsiteNode | null;
     readonly inputs: readonly InputNode[];
     readonly cameraInputId: string | null;
+    readonly globalStylesheetInputIds: readonly string[];
     readonly resetWebsite: boolean;
     readonly steps: readonly WorkflowStep[];
 }
@@ -32,6 +33,16 @@ export class WorkflowPlanner {
         const inputs = project.nodes.filter(
             (node): node is InputNode => node.type === 'input' && inputIds.has(node.id),
         );
+        const globalStylesheetInputIds = inputs
+            .filter(
+                (input) =>
+                    input.accept.split(',').some((type) => type.trim() === 'text/css') &&
+                    project.connections.some(
+                        (connection) =>
+                            connection.source === input.id && connection.target === website?.id,
+                    ),
+            )
+            .map((input) => input.id);
         const cameraCapability = project.nodes.find(
             (node) =>
                 node.type === 'capability' &&
@@ -56,6 +67,7 @@ export class WorkflowPlanner {
                 website,
                 inputs: [],
                 cameraInputId: null,
+                globalStylesheetInputIds: [],
                 resetWebsite: true,
                 steps: [],
             };
@@ -68,6 +80,7 @@ export class WorkflowPlanner {
                 website,
                 inputs,
                 cameraInputId,
+                globalStylesheetInputIds,
                 resetWebsite: true,
                 steps: executable.map((node) =>
                     WorkflowPlanner.step(project, node, 'live', executableIds),
@@ -88,14 +101,27 @@ export class WorkflowPlanner {
             const currentNode =
                 selected.type === 'audio' ? { ...selected, waitForEnd: true } : selected;
             const step = WorkflowPlanner.step(project, currentNode, 'live', new Set());
-            const selectedInputs = step.inputId
-                ? inputs.filter((input) => input.id === step.inputId)
-                : [];
+            const selectedInputIds = new Set(
+                [
+                    step.inputId,
+                    selected.type === 'layer'
+                        ? (selected.fontInputId ??
+                          (selected.text?.font === 'project'
+                              ? selected.text.fontInputId
+                              : undefined))
+                        : undefined,
+                ].filter((id): id is string => Boolean(id)),
+            );
+            const selectedInputs = inputs.filter(
+                (input) =>
+                    selectedInputIds.has(input.id) || globalStylesheetInputIds.includes(input.id),
+            );
             return {
                 mode,
                 website,
                 inputs: selectedInputs,
                 cameraInputId: null,
+                globalStylesheetInputIds,
                 resetWebsite: false,
                 steps: [step],
             };
@@ -121,6 +147,7 @@ export class WorkflowPlanner {
             website,
             inputs,
             cameraInputId,
+            globalStylesheetInputIds,
             resetWebsite: true,
             steps: plannedNodes.map((node) =>
                 WorkflowPlanner.step(

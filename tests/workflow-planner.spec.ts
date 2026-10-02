@@ -361,3 +361,28 @@ test('Planer ordnet einer Audio-Node ihren Datei-Input zu', () => {
     assert.equal(audio?.inputId, 'soundtrack');
     assert.deepEqual(audio?.after, ['layer-1']);
 });
+
+test('Direct CSS input is included as a global stylesheet in every layer run', () => {
+    const project = ProjectFormat.create();
+    project.nodes.unshift({
+        id: 'shared-css',
+        type: 'input',
+        name: 'Shared CSS',
+        position: null,
+        accept: 'text/css',
+        required: false,
+    });
+    project.connections.push({
+        id: 'shared-css--website-root',
+        source: 'shared-css',
+        target: 'website-root',
+    });
+
+    for (const mode of ['workflow', 'node', 'current'] as const) {
+        const plan = WorkflowPlanner.plan(project, mode, 'layer-1');
+        assert.deepEqual(plan.globalStylesheetInputIds, ['shared-css']);
+        assert.ok(plan.inputs.some((input) => input.id === 'shared-css'));
+    }
+
+    assert.deepEqual(WorkflowPlanner.plan(project, 'root').globalStylesheetInputIds, []);
+});

@@ -65,6 +65,20 @@ test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
     assert.equal(original.playback.removeAfter, false);
 });
 
+test('Website und Video-Ausgabe sind nicht duplizierbar', () => {
+    const project = ProjectFormat.create();
+    const website = project.nodes.find((node) => node.type === 'website')!;
+    const output = ProjectNodes.createVideoOutput(project, 'Video');
+
+    for (const node of [website, output]) {
+        assert.equal(ProjectNodes.canDuplicate(node), false);
+        assert.equal(ProjectNodes.duplicate(project, node, 'Kopie'), null);
+    }
+
+    const layer = project.nodes.find((node) => node.type === 'layer')!;
+    assert.equal(ProjectNodes.canDuplicate(layer), true);
+});
+
 test('Projekt-Nodes dupliziert Audio-Hüllkurven ohne gemeinsame Referenzen', () => {
     const project = ProjectFormat.create();
     const original = ProjectNodes.createAudio(project, 'Audio');
