@@ -206,10 +206,14 @@
     background: var(--color-surface-inset);
 }
 
+.audio-envelope-editor__plot {
+    padding: var(--properties-inline-padding);
+}
+
 .audio-envelope-editor__canvas {
     display: block;
     width: 100%;
-    min-height: 112px;
+    overflow: visible;
     cursor: crosshair;
     touch-action: none;
 }

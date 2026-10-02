@@ -224,7 +224,6 @@
     "audio.envelope": "Lautstärke-Hüllkurve",
     "audio.deleteEnvelopePoint": "Ausgewählten Hüllkurvenpunkt löschen",
     "audio.waitForEnd": "Auf Ende der Audiodatei warten",
-    "audio.inputHint": "Verbinde einen Datei-Input mit audio/* als Audioquelle.",
     "merge.title": "Merge-Eigenschaften",
     "merge.waitFor": "Fortsetzen, wenn",
     "merge.all": "alle Zweige abgeschlossen sind (Wait all)",

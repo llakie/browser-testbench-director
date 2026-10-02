@@ -35,6 +35,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         '[model-id="website-root"] [joint-selector="outline"][stroke-width="2"]',
         5_000,
     );
+    await assertEditorSectionLayout(session, '.website-properties', '#website-url');
     const graphAppearance = await session.evaluate<{
         selectedOutlineWidth: string | null;
         headerColors: string[];
@@ -65,6 +66,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="add-javascript-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
     await session.waitForElement('.source-editor textarea', 5_000);
+    await assertEditorSectionLayout(session, '.source-editor');
     await session.fill('[data-testid="node-name"]', 'Prepare GTP');
     await session.fill('.source-editor textarea', 'const state={prepared:true};');
     await session.click('[data-testid="format-source"]');
@@ -123,6 +125,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="add-merge-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
     await session.select('[data-testid="merge-wait-for"]', 'any');
+    await assertEditorSectionLayout(session, '.automation-properties', '[data-testid="merge-wait-for"]');
     assert.equal(
         (await session.state('[data-testid="merge-wait-for"]')).value,
         'any',
@@ -141,6 +144,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         /Neuer Layer|New layer/u,
         'nodes: a new layer needs its localized default name.',
     );
+    await assertEditorSectionLayout(session, '.layer-playback-properties', '[data-testid="layer-duration"]');
     await session.fill('[data-testid="layer-duration"]', '1200');
     await session.click('[data-testid="layer-remove-after"]');
     assert.equal(
@@ -205,6 +209,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="node-category-layers"]');
     await session.click('[data-testid="add-text-layer-node"]');
     await session.waitForElement('[data-testid="text-layer-editor"]', 5_000);
+    await assertEditorSectionLayout(session, '.text-layer-editor__fields');
     assert.equal(
         await session.evaluate<boolean>(
             `return document.querySelector('[data-testid="text-layer-remove-0"]')?.disabled ?? false;`,
@@ -429,6 +434,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.click('[data-testid="maximize-editor"]');
     await session.setViewport(390, 844);
     await session.click('[data-testid="mobile-editor-tab"]');
+    await assertEditorSectionLayout(session, '.text-layer-editor__fields');
     const mobileFontLayout = await session.evaluate<{
         rows: number;
         overflow: boolean;
@@ -870,4 +876,47 @@ return document.body ? { cardName: 'Pikachu' } : false;`;
 
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
+}
+
+async function assertEditorSectionLayout(
+    session: RemoteSession,
+    sectionSelector: string,
+    fieldSelector?: string,
+): Promise<void> {
+    const insets = await session.evaluate<{
+        sectionLeft: number;
+        sectionRight: number;
+        scrollbarWidth: number;
+        fieldLeft?: number;
+        fieldRight?: number;
+    }>(`
+        const body = document.querySelector('[data-testid="editor-properties-scroll"]');
+        const section = document.querySelector(${JSON.stringify(sectionSelector)});
+        const field = ${fieldSelector ? `document.querySelector(${JSON.stringify(fieldSelector)})` : 'null'};
+        const bodyBounds = body.getBoundingClientRect();
+        const sectionBounds = section.getBoundingClientRect();
+        const fieldBounds = field?.getBoundingClientRect();
+        return {
+            sectionLeft: sectionBounds.left - bodyBounds.left,
+            sectionRight: bodyBounds.right - sectionBounds.right,
+            scrollbarWidth: body.offsetWidth - body.clientWidth,
+            fieldLeft: fieldBounds ? fieldBounds.left - sectionBounds.left : undefined,
+            fieldRight: fieldBounds ? sectionBounds.right - fieldBounds.right : undefined,
+        };
+    `);
+    assert.ok(
+        Math.abs(insets.sectionLeft) < 1 &&
+            Math.abs(insets.sectionRight) < 1 &&
+            insets.scrollbarWidth === 0,
+        `nodes: ${sectionSelector} must reach both panel edges (${JSON.stringify(insets)}).`,
+    );
+
+    if (fieldSelector) {
+        assert.ok(
+            insets.fieldLeft !== undefined &&
+                insets.fieldRight !== undefined &&
+                Math.abs(insets.fieldLeft - insets.fieldRight) < 1,
+            `nodes: ${fieldSelector} needs equal side insets (${JSON.stringify(insets)}).`,
+        );
+    }
 }

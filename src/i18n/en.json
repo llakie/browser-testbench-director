@@ -224,7 +224,6 @@
     "audio.envelope": "Volume envelope",
     "audio.deleteEnvelopePoint": "Delete selected envelope point",
     "audio.waitForEnd": "Wait for the audio file to end",
-    "audio.inputHint": "Connect a file input with audio/* as the audio source.",
     "merge.title": "Merge properties",
     "merge.waitFor": "Continue when",
     "merge.all": "all branches have completed (Wait all)",

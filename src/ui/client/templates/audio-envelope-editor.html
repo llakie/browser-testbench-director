@@ -1,45 +1,48 @@
 <template>
     <div class="audio-envelope-editor" data-testid="audio-envelope-editor">
-        <svg
-            ref="canvas"
-            class="audio-envelope-editor__canvas"
-            viewBox="0 0 600 140"
-            role="group"
-            :aria-label="label"
-            @click="addPoint"
-        >
-            <polygon class="audio-envelope-editor__fill" :points="fillPoints"></polygon>
-            <polyline class="audio-envelope-editor__line" :points="linePoints"></polyline>
-            <g v-for="(point, index) in renderedPoints" :key="index">
-                <circle
-                    class="audio-envelope-editor__point-hit-area"
-                    :cx="point.x"
-                    :cy="point.y"
-                    r="16"
-                    tabindex="0"
-                    role="slider"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    :aria-valuenow="Math.round(point.gain * 100)"
-                    :aria-label="pointLabel(point)"
-                    :data-point-index="index"
-                    data-testid="audio-envelope-point"
-                    @click.stop="selectedIndex = index"
-                    @pointerdown="startDragging(index, $event)"
-                    @pointermove="dragPoint(index, $event)"
-                    @pointerup="stopDragging"
-                    @pointercancel="stopDragging"
-                    @keydown="moveWithKeyboard(index, $event)"
-                ></circle>
-                <circle
-                    class="audio-envelope-editor__point"
-                    :class="{ 'is-selected': selectedIndex === index }"
-                    :cx="point.x"
-                    :cy="point.y"
-                    r="3.25"
-                ></circle>
-            </g>
-        </svg>
+        <div class="audio-envelope-editor__plot">
+            <svg
+                ref="canvas"
+                class="audio-envelope-editor__canvas"
+                :viewBox="viewBox"
+                height="112"
+                role="group"
+                :aria-label="label"
+                @click="addPoint"
+            >
+                <polygon class="audio-envelope-editor__fill" :points="fillPoints"></polygon>
+                <polyline class="audio-envelope-editor__line" :points="linePoints"></polyline>
+                <g v-for="(point, index) in renderedPoints" :key="index">
+                    <circle
+                        class="audio-envelope-editor__point-hit-area"
+                        :cx="point.x"
+                        :cy="point.y"
+                        r="16"
+                        tabindex="0"
+                        role="slider"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        :aria-valuenow="Math.round(point.gain * 100)"
+                        :aria-label="pointLabel(point)"
+                        :data-point-index="index"
+                        data-testid="audio-envelope-point"
+                        @click.stop="selectedIndex = index"
+                        @pointerdown="startDragging(index, $event)"
+                        @pointermove="dragPoint(index, $event)"
+                        @pointerup="stopDragging"
+                        @pointercancel="stopDragging"
+                        @keydown="moveWithKeyboard(index, $event)"
+                    ></circle>
+                    <circle
+                        class="audio-envelope-editor__point"
+                        :class="{ 'is-selected': selectedIndex === index }"
+                        :cx="point.x"
+                        :cy="point.y"
+                        r="3.25"
+                    ></circle>
+                </g>
+            </svg>
+        </div>
         <div class="audio-envelope-editor__footer">
             <output v-if="selectedPoint">{{ pointLabel(selectedPoint) }}</output>
             <span v-else></span>

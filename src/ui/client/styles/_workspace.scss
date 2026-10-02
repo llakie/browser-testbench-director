@@ -244,7 +244,11 @@
     align-content: start;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-gutter: stable;
+    scrollbar-width: none;
+}
+
+.editor-panel__body::-webkit-scrollbar {
+    display: none;
 }
 
 .editor-panel__body--layer {

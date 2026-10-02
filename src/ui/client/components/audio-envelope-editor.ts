@@ -4,8 +4,7 @@ import template from '../templates/audio-envelope-editor.html?raw';
 import { TemplateRegistry } from '../core/template-registry.js';
 import type { AudioEnvelopePoint } from '../core/project-format.js';
 
-const drawing = { left: 16, top: 12, width: 568, height: 116 } as const;
-const minimumPointDistance = 16 / drawing.width;
+const drawingHeight = 112;
 
 export const AudioEnvelopeEditor = defineComponent({
     name: 'AudioEnvelopeEditor',
@@ -28,23 +27,27 @@ export const AudioEnvelopeEditor = defineComponent({
         change: () => true,
     },
     data: () => ({
+        canvasWidth: 600,
+        resizeObserver: null as ResizeObserver | null,
         selectedIndex: null as number | null,
         draggingPointerId: null as number | null,
     }),
     computed: {
+        viewBox(): string {
+            return `0 0 ${this.canvasWidth} ${drawingHeight}`;
+        },
         renderedPoints(): Array<AudioEnvelopePoint & { x: number; y: number }> {
             return this.modelValue.map((point) => ({
                 ...point,
-                x: drawing.left + point.time * drawing.width,
-                y: drawing.top + (1 - point.gain) * drawing.height,
+                x: point.time * this.canvasWidth,
+                y: (1 - point.gain) * drawingHeight,
             }));
         },
         linePoints(): string {
             return this.renderedPoints.map((point) => `${point.x},${point.y}`).join(' ');
         },
         fillPoints(): string {
-            const bottom = drawing.top + drawing.height;
-            return `${drawing.left},${bottom} ${this.linePoints} ${drawing.left + drawing.width},${bottom}`;
+            return `0,${drawingHeight} ${this.linePoints} ${this.canvasWidth},${drawingHeight}`;
         },
         selectedPoint(): AudioEnvelopePoint | null {
             return this.selectedIndex === null
@@ -59,7 +62,28 @@ export const AudioEnvelopeEditor = defineComponent({
             );
         },
     },
+    mounted(): void {
+        const canvas = this.$refs['canvas'];
+
+        if (!(canvas instanceof SVGSVGElement)) {
+            return;
+        }
+
+        this.updateCanvasWidth();
+        this.resizeObserver = new ResizeObserver(() => this.updateCanvasWidth());
+        this.resizeObserver.observe(canvas);
+    },
+    beforeUnmount(): void {
+        this.resizeObserver?.disconnect();
+    },
     methods: {
+        updateCanvasWidth(): void {
+            const canvas = this.$refs['canvas'];
+
+            if (canvas instanceof SVGSVGElement) {
+                this.canvasWidth = Math.max(1, canvas.getBoundingClientRect().width);
+            }
+        },
         addPoint(event: MouseEvent): void {
             const point = this.pointerPoint(event);
 
@@ -69,7 +93,7 @@ export const AudioEnvelopeEditor = defineComponent({
 
             if (
                 this.modelValue.some(
-                    (candidate) => Math.abs(candidate.time - point.time) < minimumPointDistance,
+                    (candidate) => Math.abs(candidate.time - point.time) < 16 / this.canvasWidth,
                 )
             ) {
                 return;
@@ -141,8 +165,8 @@ export const AudioEnvelopeEditor = defineComponent({
             const previous = this.modelValue[index - 1];
             const next = this.modelValue[index + 1];
             const fixedTime = index === 0 ? 0 : index === this.modelValue.length - 1 ? 1 : time;
-            const minimumTime = previous ? previous.time + minimumPointDistance : 0;
-            const maximumTime = next ? next.time - minimumPointDistance : 1;
+            const minimumTime = previous ? previous.time + 16 / this.canvasWidth : 0;
+            const maximumTime = next ? next.time - 16 / this.canvasWidth : 1;
             const moved = {
                 time: Math.min(maximumTime, Math.max(minimumTime, fixedTime)),
                 gain: Math.min(1, Math.max(0, gain)),
@@ -172,11 +196,9 @@ export const AudioEnvelopeEditor = defineComponent({
                 return null;
             }
 
-            const x = ((event.clientX - bounds.left) / bounds.width) * 600;
-            const y = ((event.clientY - bounds.top) / bounds.height) * 140;
             return {
-                time: Math.min(1, Math.max(0, (x - drawing.left) / drawing.width)),
-                gain: Math.min(1, Math.max(0, 1 - (y - drawing.top) / drawing.height)),
+                time: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+                gain: Math.min(1, Math.max(0, 1 - (event.clientY - bounds.top) / bounds.height)),
             };
         },
     },

@@ -774,12 +774,12 @@
                     <span>{{ t('audio.waitForEnd') }}</span>
                 </label>
                 <p
-                    class="property-hint"
-                    :class="{ 'audio-file-name': activeAudioFileName }"
+                    v-if="activeAudioFileName"
+                    class="property-hint audio-file-name"
                     :title="activeAudioFileName"
                     data-testid="audio-file-name"
                 >
-                    {{ activeAudioFileName || t('audio.inputHint') }}
+                    {{ activeAudioFileName }}
                 </p>
             </div>
             <div v-else-if="activeVideoOutput" class="automation-properties">

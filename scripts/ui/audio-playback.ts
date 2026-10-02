@@ -41,6 +41,8 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
 
     await session.upload('[data-testid="project-file-input"]', projectPath);
     await session.waitForValue('.project-title input', 'Audio playback', 10_000);
+    await selectGraphNode(session, audio.id);
+    await session.waitForCount('[data-testid="audio-file-name"]', 0, 5_000);
     await selectGraphNode(session, input.id);
     await session.upload(`[data-testid="project-input-${input.id}"]`, audioPath);
     await session.waitForScript(
@@ -104,6 +106,7 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         'silence.wav',
         'audio: properties must show the connected audio filename.',
     );
+    await assertEnvelopeSpacing(session, 'desktop');
     await session.click('[data-testid="audio-envelope-editor"] svg');
     await session.waitForCount('[data-testid="audio-envelope-point"]', 3, 5_000);
     await session.drag(
@@ -188,10 +191,46 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         true,
         'audio: the envelope editor must fit the mobile properties view.',
     );
+    await assertEnvelopeSpacing(session, 'mobile');
     await session.screenshot(join(outputDirectory, 'audio-envelope-editor-mobile.png'), true);
 
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
+}
+
+async function assertEnvelopeSpacing(session: RemoteSession, viewport: string): Promise<void> {
+    const spacing = await session.evaluate<{
+        outer: number;
+        inner: number;
+        top: number;
+        pointWidth: number;
+        pointHeight: number;
+    }>(`
+        const section = document.querySelector('.automation-properties').getBoundingClientRect();
+        const editor = document.querySelector('[data-testid="audio-envelope-editor"]')
+            .getBoundingClientRect();
+        const point = document.querySelector('[data-testid="audio-envelope-point"]');
+        const matrix = point.getScreenCTM();
+        const x = Number(point.getAttribute('cx'));
+        const y = Number(point.getAttribute('cy'));
+        const visiblePoint = document.querySelector('.audio-envelope-editor__point')
+            .getBoundingClientRect();
+        return {
+            outer: editor.left - section.left,
+            inner: matrix.a * x + matrix.c * y + matrix.e - editor.left,
+            top: matrix.b * x + matrix.d * y + matrix.f - editor.top,
+            pointWidth: visiblePoint.width,
+            pointHeight: visiblePoint.height,
+        };
+    `);
+    assert.ok(
+        Math.abs(spacing.inner - spacing.outer) <= 2 && Math.abs(spacing.top - spacing.outer) <= 2,
+        `audio: ${viewport} envelope inset must match the properties-panel inset.`,
+    );
+    assert.ok(
+        Math.abs(spacing.pointWidth - spacing.pointHeight) <= 0.5,
+        `audio: ${viewport} envelope points must stay round.`,
+    );
 }
 
 function silentWave(durationMs: number): Buffer {
