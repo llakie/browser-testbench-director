@@ -1,6 +1,6 @@
 {
     "name": "browser-testbench-director",
-    "version": "0.2.1",
+    "version": "0.3.0",
     "description": "Visual workflow editor and video renderer for Browser Testbench",
     "author": "Lars-Erich Kiefer",
     "license": "MIT",
@@ -89,7 +89,7 @@
         "acorn": "^8.15.0",
         "acorn-walk": "^8.3.4",
         "bootstrap-icons": "^1.13.1",
-        "browser-testbench": "^0.7.3",
+        "browser-testbench": "^0.7.4",
         "elkjs": "^0.11.1",
         "es-module-lexer": "3.0.2",
         "selfsigned": "^5.5.0",

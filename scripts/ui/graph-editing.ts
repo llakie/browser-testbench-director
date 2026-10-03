@@ -87,10 +87,15 @@ export async function verifyEditableConnections(session: RemoteSession): Promise
         `[model-id="${audio.id}"] [port="flow"]`,
     );
     await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 3, 5_000);
+    await session.waitForCount(
+        `[model-id="${audio.id}"] [port="asset"], [model-id="${audio.id}"] [port="flow"]`,
+        2,
+        5_000,
+    );
     assert.equal(
         await session.evaluate<number>(`
             return document.querySelectorAll(
-                '[model-id="${audio.id}"] [port-group="in"]'
+                '[model-id="${audio.id}"] [port="asset"], [model-id="${audio.id}"] [port="flow"]'
             ).length;
         `),
         2,

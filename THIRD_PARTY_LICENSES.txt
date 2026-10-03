@@ -461,7 +461,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - source-map-js@1.2.2
+ - source-map-js@1.2.1
 
 This package contains the following license:
 
@@ -4672,7 +4672,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - ip-address@10.7.3
+ - ip-address@10.7.2
 
 This package contains the following license:
 
@@ -7820,7 +7820,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - acorn-walk@8.3.5
+ - acorn-walk@8.3.4
 
 This package contains the following license:
 
@@ -8555,7 +8555,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - hono@4.13.12
+ - hono@4.13.9
 
 This package contains the following license:
 
@@ -8645,7 +8645,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - @hono/node-server@2.1.3
+ - @hono/node-server@2.1.1
 
 This package contains the following license:
 
@@ -8763,12 +8763,11 @@ SOFTWARE.
 
 -----------
 
-The following npm packages may be included in this product:
+The following npm package may be included in this product:
 
  - @modelcontextprotocol/sdk@1.30.1
- - @modelcontextprotocol/sdk@1.32.0
 
-These packages each contain the following license:
+This package contains the following license:
 
 MIT License
 
@@ -8953,7 +8952,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - browser-testbench@0.7.3
+ - browser-testbench@0.7.4
 
 This package contains the following license:
 
@@ -9175,6 +9174,7 @@ The following npm packages may be included in this product:
  - open@11.0.4
  - ora@5.4.1
  - p-limit@7.3.3
+ - powershell-utils@0.1.0
  - powershell-utils@0.2.1
  - run-applescript@7.1.0
  - string-width@7.2.0
@@ -9184,7 +9184,7 @@ The following npm packages may be included in this product:
  - type-fest@3.13.1
  - type-fest@5.10.0
  - wrap-ansi@9.0.2
- - wsl-utils@1.0.1
+ - wsl-utils@1.0.0
  - yocto-queue@1.2.2
 
 These packages each contain the following license:
@@ -10135,7 +10135,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - tar-stream@3.2.2
+ - tar-stream@3.2.1
 
 This package contains the following license:
 

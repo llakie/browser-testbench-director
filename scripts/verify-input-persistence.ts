@@ -74,7 +74,6 @@ try {
         5_000,
     );
     await browser.click('[data-testid="save-project"]');
-    await browser.waitForElement('[data-testid="save-project-dialog"]', 5_000);
     await browser.waitForElement('[data-testid="save-project"] .icon-spinner', 5_000);
     const download = await browser.waitForDownload('input-persistence.btd.json', 10_000);
     const saved = JSON.parse(await readFile(download.path, 'utf8')) as {

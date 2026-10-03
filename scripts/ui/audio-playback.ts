@@ -458,7 +458,7 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
     await session.waitForScript(
         `return document.querySelector(
             '[model-id="${audio.id}"] [joint-selector="statusText"]'
-        )?.textContent === '■' && document.querySelector(
+        )?.textContent === '✓' && document.querySelector(
             '[model-id="${merge.id}"] [joint-selector="statusText"]'
         )?.textContent === '✓' && document.querySelector(
             '[model-id="${visual.id}"] [joint-selector="statusText"]'
@@ -490,13 +490,13 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
     assert.deepEqual(
         result,
         {
-            audioStatus: '■',
+            audioStatus: '✓',
             error: '',
             running: false,
             mergeStatus: '✓',
             visualStatus: '✓',
         },
-        'audio: wait-any must cancel the losing soundtrack branch and complete the merge.',
+        'audio: wait-any must end the losing soundtrack branch as a planned completion and complete the merge.',
     );
     await session.setViewport(390, 844);
     await session.click('[data-testid="mobile-editor-tab"]');

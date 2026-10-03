@@ -207,7 +207,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
                 Math.abs(headerBounds.width - outlineBounds.width) < 0.1 &&
                 Boolean(header.compareDocumentPosition(outline) & Node.DOCUMENT_POSITION_FOLLOWING);
         });
-        const rootInputPortCount = root.querySelectorAll('[port-group="in"]').length;
+        const rootInputPortCount = root.querySelectorAll('[port^="in-"]').length;
         return {
             rowCount: rows.size,
             routeCount: document.querySelectorAll('[data-testid="graph-canvas"] .joint-link').length,
