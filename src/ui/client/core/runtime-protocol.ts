@@ -22,6 +22,7 @@ export interface RuntimeStep {
     readonly volume?: number;
     readonly envelope?: readonly AudioEnvelopePoint[];
     readonly waitForEnd?: boolean;
+    readonly loop?: boolean;
 }
 
 export class DirectorRuntimeScript {
@@ -56,6 +57,13 @@ function createDirectorRuntime(
                     reject(new DOMException('The execution was stopped.', 'AbortError'));
                 }, { once: true });
             });
+        },
+        stopAudio(nodeId) {
+            if (typeof nodeId !== 'string' || !nodeId) {
+                throw new TypeError('An audio node ID is required.');
+            }
+
+            stopAudio(nodeId);
         },
         async waitFor(selector, timeout = 5000) {
             const started = Date.now();

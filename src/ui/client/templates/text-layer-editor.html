@@ -72,6 +72,30 @@
                         <span>%</span>
                     </span>
                 </label>
+                <label>
+                    <span>{{ t('textLayer.outline') }}</span>
+                    <span class="text-layer-editor__number">
+                        <input
+                            v-model.number="layer.text.outlinePx"
+                            type="number"
+                            min="0"
+                            max="5"
+                            step="0.5"
+                            data-testid="text-layer-outline"
+                            @input="update"
+                        />
+                        <span>px</span>
+                    </span>
+                </label>
+                <label class="text-layer-editor__toggle">
+                    <span>{{ t('textLayer.shadow') }}</span>
+                    <input
+                        v-model="layer.text.shadow"
+                        type="checkbox"
+                        data-testid="text-layer-shadow"
+                        @change="update"
+                    />
+                </label>
             </div>
         </details>
 

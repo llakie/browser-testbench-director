@@ -25,6 +25,8 @@ test('Text layer generates readable, escaped HTML and cumulative line animations
         offsetMs: 500,
     });
     text.effect = { name: 'pop', durationMs: 600, direction: 'left' };
+    text.outlinePx = 2;
+    text.shadow = true;
 
     const source = TextLayerSource.render(text, 'intro');
     assert.match(source.html, /Guess &amp; &lt;Win&gt;/u);
@@ -35,6 +37,8 @@ test('Text layer generates readable, escaped HTML and cumulative line animations
     assert.match(source.css, /tl-[a-z0-9]+-fade 300ms ease-out 400ms both/u);
     assert.match(source.css, /tl-[a-z0-9]+-show 1ms ease-out 900ms both/u);
     assert.match(source.css, /tl-[a-z0-9]+-pop 600ms ease-out 0ms both/u);
+    assert.match(source.css, /-webkit-text-stroke: 2px #0b0f18/u);
+    assert.match(source.css, /text-shadow: 0 \.08em/u);
     assert.notEqual(TextLayerSource.render(text, 'outro').html, source.html);
     assert.equal(source.javascript, '');
     assert.equal(TextLayerSource.latestEnd(text), 900);

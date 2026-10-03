@@ -908,6 +908,15 @@
                             />
                             <span>{{ t('audio.waitForEnd') }}</span>
                         </label>
+                        <label class="automation-properties__toggle">
+                            <input
+                                v-model="activeAudio.loop"
+                                type="checkbox"
+                                data-testid="audio-loop"
+                                @change="markActiveNodeStale"
+                            />
+                            <span>{{ t('audio.loop') }}</span>
+                        </label>
                         <p
                             v-if="activeAudioFileName"
                             class="property-hint audio-file-name"

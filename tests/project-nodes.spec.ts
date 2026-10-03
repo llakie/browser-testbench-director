@@ -42,6 +42,7 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
         { time: 1, gain: 1 },
     ]);
     assert.equal(audio.waitForEnd, true);
+    assert.equal(audio.loop, false);
     assert.equal(output.type, 'video-output');
     assert.equal(output.targetId, '');
     assert.equal(output.filename, 'video.mp4');

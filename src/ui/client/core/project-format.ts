@@ -88,6 +88,7 @@ export interface AudioNode {
     volume: number;
     envelope: AudioEnvelopePoint[];
     waitForEnd: boolean;
+    loop?: boolean;
 }
 
 export interface AudioEnvelopePoint {
@@ -728,6 +729,10 @@ export class ProjectFormat {
             throw new TypeError(`Audio node ${value['id']} contains invalid playback settings.`);
         }
 
+        if (value['loop'] !== undefined && typeof value['loop'] !== 'boolean') {
+            throw new TypeError(`Audio node ${value['id']} contains an invalid loop setting.`);
+        }
+
         if (!Array.isArray(value['envelope']) || value['envelope'].length < 2) {
             throw new TypeError(`Audio node ${value['id']} must contain an envelope.`);
         }
@@ -757,7 +762,7 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd'],
+            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd', 'loop'],
             'Audio node',
         );
     }

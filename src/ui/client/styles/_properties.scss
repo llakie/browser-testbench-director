@@ -360,7 +360,7 @@
 
 .text-layer-editor__fields {
     display: grid;
-    grid-template-columns: 1.4fr 1.1fr 1fr 0.85fr 0.85fr;
+    grid-template-columns: 1.4fr 1.1fr 1fr 0.85fr 0.85fr 0.75fr 0.75fr;
     align-content: start;
     align-items: start;
     column-gap: var(--space-3);
@@ -375,11 +375,11 @@
 
 @container (max-width: 520px) {
     .text-layer-editor__fields {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .text-layer-editor__fields > label:nth-child(-n + 2) {
-        grid-column: span 2;
+        grid-column: span 3;
     }
 }
 
@@ -390,6 +390,10 @@
     color: var(--color-text-muted);
     font-size: 10px;
     font-weight: 700;
+}
+
+.text-layer-editor .text-layer-editor__toggle {
+    justify-items: start;
 }
 
 .text-layer-editor input:not([type='color'], [type='range']),

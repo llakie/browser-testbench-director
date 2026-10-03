@@ -396,6 +396,7 @@ async function playAudio(step, signal) {
     const gain = context.createGain();
     gain.gain.value = step.volume * step.envelope[0].gain;
     playback.buffer = buffer;
+    playback.loop = Boolean(step.loop);
     playback.connect(gain).connect(context.destination);
     scheduleAudioEnvelope(
         gain.gain,
@@ -789,6 +790,10 @@ async function run(nextSteps, executionId = null, options = {}) {
         runState.state = runState.cancelRequested ? 'cancelled' : 'error';
         runState.error = error instanceof Error ? error.message : String(error);
         throw error;
+    } finally {
+        if (activeRun === runState) {
+            stopAudio();
+        }
     }
 }
 

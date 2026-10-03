@@ -65,6 +65,7 @@ export class PreviewDocument {
                 volume: step.node.volume,
                 envelope: step.node.envelope,
                 waitForEnd: step.node.waitForEnd,
+                loop: step.node.loop ?? false,
             };
         }
 

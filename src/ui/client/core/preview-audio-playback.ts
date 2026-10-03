@@ -7,6 +7,7 @@ type AudioRuntimeStep = RuntimeStep & {
     readonly volume: number;
     readonly envelope: readonly AudioEnvelopePoint[];
     readonly waitForEnd: boolean;
+    readonly loop?: boolean;
 };
 
 export class PreviewAudioPlayback {
@@ -59,6 +60,7 @@ export class PreviewAudioPlayback {
             buffer.duration,
         );
         playback.buffer = buffer;
+        playback.loop = step.loop ?? false;
         playback.connect(gain).connect(context.destination);
         this.cancel(step.id);
 

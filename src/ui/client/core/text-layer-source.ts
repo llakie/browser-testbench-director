@@ -24,6 +24,8 @@ export interface TextLayerSettings {
     weight: 400 | 700;
     lineHeight: number;
     maxWidthPercent: number;
+    outlinePx?: number;
+    shadow?: boolean;
     effect: TextEffect;
     lines: TextLine[];
 }
@@ -37,6 +39,8 @@ export class TextLayerSource {
             weight: 700,
             lineHeight: 1,
             maxWidthPercent: 90,
+            outlinePx: 0,
+            shadow: false,
             effect: TextLayerSource.effect(),
             lines: [TextLayerSource.line()],
         };
@@ -93,6 +97,12 @@ export class TextLayerSource {
             `    font-weight: ${settings.weight};`,
             `    line-height: ${settings.lineHeight};`,
             '    overflow-wrap: anywhere;',
+            ...((settings.outlinePx ?? 0) > 0
+                ? [`    -webkit-text-stroke: ${settings.outlinePx}px #0b0f18;`]
+                : []),
+            ...(settings.shadow
+                ? ['    text-shadow: 0 .08em .12em #0b0f18, 0 .16em .4em #0b0f18b3;']
+                : []),
             ...(settings.effect.name !== 'none'
                 ? [`    animation: ${TextLayerSource.animation(scope, settings.effect, 0)};`]
                 : []),
@@ -156,6 +166,9 @@ export class TextLayerSource {
             [400, 700].includes(Number(value['weight'])) &&
             TextLayerSource.range(value['lineHeight'], 0.7, 2) &&
             TextLayerSource.range(value['maxWidthPercent'], 20, 100) &&
+            (value['outlinePx'] === undefined ||
+                TextLayerSource.range(value['outlinePx'], 0, 5)) &&
+            (value['shadow'] === undefined || typeof value['shadow'] === 'boolean') &&
             effect(value['effect']) &&
             Array.isArray(value['lines']) &&
             value['lines'].length > 0 &&
@@ -187,6 +200,8 @@ export class TextLayerSource {
                 'weight',
                 'lineHeight',
                 'maxWidthPercent',
+                'outlinePx',
+                'shadow',
                 'effect',
                 'lines',
             ])

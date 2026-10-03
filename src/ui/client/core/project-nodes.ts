@@ -88,6 +88,7 @@ export class ProjectNodes {
                 { time: 1, gain: 1 },
             ],
             waitForEnd: true,
+            loop: false,
         };
     }
 

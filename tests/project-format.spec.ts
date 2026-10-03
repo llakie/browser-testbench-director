@@ -123,10 +123,15 @@ test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen',
         { time: 1, gain: 0.5 },
     ];
     audio.waitForEnd = false;
+    audio.loop = true;
     project.nodes.push(audio);
 
     const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
     assert.deepEqual(loaded.nodes.at(-1), audio);
+
+    audio.loop = 'yes' as unknown as boolean;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /loop setting/u);
+    audio.loop = true;
 
     audio.volume = 1.1;
     assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /playback settings/u);
