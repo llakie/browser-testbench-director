@@ -1,0 +1,62 @@
+<template>
+    <div
+        data-workspace-ref="nodeFlyout"
+        class="action-flyout"
+        @keydown.esc.stop.prevent="closeLevel"
+    >
+        <button
+            class="icon-button"
+            type="button"
+            data-testid="node-actions-trigger"
+            :disabled="disabled"
+            :aria-label="t('node.actions')"
+            :title="t('node.actions')"
+            aria-haspopup="menu"
+            :aria-expanded="String(open)"
+            @click="$emit('toggle')"
+        >
+            <span class="bi bi-plus-lg" aria-hidden="true"></span>
+        </button>
+        <div v-if="open" class="flyout-menu action-flyout__menu" role="menu">
+            <template v-if="!category">
+                <button
+                    v-for="item in categories"
+                    :key="item.id"
+                    class="action-option action-option--category"
+                    type="button"
+                    role="menuitem"
+                    :data-testid="`node-category-${item.id}`"
+                    @click="$emit('update:category', item.id)"
+                >
+                    <span :class="['bi', item.icon]" aria-hidden="true"></span>
+                    <span>{{ t(`node.category.${item.id}`) }}</span>
+                    <span class="bi bi-chevron-right" aria-hidden="true"></span>
+                </button>
+            </template>
+            <template v-else>
+                <button
+                    class="action-option action-option--back"
+                    type="button"
+                    role="menuitem"
+                    data-testid="node-category-back"
+                    @click="$emit('update:category', '')"
+                >
+                    <span class="bi bi-chevron-left" aria-hidden="true"></span>
+                    <span>{{ t(`node.category.${category}`) }}</span>
+                </button>
+                <button
+                    v-for="item in visibleItems"
+                    :key="item.type"
+                    class="action-option"
+                    type="button"
+                    role="menuitem"
+                    :data-testid="item.testId"
+                    @click="add(item.type)"
+                >
+                    <span :class="['bi', item.icon]" aria-hidden="true"></span>
+                    <span>{{ t(item.labelKey) }}</span>
+                </button>
+            </template>
+        </div>
+    </div>
+</template>

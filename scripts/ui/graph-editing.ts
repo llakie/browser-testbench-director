@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import type { RemoteSession } from 'browser-testbench/client';
 
 import { ProjectFormat } from '../../src/ui/client/core/project-format.js';
+import { ProjectNodes } from '../../src/ui/client/core/project-nodes.js';
+import { WorkflowGraph } from '../../src/ui/client/core/workflow-graph.js';
 import { playGraphNode, selectGraphNode } from '../support/director-ui.js';
 import { outputDirectory } from '../support/ui-verification-context.js';
 
@@ -64,6 +66,36 @@ export async function verifyEditableConnections(session: RemoteSession): Promise
         'graph: reconnected nodes must lose the warning style.',
     );
     await session.screenshot(join(outputDirectory, 'editable-connections.png'), true);
+
+    const audioProject = ProjectFormat.create('Audio inputs');
+    const input = ProjectNodes.createInput(audioProject, 'Audio file');
+    input.accept = 'audio/*';
+    const delay = ProjectNodes.createDelay(audioProject, 'Delay');
+    const audio = ProjectNodes.createAudio(audioProject, 'Audio');
+    audioProject.nodes.push(input, delay, audio);
+    audioProject.connections = [
+        WorkflowGraph.createConnection(audioProject, 'website-root', delay.id),
+        WorkflowGraph.createConnection(audioProject, input.id, audio.id),
+    ];
+    const audioProjectPath = join(outputDirectory, 'audio-input-connections.btd.json');
+    await writeFile(audioProjectPath, ProjectFormat.stringify(audioProject), 'utf8');
+    await session.upload('[data-testid="project-file-input"]', audioProjectPath);
+    await session.waitForValue('.project-title input', 'Audio inputs', 10_000);
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 2, 5_000);
+    await session.drag(
+        `[model-id="${delay.id}"] [port="out"]`,
+        `[model-id="${audio.id}"] [port="flow"]`,
+    );
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-link', 3, 5_000);
+    assert.equal(
+        await session.evaluate<number>(`
+            return document.querySelectorAll(
+                '[model-id="${audio.id}"] [port-group="in"]'
+            ).length;
+        `),
+        2,
+        'graph: audio nodes must expose separate file and workflow inputs.',
+    );
 }
 
 export async function verifyJavaScriptNode(session: RemoteSession): Promise<void> {

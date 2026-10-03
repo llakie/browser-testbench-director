@@ -14,6 +14,7 @@ export type CreatableNodeType =
     | 'layer'
     | 'text-layer'
     | 'javascript'
+    | 'delay'
     | 'browser-action'
     | 'browser-wait'
     | 'audio'

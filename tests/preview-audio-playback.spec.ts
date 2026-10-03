@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { PreviewAudioPlayback } from '../src/ui/client/core/preview-audio-playback.js';
-import type { RuntimeStep } from '../src/ui/client/core/runtime-protocol.js';
+import {
+    MERGE_RACE_ABORT_REASON,
+    type RuntimeStep,
+} from '../src/ui/client/core/runtime-protocol.js';
 
 test('Preview audio preloads only live audio inputs from the current run and caches them', async () => {
     const originalAudioContext = Object.getOwnPropertyDescriptor(globalThis, 'AudioContext');
@@ -78,7 +81,7 @@ test('Preview audio preloads only live audio inputs from the current run and cac
 test('Preview audio loops until the requested node is stopped', async () => {
     const originalAudioContext = Object.getOwnPropertyDescriptor(globalThis, 'AudioContext');
     const originalFetch = globalThis.fetch;
-    let source = { loop: false, stopped: false };
+    let source = { loop: false, loopStart: 0, loopEnd: 0, offset: 0, stopped: false };
 
     class AudioContextStub {
         readonly currentTime = 0;
@@ -91,12 +94,17 @@ test('Preview audio loops until the requested node is stopped', async () => {
         createBufferSource(): AudioBufferSourceNode {
             const playback = {
                 loop: false,
+                loopStart: 0,
+                loopEnd: 0,
+                offset: 0,
                 stopped: false,
                 connect() {
                     return this;
                 },
                 addEventListener() {},
-                start() {},
+                start(_when: number, offset: number) {
+                    this.offset = offset;
+                },
                 stop() {
                     this.stopped = true;
                 },
@@ -147,11 +155,15 @@ test('Preview audio loops until the requested node is stopped', async () => {
                 ],
                 waitForEnd: false,
                 loop: true,
+                startOffsetMs: 500,
             },
             'https://example.test/music.mp3',
             new AbortController().signal,
         );
         assert.equal(source.loop, true);
+        assert.equal(source.loopStart, 0.5);
+        assert.equal(source.loopEnd, 2);
+        assert.equal(source.offset, 0.5);
         playback.cancel('music');
         assert.equal(source.stopped, true);
     } finally {
@@ -181,7 +193,7 @@ test('Seeking instant audio keeps the run alive and moves its playback position'
         }
 
         decodeAudioData(): Promise<AudioBuffer> {
-            return Promise.resolve({ duration: 4 } as AudioBuffer);
+            return Promise.resolve({ duration: 10 } as AudioBuffer);
         }
 
         createBufferSource(): AudioBufferSourceNode {
@@ -241,19 +253,25 @@ test('Seeking instant audio keeps the run alive and moves its playback position'
                 speed: 'live',
                 inputId: 'file',
                 volume: 1,
-                envelope: [{ time: 0, gain: 1 }, { time: 1, gain: 1 }],
+                envelope: [
+                    { time: 0, gain: 1 },
+                    { time: 1, gain: 1 },
+                ],
                 waitForEnd: true,
                 loop: false,
+                startOffsetMs: 1_000,
             },
             'https://example.test/sound.wav',
             new AbortController().signal,
         );
         await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.equal(sources[0]?.offset, 1);
         context!.currentTime = 0.5;
         assert.equal(playback.position('sound')?.positionMs, 500);
+        assert.equal(playback.position('sound')?.durationMs, 9_000);
         playback.seek('sound', 2);
         assert.equal(sources[0]?.stopped, true);
-        assert.equal(sources[1]?.offset, 2);
+        assert.equal(sources[1]?.offset, 3);
         sources[0]?.dispatchEvent(new Event('ended'));
         assert.equal(playback.position('sound')?.positionMs, 2_000);
         context!.currentTime = 0.75;
@@ -263,17 +281,43 @@ test('Seeking instant audio keeps the run alive and moves its playback position'
         assert.equal(sources[1]?.stopped, true);
         context!.currentTime = 1.75;
         assert.equal(playback.position('sound')?.positionMs, 2_250);
-        playback.seek('sound', 3);
-        assert.equal(playback.position('sound')?.positionMs, 3_000);
+        assert.throws(
+            () => playback.setStartOffset('sound', 10),
+            /Audio start offset must be before the file end/u,
+        );
+        playback.setStartOffset('sound', 6);
+        assert.equal(playback.position('sound')?.positionMs, 0);
+        assert.equal(playback.position('sound')?.durationMs, 4_000);
         playback.resume('sound');
         assert.equal(playback.position('sound')?.paused, false);
-        assert.equal(sources[2]?.offset, 3);
+        assert.equal(sources[2]?.offset, 6);
         sources[1]?.dispatchEvent(new Event('ended'));
         context!.currentTime = 2;
-        assert.equal(playback.position('sound')?.positionMs, 3_250);
+        assert.equal(playback.position('sound')?.positionMs, 250);
         sources[2]?.dispatchEvent(new Event('ended'));
         await playing;
         assert.equal(playback.position('sound'), null);
+        await assert.rejects(
+            playback.play(
+                {
+                    id: 'invalid-offset',
+                    type: 'audio',
+                    source: '',
+                    speed: 'live',
+                    inputId: 'file',
+                    volume: 1,
+                    envelope: [
+                        { time: 0, gain: 1 },
+                        { time: 1, gain: 1 },
+                    ],
+                    waitForEnd: true,
+                    startOffsetMs: 10_000,
+                },
+                'https://example.test/sound.wav',
+                new AbortController().signal,
+            ),
+            /Audio start offset must be before the file end/u,
+        );
     } finally {
         playback.dispose();
         globalThis.fetch = originalFetch;
@@ -383,11 +427,16 @@ test('Preview audio applies independent linear fades at start, natural end, and 
         context!.currentTime = 0.2;
         const stopped = playback.stop('music');
         assert.ok(Math.abs((sources[0]?.stoppedAt ?? 0) - 0.9) < 0.0001);
-        assert.deepEqual(gains[1]?.slice(-3).map(([kind, value, time]) => [kind, value, Number(time.toFixed(3))]), [
-            ['cancel', 0, 0.2],
-            ['set', 0.2, 0.2],
-            ['ramp', 0, 0.9],
-        ]);
+        assert.deepEqual(
+            gains[1]
+                ?.slice(-3)
+                .map(([kind, value, time]) => [kind, value, Number(time.toFixed(3))]),
+            [
+                ['cancel', 0, 0.2],
+                ['set', 0.2, 0.2],
+                ['ramp', 0, 0.9],
+            ],
+        );
         sources[0]?.dispatchEvent(new Event('ended'));
         await stopped;
 
@@ -425,6 +474,26 @@ test('Preview audio applies independent linear fades at start, natural end, and 
         const stopping = playback.stop('waiting');
         sources[3]?.dispatchEvent(new Event('ended'));
         await Promise.all([waiting, stopping]);
+
+        const raceController = new AbortController();
+        const raced = playback.play(
+            { ...step, id: 'race-loser', waitForEnd: true },
+            'https://example.test/music.wav',
+            raceController.signal,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        context!.currentTime = 0.4;
+        raceController.abort(MERGE_RACE_ABORT_REASON);
+        assert.ok(Math.abs((sources[4]?.stoppedAt ?? 0) - 1.1) < 0.0001);
+        let raceFadeCompleted = false;
+        void raced.then(() => {
+            raceFadeCompleted = true;
+        });
+        await Promise.resolve();
+        assert.equal(raceFadeCompleted, false);
+        sources[4]?.dispatchEvent(new Event('ended'));
+        await raced;
+        assert.equal(raceFadeCompleted, true);
     } finally {
         playback.dispose();
         globalThis.fetch = originalFetch;

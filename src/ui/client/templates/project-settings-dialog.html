@@ -1,38 +1,20 @@
 <template>
-    <div
-        v-if="projectSettingsOpen"
-        class="modal-backdrop"
-        data-testid="project-settings-backdrop"
-        @pointerdown.self="closeProjectSettings"
-        @keydown.esc.stop.prevent="closeProjectSettings"
+    <modal-dialog
+        :open="projectSettingsOpen"
+        :title="t('project.settings')"
+        :description="t('browserSession.intro')"
+        :close-label="t('project.closeSettings')"
+        panel-class="project-settings-dialog"
+        title-id="project-settings-title"
+        test-id="project-settings-backdrop"
+        close-test-id="close-project-settings"
+        @cancel="closeProjectSettings"
     >
-        <section
-            class="setup-dialog project-settings-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="project-settings-title"
-            @pointerdown="closeProjectPermissions"
-        >
-            <header>
-                <div>
-                    <h2 id="project-settings-title">{{ t('project.settings') }}</h2>
-                    <p>{{ t('browserSession.intro') }}</p>
-                </div>
-                <button
-                    class="icon-button"
-                    type="button"
-                    data-testid="close-project-settings"
-                    :aria-label="t('project.closeSettings')"
-                    @click="closeProjectSettings"
-                >
-                    <i class="bi bi-x-lg" aria-hidden="true"></i>
-                </button>
-            </header>
+        <div class="project-settings-dialog__content" @pointerdown="closeProjectPermissions">
             <div class="project-settings-group">
                 <strong>{{ t('browserSession.title') }}</strong>
                 <div class="project-settings-fields">
-                    <label>
-                        <span>{{ t('browserSession.language') }}</span>
+                    <property-field :label="t('browserSession.language')">
                         <input
                             :value="browserSession.language"
                             type="text"
@@ -52,9 +34,8 @@
                             <option value="pl"></option>
                             <option value="pt"></option>
                         </datalist>
-                    </label>
-                    <label>
-                        <span>{{ t('browserSession.locale') }}</span>
+                    </property-field>
+                    <property-field :label="t('browserSession.locale')">
                         <input
                             :value="browserSession.locale"
                             type="text"
@@ -75,7 +56,7 @@
                             <option value="PL"></option>
                             <option value="PT"></option>
                         </datalist>
-                    </label>
+                    </property-field>
                 </div>
                 <p>{{ t('browserSession.languageHint') }}</p>
                 <div class="project-settings-permissions">
@@ -100,21 +81,20 @@
                             aria-multiselectable="true"
                             @keydown.esc.stop.prevent="closeProjectPermissions"
                         >
-                            <label v-for="permission in browserPermissions" :key="permission">
-                                <input
-                                    type="checkbox"
-                                    :value="permission"
-                                    :checked="browserSession.permissions.includes(permission)"
-                                    :data-testid="`browser-session-permission-${permission}`"
-                                    @change="setBrowserPermission(permission, $event)"
-                                />
-                                <span>{{ t(`browserSession.${permission}`) }}</span>
-                            </label>
+                            <toggle-control
+                                v-for="permission in browserPermissions"
+                                :key="permission"
+                                :model-value="browserSession.permissions.includes(permission)"
+                                :label="t(`browserSession.${permission}`)"
+                                :value="permission"
+                                :test-id="`browser-session-permission-${permission}`"
+                                @change="setBrowserPermission(permission, $event)"
+                            ></toggle-control>
                         </div>
                     </div>
                     <p>{{ t('browserSession.permissionsHint') }}</p>
                 </div>
             </div>
-        </section>
-    </div>
+        </div>
+    </modal-dialog>
 </template>

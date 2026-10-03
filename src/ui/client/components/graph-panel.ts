@@ -1,25 +1,18 @@
 import template from '../templates/graph-panel.html?raw';
 import { defineWorkspaceSection } from './workspace-section.js';
+import { NodeAddMenu } from './node-add-menu.js';
 
 export const GraphPanel = defineWorkspaceSection({
     name: 'GraphPanel',
     template,
+    components: { NodeAddMenu },
     bindings: [
-        'activeCapability',
         'activeConnectionId',
-        'activeInput',
-        'activeNode',
-        'activeWebsite',
         'addNode',
         'autoLayoutGraph',
-        'availableRecordingTargets',
-        'browserSessionInputsReady',
-        'browserTargetLabel',
         'browserTargetOpening',
-        'browserTestbenchRunning',
         'canDuplicateActiveNode',
         'changeGraphZoom',
-        'deleteActiveNode',
         'deleteConnection',
         'duplicateActiveNode',
         'endStageGesture',
@@ -35,12 +28,9 @@ export const GraphPanel = defineWorkspaceSection({
         'playWorkflow',
         'project',
         'recordingActive',
-        'recordingTargetStatus',
-        'recordingWorkflow',
         'resetGraphZoom',
         'startStageGesture',
         'stopPlayback',
-        'stopRecordingWorkflow',
         't',
         'toggleNodeMenu',
         'togglePanelMaximized',

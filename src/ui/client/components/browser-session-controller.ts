@@ -1,14 +1,96 @@
+import { nextTick } from 'vue';
+
 import {
     BrowserTestbenchPreview,
     type BrowserTestbenchTarget,
 } from '../core/browser-testbench-preview.js';
-import type { NodeExecutionStatus } from '../core/execution-controller.js';
 import { PreviewDocument } from '../core/preview-document.js';
-import type { DirectorNode } from '../core/project-format.js';
+import type { BrowserPermission, DirectorNode } from '../core/project-format.js';
 import { WorkflowPlanner } from '../core/workflow-planner.js';
-import { cloneWorkflowPlan, type WorkspaceMethodMap } from './workspace-model.js';
+import {
+    cloneWorkflowPlan,
+    type ViewportPreset,
+    type WorkspaceMethodMap,
+} from './workspace-model.js';
 
 export const browserSessionMethods: WorkspaceMethodMap = {
+    toggleDeviceMenu(): void {
+        this.deviceMenuOpen = !this.deviceMenuOpen;
+
+        if (this.deviceMenuOpen) {
+            this.positionFlyout('deviceFlyout');
+        }
+    },
+    closeDeviceMenu(event: PointerEvent): void {
+        const flyout = this.workspaceElement('deviceFlyout');
+
+        if (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) {
+            return;
+        }
+
+        this.deviceMenuOpen = false;
+    },
+    selectViewportPreset(preset: ViewportPreset): void {
+        const presetChanged = preset.id !== this.project.preview.preset;
+        this.deviceMenuOpen = false;
+
+        if (this.remotePreviewSessionId || this.selectedBrowserTargetId) {
+            void this.switchToLocalPreview();
+        }
+
+        if (!presetChanged) {
+            return;
+        }
+
+        this.project.preview.preset = preset.id;
+        this.markDirty();
+        void nextTick(() => {
+            this.renderGraph();
+            this.updatePreviewFitScale();
+        });
+    },
+    browserTargetLabel(target: BrowserTestbenchTarget): string {
+        return BrowserTestbenchPreview.label(target);
+    },
+    recordingTargetStatus(target: BrowserTestbenchTarget): string {
+        if (!this.isCompatibleRecordingTarget(target)) {
+            return this.t('recording.targetIncompatible');
+        }
+
+        if (!target.ready) {
+            return this.t('recording.targetUnavailable');
+        }
+
+        if (target.busy) {
+            return this.t('recording.targetBusy');
+        }
+
+        return this.t('recording.targetReady');
+    },
+    previewTargetStatus(target: BrowserTestbenchTarget): string {
+        if (!this.isCompatiblePreviewTarget(target)) {
+            return this.t('preview.targetIncompatible');
+        }
+
+        if (!target.ready) {
+            return this.t('preview.targetUnavailable');
+        }
+
+        if (target.busy) {
+            return this.t('preview.targetBusy');
+        }
+
+        return this.t('preview.targetReady');
+    },
+    isCompatiblePreviewTarget(target: BrowserTestbenchTarget): boolean {
+        return !this.project.browserSession.permissions.some(
+            (permission: BrowserPermission) =>
+                !target.capabilities.permissions.origin.includes(permission),
+        );
+    },
+    isCompatibleRecordingTarget(target: BrowserTestbenchTarget): boolean {
+        return target.capabilities.recording.viewport && this.isCompatiblePreviewTarget(target);
+    },
     async loadBrowserTargets(): Promise<void> {
         if (this.browserTargetsLoading) {
             return;
@@ -25,16 +107,7 @@ export const browserSessionMethods: WorkspaceMethodMap = {
                     (Boolean(this.remotePreviewSessionId) || (target.ready && !target.busy)),
             );
             this.selectedBrowserTargetId = selectedTarget?.id ?? '';
-            const selectedRecordingTarget = this.compatibleRecordingTargets.find(
-                (target: BrowserTestbenchTarget) =>
-                    target.id === this.selectedRecordingTargetId && target.ready && !target.busy,
-            );
-            this.selectedRecordingTargetId =
-                selectedRecordingTarget?.id ??
-                this.compatibleRecordingTargets.find(
-                    (target: BrowserTestbenchTarget) => target.ready && !target.busy,
-                )?.id ??
-                '';
+            this.selectedRecordingTargetId = this.availableRecordingTargetId();
         } catch {
             this.browserTargets = [];
             this.selectedBrowserTargetId = '';
@@ -111,6 +184,18 @@ export const browserSessionMethods: WorkspaceMethodMap = {
         this.browserTargets = [];
         this.selectedBrowserTargetId = '';
         this.selectedRecordingTargetId = '';
+    },
+    availableRecordingTargetId(): string {
+        const available = this.compatibleRecordingTargets.filter(
+            (target: BrowserTestbenchTarget) => target.ready && !target.busy,
+        );
+        return (
+            available.find(
+                (target: BrowserTestbenchTarget) => target.id === this.selectedRecordingTargetId,
+            )?.id ??
+            available[0]?.id ??
+            ''
+        );
     },
     async selectRemotePreviewTarget(target: BrowserTestbenchTarget): Promise<void> {
         if (
@@ -290,149 +375,5 @@ export const browserSessionMethods: WorkspaceMethodMap = {
         } finally {
             this.selectorPicking = false;
         }
-    },
-    async recordWorkflow(): Promise<void> {
-        const target = this.selectedRecordingTarget;
-
-        if (
-            !target ||
-            this.executionRunning ||
-            this.browserTargetOpening ||
-            this.recordingWorkflow ||
-            !this.browserSessionInputsReady
-        ) {
-            return;
-        }
-
-        this.recordingWorkflow = true;
-        this.recordingStopRequested = false;
-        this.recordingMarks = [];
-        this.browserTargetOpening = true;
-        let sessionId: string | null = null;
-        let recordingStarted = false;
-        let recordingCompleted = false;
-        const previewSessionId = this.remotePreviewSessionId;
-        const previewTargetId = this.selectedBrowserTargetId;
-        const recordingOnPreviewTarget = previewTargetId === target.id;
-        const output = this.project.nodes.find(
-            (node: DirectorNode) => node.type === 'video-output',
-        );
-        const filename = output?.filename ?? 'video.mp4';
-
-        try {
-            await Promise.all(Object.values(this.inputFileStores));
-            const plan = WorkflowPlanner.plan(this.project, 'workflow');
-            this.assertPlanInputs(plan);
-            await this.stopPlaybackAudio();
-
-            if (recordingOnPreviewTarget && previewSessionId) {
-                await BrowserTestbenchPreview.close(previewSessionId).catch(() => undefined);
-            }
-
-            sessionId = await this.openRemotePlan(target, 'workflow', plan, true);
-            this.remotePreviewSessionId = sessionId;
-
-            if (plan.steps.some((step) => step.node.type === 'audio')) {
-                await BrowserTestbenchPreview.prepareAudio(sessionId!);
-            }
-
-            await BrowserTestbenchPreview.startRecording(sessionId!, filename);
-            recordingStarted = true;
-            this.startRecordingIndicator();
-            this.browserTargetOpening = false;
-            const completed = await this.runPlayback('workflow', undefined, true);
-
-            if (!completed) {
-                if (this.recordingStopRequested) {
-                    throw new Error(this.t('recording.cancelled'));
-                }
-
-                const nodes = this.executionController.snapshot().nodes as Record<
-                    string,
-                    { status: NodeExecutionStatus; error?: string }
-                >;
-                const failure = Object.values(nodes).find((node) => node.status === 'error');
-                throw new Error(failure?.error ?? this.t('recording.workflowFailed'));
-            }
-
-            this.stopRecordingIndicator();
-            recordingStarted = false;
-            const recording = await BrowserTestbenchPreview.stopRecording(
-                sessionId!,
-                filename,
-                target.kind === 'desktop' ? this.previewOutputSize : undefined,
-                this.recordingMarks,
-            );
-            recordingCompleted = true;
-            BrowserTestbenchPreview.downloadRecording(recording);
-            this.showNotice(this.t('recording.completed', { name: filename }));
-        } catch (error) {
-            this.stopRecordingIndicator();
-
-            if (recordingStarted && sessionId) {
-                await BrowserTestbenchPreview.discardRecording(sessionId).catch(() => undefined);
-            }
-
-            this.showNotice(
-                this.recordingStopRequested
-                    ? this.t('recording.cancelled')
-                    : `${this.t('recording.failed')} ${this.errorMessage(error)}`,
-            );
-        } finally {
-            this.stopRecordingIndicator();
-            this.browserTargetOpening = false;
-            this.recordingWorkflow = false;
-            this.recordingStopRequested = false;
-            this.renderGraph();
-            const keepAsRemotePreview = recordingCompleted && recordingOnPreviewTarget;
-
-            if (sessionId && !keepAsRemotePreview) {
-                await BrowserTestbenchPreview.close(sessionId).catch(() => undefined);
-            }
-
-            if (keepAsRemotePreview) {
-                this.remotePreviewSessionId = sessionId;
-                this.selectedBrowserTargetId = target.id;
-            } else if (!recordingOnPreviewTarget) {
-                this.remotePreviewSessionId = previewSessionId;
-                this.selectedBrowserTargetId = previewTargetId;
-            } else {
-                this.remotePreviewSessionId = null;
-            }
-
-            if (this.browserTestbenchRunning && !keepAsRemotePreview) {
-                void this.loadBrowserTargets();
-            }
-        }
-    },
-    startRecordingIndicator(): void {
-        if (this.recordingTimer) {
-            clearInterval(this.recordingTimer);
-        }
-
-        this.recordingStartedAt = Date.now();
-        this.recordingElapsedMs = 0;
-        this.recordingActive = true;
-        this.renderGraph();
-        this.recordingTimer = setInterval(() => {
-            this.recordingElapsedMs = Date.now() - this.recordingStartedAt;
-        }, 250);
-    },
-    stopRecordingIndicator(): void {
-        if (this.recordingTimer) {
-            clearInterval(this.recordingTimer);
-        }
-
-        this.recordingTimer = undefined;
-        this.recordingActive = false;
-        this.renderGraph();
-    },
-    stopRecordingWorkflow(): void {
-        if (!this.recordingActive) {
-            return;
-        }
-
-        this.recordingStopRequested = true;
-        this.stopPlayback();
     },
 };

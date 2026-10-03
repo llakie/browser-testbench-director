@@ -63,6 +63,7 @@ export async function verifyProjectRoundtrip(session: RemoteSession): Promise<vo
         5_000,
     );
     await session.click('[data-testid="save-project"]');
+    await session.waitForElement('[data-testid="save-project-dialog"]', 5_000);
     await session.waitForElement('[data-testid="save-project"] .icon-spinner', 5_000);
     const download = await session.waitForDownload('roundtrip-source.btd.json', 10_000);
     await session.evaluate(`

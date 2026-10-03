@@ -1,5 +1,7 @@
 import type { AudioEnvelopePoint, BrowserWaitNode, LayerNode } from './project-format.js';
 
+export const MERGE_RACE_ABORT_REASON = 'director:merge-race';
+
 export interface RuntimeStep {
     readonly id: string;
     readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait' | 'merge' | 'audio';
@@ -23,6 +25,7 @@ export interface RuntimeStep {
     readonly envelope?: readonly AudioEnvelopePoint[];
     readonly waitForEnd?: boolean;
     readonly loop?: boolean;
+    readonly startOffsetMs?: number;
     readonly fadeInMs?: number;
     readonly fadeOutMs?: number;
 }

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 export interface DirectorWebsiteBridgeConfiguration {
     readonly prefix: string;
     readonly targetOrigin: string;
+    readonly browserLanguage?: string;
 }
 
 const configurationSlot = '/* director:configuration */';

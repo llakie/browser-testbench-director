@@ -22,8 +22,9 @@ working directory.
 
 ## Director UI
 
-The Director editor supports input nodes, one website root, and layer, JavaScript, browser action, wait, merge, and
-audio nodes. Each layer occupies a transparent full-screen surface. Its content can be aligned within that surface or
+The Director editor supports input nodes, one website root, and layer, JavaScript, delay, browser action, wait, merge,
+and audio nodes. A delay is a visual JavaScript specialization that keeps its configured duration in preview and the
+final recording; it can be converted one-way to its generated `await director.wait(...)` source. Each layer occupies a transparent full-screen surface. Its content can be aligned within that surface or
 placed at an inherited position, while its own CSS determines its size. Browser actions and wait conditions use typed
 configuration. Element, URL, and script waits as well as clicks run both locally and through Browser Testbench.
 Multiple outputs start parallel branches. Only a merge node may have multiple workflow inputs; it continues after
@@ -93,8 +94,8 @@ size, and SHA-256. Director restores them automatically when the project is reop
 connected input before starting the website.
 
 Camera sources are transferred to Browser Testbench as binary assets. Other files are available to scripts as data
-URLs through `director.inputs`. Audio inputs feed audio nodes, which support volume control and optionally wait for
-playback to finish. For local Android URLs, Director enables Browser Testbench's secure reverse mapping automatically.
+URLs through `director.inputs`. Audio inputs feed audio nodes, which support a virtual start offset, volume control,
+and optionally wait for playback to finish. For local Android URLs, Director enables Browser Testbench's secure reverse mapping automatically.
 A project can therefore start an Android emulator with camera permission, language and locale, an injected camera
 image, and a font without storing binary data or transport-specific network details in its `.btd.json` file.
 

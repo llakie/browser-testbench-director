@@ -256,6 +256,31 @@ test('Lokale Website-Vorschau registriert eine Same-Origin-Proxy-Route', async (
     ]);
 });
 
+test('Website-Proxy erhält die konfigurierte Browsersprache', async () => {
+    const originalFetch = globalThis.fetch;
+    let body: unknown;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body));
+        return Response.json({ url: '/director-website/session/scan' }, { status: 201 });
+    }) as typeof fetch;
+
+    try {
+        await BrowserTestbenchPreview.proxyWebsite('https://127.0.0.1:4200/scan', {
+            permissions: [],
+            language: 'de',
+            locale: 'DE',
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(body, {
+        url: 'https://127.0.0.1:4200/scan',
+        language: 'de',
+        locale: 'DE',
+    });
+});
+
 test('Leere Website-URLs werden niemals auf den Director selbst aufgelöst', () => {
     assert.throws(
         () => BrowserTestbenchPreview.proxyWebsite('   '),
@@ -758,11 +783,11 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
         const body = requests.at(-1)!.body;
         const payload = String(body['script']).includes('.status(')
             ? {
-                state: 'success',
-                events: [],
-                marks: [],
-                audioPositions: { soundtrack: { positionMs: 1200, durationMs: 4000 } },
-            }
+                  state: 'success',
+                  events: [],
+                  marks: [],
+                  audioPositions: { soundtrack: { positionMs: 1200, durationMs: 4000 } },
+              }
             : null;
         return new Response(JSON.stringify(payload), {
             headers: { 'Content-Type': 'application/json' },
@@ -847,6 +872,28 @@ test('Remote instant audio seeks inside the selected file', async () => {
     assert.deepEqual(request?.arguments, ['soundtrack', 1.25]);
 });
 
+test('Remote paused audio adopts a new virtual start offset', async () => {
+    const originalFetch = globalThis.fetch;
+    let request: { action?: string; script?: string; arguments?: unknown[] } | undefined;
+    globalThis.fetch = async (_input, init = {}) => {
+        request = JSON.parse(String(init.body)) as typeof request;
+        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    try {
+        await BrowserTestbenchPreview.setAudioStartOffset('session-audio', 'soundtrack', 6);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(request?.action, 'evaluate');
+    assert.equal(
+        request?.script,
+        'window.__director?.setAudioStartOffset?.(arguments[0], arguments[1]);',
+    );
+    assert.deepEqual(request?.arguments, ['soundtrack', 6]);
+});
+
 test('Remote instant audio pauses and resumes the same runtime node', async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ script?: string; arguments?: unknown[] }> = [];
@@ -862,13 +909,20 @@ test('Remote instant audio pauses and resumes the same runtime node', async () =
         globalThis.fetch = originalFetch;
     }
 
-    assert.deepEqual(requests.map((request) => request.arguments), [
-        ['soundtrack', true],
-        ['soundtrack', false],
-    ]);
-    assert.ok(requests.every(
-        (request) => request.script === 'window.__director?.setAudioPaused?.(arguments[0], arguments[1]);',
-    ));
+    assert.deepEqual(
+        requests.map((request) => request.arguments),
+        [
+            ['soundtrack', true],
+            ['soundtrack', false],
+        ],
+    );
+    assert.ok(
+        requests.every(
+            (request) =>
+                request.script ===
+                'window.__director?.setAudioPaused?.(arguments[0], arguments[1]);',
+        ),
+    );
 });
 
 for (const kind of ['desktop', 'mobile'] as const) {

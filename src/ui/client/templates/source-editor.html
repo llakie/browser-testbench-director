@@ -1,0 +1,49 @@
+<template>
+    <div class="source-editor-control">
+        <div :class="['source-toolbar', { 'source-toolbar--actions': !$slots.tabs }]">
+            <slot name="tabs"></slot>
+            <button
+                class="icon-button icon-button--small source-format-button"
+                type="button"
+                data-testid="format-source"
+                aria-keyshortcuts="Alt+Shift+F"
+                :disabled="formatting"
+                :aria-label="t('editor.format')"
+                :title="`${t('editor.format')} · Alt/Option+Shift+F`"
+                @click="$emit('format')"
+            >
+                <i
+                    :class="[
+                        'bi',
+                        formatting
+                            ? 'bi-arrow-repeat source-format-spinner'
+                            : 'bi-braces-asterisk',
+                    ]"
+                    aria-hidden="true"
+                ></i>
+            </button>
+        </div>
+        <div
+            :id="panelId || undefined"
+            class="source-editor"
+            :role="labelledBy ? 'tabpanel' : undefined"
+            :aria-labelledby="labelledBy || undefined"
+        >
+            <span ref="gutter" class="source-editor__gutter" aria-hidden="true"
+                >{{ lineNumbers }}</span
+            >
+            <textarea
+                :value="modelValue"
+                :data-testid="testId || undefined"
+                :aria-label="label"
+                autocapitalize="off"
+                autocomplete="off"
+                spellcheck="false"
+                wrap="off"
+                @input="update"
+                @keydown="handleKeydown"
+                @scroll="syncGutter"
+            ></textarea>
+        </div>
+    </div>
+</template>

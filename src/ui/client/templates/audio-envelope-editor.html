@@ -1,11 +1,14 @@
 <template>
-    <div :class="['audio-envelope-editor', { 'is-readonly': !editable }]" data-testid="audio-envelope-editor">
+    <div
+        :class="['audio-envelope-editor', { 'is-readonly': !editable }]"
+        data-testid="audio-envelope-editor"
+    >
         <div class="audio-envelope-editor__plot">
             <svg
                 ref="canvas"
                 class="audio-envelope-editor__canvas"
                 :viewBox="viewBox"
-                height="112"
+                :height="drawingHeight"
                 role="group"
                 :aria-label="label"
                 @click="addPoint"
@@ -17,7 +20,7 @@
                     :x1="playheadX"
                     :x2="playheadX"
                     y1="0"
-                    :y2="112"
+                    :y2="drawingHeight"
                     data-testid="audio-envelope-playhead"
                 ></line>
                 <g v-for="(point, index) in renderedPoints" :key="index">

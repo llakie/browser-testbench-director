@@ -1,4 +1,8 @@
-import { DirectorRuntimeScript, type RuntimeStep } from './runtime-protocol.js';
+import {
+    DirectorRuntimeScript,
+    MERGE_RACE_ABORT_REASON,
+    type RuntimeStep,
+} from './runtime-protocol.js';
 
 interface PreviewRuntimeScriptValues {
     readonly steps: readonly RuntimeStep[];
@@ -14,6 +18,7 @@ const steps = ${JSON.stringify(values.steps)};
 const initialExecutionId = ${JSON.stringify(values.executionId)};
 const inputs = ${JSON.stringify(values.inputs)};
 const cameraInputId = ${JSON.stringify(values.cameraInputId)};
+const mergeRaceAbortReason = ${JSON.stringify(MERGE_RACE_ABORT_REASON)};
 let globalStylesheetInputIds = ${JSON.stringify(values.globalStylesheetInputIds)};
 const overlays = document.querySelector('#director-overlays') || (() => {
     const host = document.createElement('div');
@@ -401,7 +406,17 @@ async function preloadAudio(nextSteps) {
 }
 
 async function playAudio(step, signal) {
-    if (step.speed === 'catchup') return;
+    if (step.speed === 'catchup') {
+        if (step.loop && step.waitForEnd) {
+            await new Promise((resolve, reject) => {
+                signal.addEventListener('abort', () => {
+                    reject(new DOMException('The execution was stopped.', 'AbortError'));
+                }, { once: true });
+            });
+        }
+
+        return;
+    }
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
     const source = inputs[step.inputId];
     if (!source) throw new Error('Audio input is missing: ' + (step.inputId || step.id));
@@ -414,16 +429,30 @@ async function playAudio(step, signal) {
     const context = getAudioContext();
     const buffer = await loadAudioBuffer(step);
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
+    const requestedStartOffset = (step.startOffsetMs || 0) / 1000;
+    if (requestedStartOffset >= buffer.duration) {
+        throw new Error('Audio start offset must be before the file end: ' + step.id);
+    }
     const requestedFadeIn = (step.fadeInMs || 0) / 1000;
     const fadeOutSeconds = (step.fadeOutMs || 0) / 1000;
-    const fileFadeScale = !step.loop && requestedFadeIn + fadeOutSeconds > buffer.duration
-        ? buffer.duration / (requestedFadeIn + fadeOutSeconds)
-        : 1;
-    const fadeInSeconds = requestedFadeIn * fileFadeScale;
-    const naturalFadeOutSeconds = fadeOutSeconds * fileFadeScale;
-    const naturalFadeStart = step.loop || naturalFadeOutSeconds === 0
-        ? null
-        : buffer.duration - naturalFadeOutSeconds;
+    let clipOffset = 0;
+    let clipDuration = buffer.duration;
+    let fadeInSeconds = requestedFadeIn;
+    let naturalFadeOutSeconds = fadeOutSeconds;
+    let naturalFadeStart = null;
+    const updateClip = (seconds) => {
+        clipOffset = Math.min(buffer.duration, Math.max(0, seconds));
+        clipDuration = buffer.duration - clipOffset;
+        const fileFadeScale = !step.loop && requestedFadeIn + fadeOutSeconds > clipDuration
+            ? clipDuration / (requestedFadeIn + fadeOutSeconds)
+            : 1;
+        fadeInSeconds = requestedFadeIn * fileFadeScale;
+        naturalFadeOutSeconds = fadeOutSeconds * fileFadeScale;
+        naturalFadeStart = step.loop || naturalFadeOutSeconds === 0
+            ? null
+            : clipDuration - naturalFadeOutSeconds;
+    };
+    updateClip(requestedStartOffset);
     await context.resume();
     await new Promise((resolve, reject) => {
         let settled = false;
@@ -431,7 +460,7 @@ async function playAudio(step, signal) {
         let playback;
         let fade;
         let startedAt = context.currentTime;
-        let startOffset = 0;
+        let startPosition = 0;
         let pausedAt = 0;
         let paused = false;
         let resolveStopped = () => undefined;
@@ -462,6 +491,14 @@ async function playAudio(step, signal) {
                 reject(new DOMException('The execution was stopped.', 'AbortError'));
             }
         };
+        const currentSeconds = () => paused
+            ? pausedAt
+            : Math.min(
+                clipDuration,
+                step.loop
+                    ? (context.currentTime - startedAt + startPosition) % clipDuration
+                    : context.currentTime - startedAt + startPosition,
+            );
         const stop = () => {
             if (stopRequested) return stopped;
             stopRequested = true;
@@ -470,12 +507,12 @@ async function playAudio(step, signal) {
                 return stopped;
             }
             const now = context.currentTime;
-            const elapsed = Math.max(0, now - startedAt + startOffset);
+            const elapsed = currentSeconds();
             const fadeInLevel = fadeInSeconds > 0
                 ? Math.min(1, elapsed / fadeInSeconds)
                 : 1;
             const level = naturalFadeStart !== null && elapsed > naturalFadeStart
-                ? Math.max(0, (buffer.duration - elapsed) / naturalFadeOutSeconds)
+                ? Math.max(0, (clipDuration - elapsed) / naturalFadeOutSeconds)
                 : fadeInLevel;
             fade.gain.cancelScheduledValues(now);
             fade.gain.setValueAtTime(level, now);
@@ -489,60 +526,55 @@ async function playAudio(step, signal) {
             }
             return stopped;
         };
-        const currentSeconds = () => paused
-            ? pausedAt
-            : Math.min(
-                buffer.duration,
-                step.loop
-                    ? (context.currentTime - startedAt + startOffset) % buffer.duration
-                    : context.currentTime - startedAt + startOffset,
-            );
         const position = () => ({
             positionMs: currentSeconds() * 1000,
-            durationMs: buffer.duration * 1000,
+            durationMs: clipDuration * 1000,
             paused,
         });
-        const startAt = (offset) => {
+        const startAt = (position) => {
             const previous = playback;
             const now = context.currentTime;
+            const sourceOffset = clipOffset + position;
             const gain = context.createGain();
             const nextFade = context.createGain();
             const next = context.createBufferSource();
             startedAt = now;
-            startOffset = offset;
+            startPosition = position;
             paused = false;
             fade = nextFade;
             playback = next;
             next.buffer = buffer;
             next.loop = Boolean(step.loop);
+            next.loopStart = clipOffset;
+            next.loopEnd = buffer.duration;
             next.connect(gain).connect(nextFade).connect(context.destination);
-            if (offset === 0) {
-                scheduleAudioEnvelope(gain.gain, step, now, buffer.duration);
+            if (position === 0) {
+                scheduleAudioEnvelope(gain.gain, step, now, clipDuration);
             } else {
-                scheduleAudioEnvelopeFrom(gain.gain, step, now, buffer.duration, offset);
+                scheduleAudioEnvelopeFrom(gain.gain, step, now, clipDuration, position);
             }
-            const fadeInLevel = fadeInSeconds > 0 ? Math.min(1, offset / fadeInSeconds) : 1;
-            const fadeLevel = naturalFadeStart !== null && offset > naturalFadeStart
-                ? Math.max(0, (buffer.duration - offset) / naturalFadeOutSeconds)
+            const fadeInLevel = fadeInSeconds > 0 ? Math.min(1, position / fadeInSeconds) : 1;
+            const fadeLevel = naturalFadeStart !== null && position > naturalFadeStart
+                ? Math.max(0, (clipDuration - position) / naturalFadeOutSeconds)
                 : fadeInLevel;
             nextFade.gain.setValueAtTime(fadeLevel, now);
-            if (offset < fadeInSeconds) {
-                nextFade.gain.linearRampToValueAtTime(1, now + fadeInSeconds - offset);
+            if (position < fadeInSeconds) {
+                nextFade.gain.linearRampToValueAtTime(1, now + fadeInSeconds - position);
             }
             if (naturalFadeStart !== null) {
-                const remaining = naturalFadeStart - offset;
+                const remaining = naturalFadeStart - position;
                 if (remaining > 0) {
                     nextFade.gain.cancelScheduledValues(now + remaining);
                     nextFade.gain.setValueAtTime(1, now + remaining);
                 }
-                nextFade.gain.linearRampToValueAtTime(0, now + buffer.duration - offset);
+                nextFade.gain.linearRampToValueAtTime(0, now + clipDuration - position);
             }
             next.addEventListener('ended', () => {
                 if (playback === next) {
                     ended();
                 }
             }, { once: true });
-            next.start(0, offset);
+            next.start(0, sourceOffset);
             if (previous) {
                 previous.stop();
                 previous.disconnect();
@@ -550,13 +582,23 @@ async function playAudio(step, signal) {
         };
         const seek = (seconds) => {
             if (!stopRequested && Number.isFinite(seconds) && !step.loop) {
-                const offset = Math.min(buffer.duration, Math.max(0, seconds));
+                const position = Math.min(clipDuration, Math.max(0, seconds));
                 if (paused) {
-                    pausedAt = offset;
+                    pausedAt = position;
                 } else {
-                    startAt(offset);
+                    startAt(position);
                 }
             }
+        };
+        const setStartOffset = (seconds) => {
+            if (!paused || stopRequested || !Number.isFinite(seconds)) {
+                return;
+            }
+            if (seconds >= buffer.duration) {
+                throw new Error('Audio start offset must be before the file end: ' + step.id);
+            }
+            updateClip(seconds);
+            pausedAt = 0;
         };
         const pause = () => {
             if (paused || stopRequested || !playback) {
@@ -574,8 +616,15 @@ async function playAudio(step, signal) {
                 startAt(pausedAt);
             }
         };
-        const aborted = () => cancel();
-        activeAudio.set(step.id, { cancel, stop, position, seek, pause, resume });
+        const aborted = () => {
+            if (signal.reason === mergeRaceAbortReason) {
+                void stop();
+                return;
+            }
+
+            cancel();
+        };
+        activeAudio.set(step.id, { cancel, stop, position, seek, setStartOffset, pause, resume });
         signal.addEventListener('abort', aborted, { once: true });
         startAt(0);
         if (!step.waitForEnd) {
@@ -674,6 +723,15 @@ function seekAudio(nodeId, seconds) {
     }
 
     activeAudio.get(nodeId)?.seek(seconds);
+}
+
+function setAudioStartOffset(nodeId, seconds) {
+    if (window.parent.__directorAudioPlayback) {
+        window.parent.__directorAudioPlayback.setStartOffset(nodeId, seconds);
+        return;
+    }
+
+    activeAudio.get(nodeId)?.setStartOffset(seconds);
 }
 
 function setAudioPaused(nodeId, paused) {
@@ -882,7 +940,9 @@ async function run(nextSteps, executionId = null, options = {}) {
         for (const dependencyId of dependencyIds) {
             if (dependencyId === winnerId) continue;
             for (const nodeId of ancestors(dependencyId)) {
-                if (!winnerBranch.has(nodeId)) stepControllers.get(nodeId)?.abort();
+                if (!winnerBranch.has(nodeId)) {
+                    stepControllers.get(nodeId)?.abort(mergeRaceAbortReason);
+                }
             }
         }
     };
@@ -907,7 +967,11 @@ async function run(nextSteps, executionId = null, options = {}) {
                 : Promise.all(dependencies);
         const execution = ready.then(async () => {
             if (controller.signal.aborted) {
-                report(executionId, step.id, 'cancelled');
+                report(
+                    executionId,
+                    step.id,
+                    controller.signal.reason === mergeRaceAbortReason ? 'success' : 'cancelled',
+                );
                 return;
             }
             report(executionId, step.id, 'running');
@@ -919,6 +983,10 @@ async function run(nextSteps, executionId = null, options = {}) {
                     result = step.type === 'merge'
                         ? undefined
                         : await execute(step, controller.signal);
+
+                    if (controller.signal.aborted) {
+                        throw new DOMException('The execution was stopped.', 'AbortError');
+                    }
                 } finally {
                     markEnd(step);
                 }
@@ -926,10 +994,12 @@ async function run(nextSteps, executionId = null, options = {}) {
                 report(executionId, step.id, 'success');
             } catch (error) {
                 const cancelled = controller.signal.aborted && error?.name === 'AbortError';
+                const plannedCancellation =
+                    cancelled && controller.signal.reason === mergeRaceAbortReason;
                 report(
                     executionId,
                     step.id,
-                    cancelled ? 'cancelled' : 'error',
+                    plannedCancellation ? 'success' : cancelled ? 'cancelled' : 'error',
                     cancelled ? undefined : error,
                 );
                 if (cancelled) return;
@@ -985,6 +1055,7 @@ window.__director = Object.freeze({
     cancelStep,
     stopAudio,
     seekAudio,
+    setAudioStartOffset,
     setAudioPaused,
     remove,
     setInputs,

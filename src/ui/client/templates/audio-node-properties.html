@@ -1,0 +1,98 @@
+<template>
+    <div class="audio-node-properties">
+        <property-accordion
+            :title="t('audio.playback')"
+            :preview="Math.round(activeAudio.volume * 100) + ' %'"
+            group="audio-properties"
+            open
+            test-id="audio-playback-group"
+            summary-test-id="audio-playback-summary"
+        >
+            <div class="automation-properties automation-properties--audio">
+                <property-field :label="t('audio.volume')">
+                    <range-control
+                        v-model="activeAudio.volume"
+                        :min="0"
+                        :max="1"
+                        :step="0.01"
+                        :value-text="`${Math.round(activeAudio.volume * 100)} %`"
+                        tone="audio"
+                        test-id="audio-volume"
+                        :disabled="activeAudioEditLocked"
+                        @input="markActiveNodeStale"
+                    ></range-control>
+                </property-field>
+                <div class="automation-properties__options">
+                    <toggle-control
+                        v-model="activeAudio.waitForEnd"
+                        :label="t('audio.waitForEnd')"
+                        test-id="audio-wait-for-end"
+                        :disabled="activeAudioEditLocked"
+                        @change="markActiveNodeStale"
+                    ></toggle-control>
+                    <toggle-control
+                        v-model="activeAudio.loop"
+                        :label="t('audio.loop')"
+                        test-id="audio-loop"
+                        :disabled="activeAudioEditLocked"
+                        @change="markActiveNodeStale"
+                    ></toggle-control>
+                </div>
+                <div class="automation-properties__timing">
+                    <property-field :label="t('audio.startOffset')">
+                        <number-control
+                            v-model="activeAudio.startOffsetMs"
+                            :min="0"
+                            :max="audioMaximumStartOffsetMs"
+                            :step="100"
+                            suffix="ms"
+                            test-id="audio-start-offset"
+                            :disabled="activeAudioEditLocked"
+                            @change="updateActiveAudioStartOffset"
+                        ></number-control>
+                    </property-field>
+                    <property-field :label="t('audio.fadeIn')">
+                        <number-control
+                            v-model="activeAudio.fadeInMs"
+                            :min="0"
+                            :step="100"
+                            suffix="ms"
+                            test-id="audio-fade-in"
+                            :disabled="activeAudioEditLocked"
+                            @input="markActiveNodeStale"
+                        ></number-control>
+                    </property-field>
+                    <property-field :label="t('audio.fadeOut')">
+                        <number-control
+                            v-model="activeAudio.fadeOutMs"
+                            :min="0"
+                            :step="100"
+                            suffix="ms"
+                            test-id="audio-fade-out"
+                            :disabled="activeAudioEditLocked"
+                            @input="markActiveNodeStale"
+                        ></number-control>
+                    </property-field>
+                </div>
+            </div>
+        </property-accordion>
+        <property-accordion
+            :title="t('audio.envelope')"
+            group="audio-properties"
+            test-id="audio-envelope-group"
+            summary-test-id="audio-envelope-summary"
+        >
+            <div class="automation-properties">
+                <audio-envelope-editor
+                    v-model="activeAudio.envelope"
+                    :label="t('audio.envelope')"
+                    :delete-label="t('audio.deleteEnvelopePoint')"
+                    :position-ms="audioPositionMs"
+                    :duration-ms="audioPlayableDurationMs"
+                    :editable="!activeAudioEditLocked"
+                    @change="markActiveNodeStale"
+                ></audio-envelope-editor>
+            </div>
+        </property-accordion>
+    </div>
+</template>

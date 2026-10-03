@@ -1,13 +1,27 @@
 import { defineComponent, type PropType } from 'vue';
 
 import type { InputNode, LayerNode } from '../core/project-format.js';
-import { TextLayerSource, type TextEffect } from '../core/text-layer-source.js';
+import { TextLayerSource } from '../core/text-layer-source.js';
 import { Translator } from '../core/translator.js';
 import { TemplateRegistry } from '../core/template-registry.js';
 import template from '../templates/text-layer-editor.html?raw';
+import { NumberControl } from './number-control.js';
+import { PropertyAccordion } from './property-accordion.js';
+import { PropertyField } from './property-field.js';
+import { RangeControl } from './range-control.js';
+import { TextEffectControl } from './text-effect-control.js';
+import { ToggleControl } from './toggle-control.js';
 
 export const TextLayerEditor = defineComponent({
     name: 'TextLayerEditor',
+    components: {
+        NumberControl,
+        PropertyAccordion,
+        PropertyField,
+        RangeControl,
+        TextEffectControl,
+        ToggleControl,
+    },
     props: {
         layer: { type: Object as PropType<LayerNode>, required: true },
         fontInputs: { type: Array as PropType<readonly InputNode[]>, required: true },
@@ -126,10 +140,6 @@ export const TextLayerEditor = defineComponent({
             this.draggedLineId = null;
             this.dropTargetId = null;
             this.dragPointerId = null;
-        },
-        setEffect(effect: TextEffect, event: Event): void {
-            effect.name = (event.target as HTMLSelectElement).value as TextEffect['name'];
-            this.update();
         },
     },
 });

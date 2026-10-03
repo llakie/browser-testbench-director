@@ -243,37 +243,3 @@
     color: var(--color-accent-soft);
     background: var(--color-surface-soft);
 }
-
-.button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 36px;
-    padding: 0 13px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-small);
-    font-size: 12px;
-    font-weight: 720;
-    cursor: pointer;
-}
-
-.button--quiet {
-    border-color: var(--color-border);
-    background: var(--color-surface);
-}
-
-.button--quiet:hover {
-    border-color: var(--color-border-strong);
-    background: var(--color-surface-soft);
-}
-
-.button--primary {
-    border-color: var(--color-accent);
-    color: var(--color-accent-ink);
-    background: var(--color-accent);
-}
-
-.button--primary:hover {
-    background: var(--color-accent-soft);
-}

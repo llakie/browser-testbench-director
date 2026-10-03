@@ -73,6 +73,26 @@ test('Director-Projektformat speichert JavaScript-Nodes ohne Quelltextverlust', 
     assert.equal(script?.source, "await director.waitFor('#card');");
 });
 
+test('Director-Projektformat regeneriert den Quelltext visueller Delay-Nodes', () => {
+    const project = ProjectFormat.create();
+    const delay = ProjectNodes.createDelay(project, 'Pause');
+    delay.delay!.durationMs = 1_500;
+    delay.source = 'outdated';
+    project.nodes.push(delay);
+
+    const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
+    const restored = loaded.nodes.find((node) => node.id === delay.id);
+
+    assert.equal(restored?.type, 'javascript');
+
+    if (restored?.type !== 'javascript') {
+        throw new Error('Expected a JavaScript node.');
+    }
+
+    assert.deepEqual(restored.delay, { durationMs: 1_500 });
+    assert.equal(restored.source, 'await director.wait(1500);');
+});
+
 test('Director-Projektformat speichert typisierte Browser-Aktionen und Wartebedingungen', () => {
     const project = ProjectFormat.create();
     project.nodes.push(
@@ -124,16 +144,20 @@ test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen',
     ];
     audio.waitForEnd = false;
     audio.loop = true;
+    audio.startOffsetMs = 1_200;
     audio.fadeInMs = 500;
     audio.fadeOutMs = 700;
     project.nodes.push(audio);
 
+    delete audio.startOffsetMs;
     delete audio.fadeInMs;
     delete audio.fadeOutMs;
     const loadedWithoutFades = ProjectFormat.parse(JSON.stringify(project));
     const restoredAudio = loadedWithoutFades.nodes.find((node) => node.id === audio.id);
+    assert.equal(restoredAudio?.type === 'audio' && restoredAudio.startOffsetMs, 0);
     assert.equal(restoredAudio?.type === 'audio' && restoredAudio.fadeInMs, 0);
     assert.equal(restoredAudio?.type === 'audio' && restoredAudio.fadeOutMs, 0);
+    audio.startOffsetMs = 1_200;
     audio.fadeInMs = 500;
     audio.fadeOutMs = 700;
 
@@ -147,6 +171,10 @@ test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen',
     audio.fadeOutMs = -1;
     assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /fadeOutMs duration/u);
     audio.fadeOutMs = 700;
+
+    audio.startOffsetMs = -1;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /startOffsetMs duration/u);
+    audio.startOffsetMs = 1_200;
 
     audio.volume = 1.1;
     assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /playback settings/u);

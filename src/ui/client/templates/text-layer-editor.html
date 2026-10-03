@@ -1,20 +1,14 @@
 <template>
     <div v-if="layer.text" class="text-layer-editor" data-testid="text-layer-editor">
-        <details
-            class="property-accordion"
-            name="text-layer-properties"
-            data-testid="text-layer-font-group"
+        <property-accordion
+            :title="t('textLayer.fontGroup')"
+            :preview="`${fontSummary} · ${layer.text.sizeVw} vw`"
+            group="text-layer-properties"
+            test-id="text-layer-font-group"
+            summary-test-id="text-layer-font-summary"
         >
-            <summary class="property-accordion__summary" data-testid="text-layer-font-summary">
-                <span>{{ t('textLayer.fontGroup') }}</span>
-                <span class="property-accordion__preview"
-                    >{{ fontSummary }} · {{ layer.text.sizeVw }} vw</span
-                >
-                <span class="bi bi-chevron-down" aria-hidden="true"></span>
-            </summary>
             <div class="text-layer-editor__fields">
-                <label>
-                    <span>{{ t('textLayer.font') }}</span>
+                <property-field :label="t('textLayer.font')">
                     <select :value="fontValue" data-testid="text-layer-font" @change="selectFont">
                         <option value="sans-serif">Sans serif</option>
                         <option value="serif">Serif</option>
@@ -27,168 +21,105 @@
                             {{ input.name }}{{ input.file ? ` · ${input.file.name}` : '' }}
                         </option>
                     </select>
-                </label>
-                <label>
-                    <span>{{ t('textLayer.size') }} · {{ layer.text.sizeVw }}vw</span>
-                    <input
-                        v-model.number="layer.text.sizeVw"
-                        type="range"
-                        min="2"
-                        max="30"
-                        step="0.5"
-                        data-testid="text-layer-size"
+                </property-field>
+                <property-field :label="`${t('textLayer.size')} · ${layer.text.sizeVw}vw`">
+                    <range-control
+                        v-model="layer.text.sizeVw"
+                        :min="2"
+                        :max="30"
+                        :step="0.5"
+                        test-id="text-layer-size"
                         @input="update"
-                    />
-                </label>
-                <label>
-                    <span>{{ t('textLayer.weight') }}</span>
+                    ></range-control>
+                </property-field>
+                <property-field :label="t('textLayer.weight')">
                     <select v-model.number="layer.text.weight" @change="update">
                         <option :value="400">{{ t('textLayer.normal') }}</option>
                         <option :value="700">{{ t('textLayer.bold') }}</option>
                     </select>
-                </label>
-                <label>
-                    <span>{{ t('textLayer.lineSpacing') }}</span>
-                    <input
-                        v-model.number="layer.text.lineHeight"
-                        type="number"
-                        min="0.7"
-                        max="2"
-                        step="0.1"
+                </property-field>
+                <property-field :label="t('textLayer.lineSpacing')">
+                    <number-control
+                        v-model="layer.text.lineHeight"
+                        :min="0.7"
+                        :max="2"
+                        :step="0.1"
                         @input="update"
-                    />
-                </label>
-                <label>
-                    <span>{{ t('textLayer.maxWidth') }}</span>
-                    <span class="text-layer-editor__number">
-                        <input
-                            v-model.number="layer.text.maxWidthPercent"
-                            type="number"
-                            min="20"
-                            max="100"
-                            step="1"
-                            @input="update"
-                        />
-                        <span>%</span>
-                    </span>
-                </label>
-                <label>
-                    <span>{{ t('textLayer.outline') }}</span>
-                    <span class="text-layer-editor__number">
-                        <input
-                            v-model.number="layer.text.outlinePx"
-                            type="number"
-                            min="0"
-                            max="5"
-                            step="0.5"
-                            data-testid="text-layer-outline"
-                            @input="update"
-                        />
-                        <span>px</span>
-                    </span>
-                </label>
-                <label class="text-layer-editor__toggle">
-                    <span>{{ t('textLayer.shadow') }}</span>
-                    <input
-                        v-model="layer.text.shadow"
-                        type="checkbox"
-                        data-testid="text-layer-shadow"
-                        @change="update"
-                    />
-                </label>
+                    ></number-control>
+                </property-field>
+                <property-field :label="t('textLayer.maxWidth')">
+                    <number-control
+                        v-model="layer.text.maxWidthPercent"
+                        :min="20"
+                        :max="100"
+                        :step="1"
+                        suffix="%"
+                        @input="update"
+                    ></number-control>
+                </property-field>
+                <property-field :label="t('textLayer.outline')">
+                    <number-control
+                        v-model="layer.text.outlinePx"
+                        :min="0"
+                        :max="5"
+                        :step="0.5"
+                        suffix="px"
+                        test-id="text-layer-outline"
+                        @input="update"
+                    ></number-control>
+                </property-field>
+                <toggle-control
+                    v-model="layer.text.shadow"
+                    :label="t('textLayer.shadow')"
+                    layout="field"
+                    test-id="text-layer-shadow"
+                    @change="update"
+                ></toggle-control>
             </div>
-        </details>
+        </property-accordion>
 
-        <details
-            class="property-accordion"
-            name="text-layer-properties"
-            data-testid="text-layer-effect-group"
+        <property-accordion
+            :title="t('textLayer.layerEffect')"
+            :preview="t(`textLayer.effect.${layer.text.effect.name}`)"
+            group="text-layer-properties"
+            test-id="text-layer-effect-group"
+            summary-test-id="text-layer-effect-summary"
         >
-            <summary class="property-accordion__summary" data-testid="text-layer-effect-summary">
-                <span>{{ t('textLayer.layerEffect') }}</span>
-                <span class="property-accordion__preview"
-                    >{{ t(`textLayer.effect.${layer.text.effect.name}`) }}</span
-                >
-                <span class="bi bi-chevron-down" aria-hidden="true"></span>
-            </summary>
             <div class="text-layer-editor__section text-layer-editor__section--effect">
-                <div class="text-layer-editor__effect">
-                    <label>
-                        <span>{{ t('textLayer.start') }}</span>
-                        <select
-                            :value="layer.text.effect.name"
-                            data-testid="text-layer-block-effect"
-                            @change="setEffect(layer.text.effect, $event)"
-                        >
-                            <option value="none">{{ t('textLayer.effect.none') }}</option>
-                            <option value="fade">{{ t('textLayer.effect.fade') }}</option>
-                            <option value="fly">{{ t('textLayer.effect.fly') }}</option>
-                            <option value="pop">{{ t('textLayer.effect.pop') }}</option>
-                        </select>
-                    </label>
-                    <label
-                        v-if="layer.text.effect.name !== 'none'"
-                        class="text-layer-editor__effect-control"
-                    >
-                        <input
-                            v-model.number="layer.text.effect.durationMs"
-                            type="number"
-                            min="100"
-                            max="10000"
-                            step="50"
-                            data-testid="text-layer-block-duration"
-                            :aria-label="t('textLayer.duration')"
-                            @input="update"
-                        />
-                        <span>ms</span>
-                    </label>
-                    <label
-                        v-if="layer.text.effect.name === 'fly'"
-                        class="text-layer-editor__effect-control"
-                    >
-                        <span>{{ t('textLayer.direction') }}</span>
-                        <select
-                            v-model="layer.text.effect.direction"
-                            data-testid="text-layer-block-direction"
-                            :aria-label="t('textLayer.direction')"
-                            @change="update"
-                        >
-                            <option value="left">{{ t('placement.left') }}</option>
-                            <option value="right">{{ t('placement.right') }}</option>
-                        </select>
-                    </label>
-                </div>
+                <text-effect-control
+                    v-model="layer.text.effect"
+                    :label="t('textLayer.start')"
+                    layout="block"
+                    effect-test-id="text-layer-block-effect"
+                    duration-test-id="text-layer-block-duration"
+                    direction-test-id="text-layer-block-direction"
+                    @change="update"
+                ></text-effect-control>
             </div>
-        </details>
+        </property-accordion>
 
-        <details
-            class="property-accordion"
-            name="text-layer-properties"
+        <property-accordion
+            :title="t('textLayer.lines')"
+            :preview="layer.text.lines[0]?.text ?? ''"
+            group="text-layer-properties"
             open
-            data-testid="text-layer-lines-group"
+            test-id="text-layer-lines-group"
+            summary-test-id="text-layer-lines-summary"
         >
-            <summary class="property-accordion__summary" data-testid="text-layer-lines-summary">
-                <span>{{ t('textLayer.lines') }}</span>
-                <span class="property-accordion__preview">{{ layer.text.lines[0]?.text }}</span>
-                <span class="bi bi-chevron-down" aria-hidden="true"></span>
-            </summary>
             <div class="text-layer-editor__section text-layer-editor__section--lines">
                 <template v-for="(line, index) in layer.text.lines" :key="line.id">
                     <label v-if="index > 0" class="text-layer-editor__offset">
                         <span class="bi bi-arrow-down" aria-hidden="true"></span>
                         <span class="visually-hidden">{{ t('textLayer.offset') }}</span>
-                        <span class="text-layer-editor__offset-value">
-                            <input
-                                v-model.number="line.offsetMs"
-                                type="number"
-                                min="0"
-                                max="60000"
-                                step="50"
-                                :data-testid="`text-layer-offset-${index}`"
-                                @input="update"
-                            />
-                            <span>ms</span>
-                        </span>
+                        <number-control
+                            v-model="line.offsetMs"
+                            :min="0"
+                            :max="60000"
+                            :step="50"
+                            suffix="ms"
+                            :test-id="`text-layer-offset-${index}`"
+                            @input="update"
+                        ></number-control>
                         <span class="bi bi-arrow-down" aria-hidden="true"></span>
                     </label>
                     <details
@@ -228,31 +159,28 @@
                         </summary>
                         <div class="text-layer-editor__line-fields">
                             <div class="text-layer-editor__line-content">
-                                <label>
-                                    <span>{{ t('textLayer.content') }}</span>
+                                <property-field :label="t('textLayer.content')">
                                     <input
                                         v-model="line.text"
                                         type="text"
                                         :data-testid="`text-layer-line-${index}`"
                                         @input="update"
                                     />
-                                </label>
-                                <label>
-                                    <span>{{ t('textLayer.color') }}</span>
+                                </property-field>
+                                <property-field :label="t('textLayer.color')">
                                     <input
                                         v-model="line.color"
                                         type="color"
                                         :aria-label="t('textLayer.color')"
                                         @input="update"
                                     />
-                                </label>
+                                </property-field>
                             </div>
                             <div
                                 class="text-layer-editor__line-options"
                                 :class="{ 'has-effect': line.effect.name !== 'none' }"
                             >
-                                <label>
-                                    <span>{{ t('textLayer.alignment') }}</span>
+                                <property-field :label="t('textLayer.alignment')">
                                     <select
                                         v-model="line.align"
                                         :aria-label="t('textLayer.alignment')"
@@ -262,59 +190,15 @@
                                         <option value="center">{{ t('placement.center') }}</option>
                                         <option value="right">{{ t('placement.right') }}</option>
                                     </select>
-                                </label>
-                                <label>
-                                    <span>{{ t('textLayer.lineEffect') }}</span>
-                                    <select
-                                        :value="line.effect.name"
-                                        :data-testid="`text-layer-effect-${index}`"
-                                        @change="setEffect(line.effect, $event)"
-                                    >
-                                        <option value="none">
-                                            {{ t('textLayer.effect.none') }}
-                                        </option>
-                                        <option value="fade">
-                                            {{ t('textLayer.effect.fade') }}
-                                        </option>
-                                        <option value="fly">{{ t('textLayer.effect.fly') }}</option>
-                                        <option value="pop">{{ t('textLayer.effect.pop') }}</option>
-                                    </select>
-                                </label>
-                                <div
-                                    v-if="line.effect.name !== 'none'"
-                                    class="text-layer-editor__effect"
-                                >
-                                    <label class="text-layer-editor__effect-control">
-                                        <input
-                                            v-model.number="line.effect.durationMs"
-                                            type="number"
-                                            min="100"
-                                            max="10000"
-                                            step="50"
-                                            :data-testid="`text-layer-line-duration-${index}`"
-                                            :aria-label="t('textLayer.duration')"
-                                            @input="update"
-                                        />
-                                        <span>ms</span>
-                                    </label>
-                                    <label
-                                        v-if="line.effect.name === 'fly'"
-                                        class="text-layer-editor__effect-control"
-                                    >
-                                        <span>{{ t('textLayer.direction') }}</span>
-                                        <select
-                                            v-model="line.effect.direction"
-                                            :data-testid="`text-layer-line-direction-${index}`"
-                                            :aria-label="t('textLayer.direction')"
-                                            @change="update"
-                                        >
-                                            <option value="left">{{ t('placement.left') }}</option>
-                                            <option value="right">
-                                                {{ t('placement.right') }}
-                                            </option>
-                                        </select>
-                                    </label>
-                                </div>
+                                </property-field>
+                                <text-effect-control
+                                    v-model="line.effect"
+                                    :label="t('textLayer.lineEffect')"
+                                    :effect-test-id="`text-layer-effect-${index}`"
+                                    :duration-test-id="`text-layer-line-duration-${index}`"
+                                    :direction-test-id="`text-layer-line-direction-${index}`"
+                                    @change="update"
+                                ></text-effect-control>
                             </div>
                         </div>
                     </details>
@@ -330,6 +214,6 @@
                     <span class="bi bi-plus" aria-hidden="true"></span>
                 </button>
             </div>
-        </details>
+        </property-accordion>
     </div>
 </template>

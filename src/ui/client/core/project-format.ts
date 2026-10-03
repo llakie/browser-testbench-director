@@ -1,5 +1,6 @@
 import { WorkflowGraph } from './workflow-graph.js';
 import { PREVIEW_PRESET_IDS, type PreviewPresetId } from './media-presets.js';
+import { DelayNodeSource, type DelaySettings } from './delay-node-source.js';
 import { TextLayerSource, type TextLayerSettings } from './text-layer-source.js';
 
 export const DIRECTOR_PROJECT_FORMAT = 'browser-testbench-director' as const;
@@ -89,6 +90,7 @@ export interface AudioNode {
     envelope: AudioEnvelopePoint[];
     waitForEnd: boolean;
     loop?: boolean;
+    startOffsetMs?: number;
     fadeInMs?: number;
     fadeOutMs?: number;
 }
@@ -120,6 +122,7 @@ export interface JavaScriptNode {
     name: string;
     position: Point | null;
     source: string;
+    delay?: DelaySettings;
 }
 
 export interface BrowserActionNode {
@@ -234,18 +237,19 @@ export class ProjectFormat {
 
         for (const node of value.nodes) {
             if (node.type === 'audio') {
+                node.startOffsetMs ??= 0;
                 node.fadeInMs ??= 0;
                 node.fadeOutMs ??= 0;
             }
         }
 
-        ProjectFormat.refreshTextSources(value);
+        ProjectFormat.refreshGeneratedSources(value);
         return value;
     }
 
     static stringify(project: DirectorProject): string {
         ProjectFormat.assertProject(project);
-        ProjectFormat.refreshTextSources(project);
+        ProjectFormat.refreshGeneratedSources(project);
         return `${JSON.stringify(project, null, 4)}\n`;
     }
 
@@ -402,10 +406,12 @@ export class ProjectFormat {
         }
     }
 
-    private static refreshTextSources(project: DirectorProject): void {
+    private static refreshGeneratedSources(project: DirectorProject): void {
         for (const node of project.nodes) {
             if (node.type === 'layer' && node.text) {
                 node.source = TextLayerSource.render(node.text, node.id);
+            } else if (node.type === 'javascript' && node.delay) {
+                node.source = DelayNodeSource.render(node.delay);
             }
         }
     }
@@ -700,10 +706,14 @@ export class ProjectFormat {
             throw new TypeError(`JavaScript node ${value['id']} must contain JavaScript source.`);
         }
 
+        if (value['delay'] !== undefined && !DelayNodeSource.validate(value['delay'])) {
+            throw new TypeError(`JavaScript node ${value['id']} contains invalid delay settings.`);
+        }
+
         ProjectFormat.assertPosition(value, 'JavaScript');
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'source'],
+            ['id', 'type', 'name', 'position', 'source', 'delay'],
             'JavaScript node',
         );
     }
@@ -743,11 +753,13 @@ export class ProjectFormat {
             throw new TypeError(`Audio node ${value['id']} contains an invalid loop setting.`);
         }
 
-        for (const key of ['fadeInMs', 'fadeOutMs']) {
+        for (const key of ['startOffsetMs', 'fadeInMs', 'fadeOutMs']) {
             const duration = value[key];
 
             if (duration !== undefined && (!Number.isInteger(duration) || Number(duration) < 0)) {
-                throw new TypeError(`Audio node ${value['id']} contains an invalid ${key} duration.`);
+                throw new TypeError(
+                    `Audio node ${value['id']} contains an invalid ${key} duration.`,
+                );
             }
         }
 
@@ -780,7 +792,19 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd', 'loop', 'fadeInMs', 'fadeOutMs'],
+            [
+                'id',
+                'type',
+                'name',
+                'position',
+                'volume',
+                'envelope',
+                'waitForEnd',
+                'loop',
+                'startOffsetMs',
+                'fadeInMs',
+                'fadeOutMs',
+            ],
             'Audio node',
         );
     }

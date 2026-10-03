@@ -166,8 +166,7 @@ export class TextLayerSource {
             [400, 700].includes(Number(value['weight'])) &&
             TextLayerSource.range(value['lineHeight'], 0.7, 2) &&
             TextLayerSource.range(value['maxWidthPercent'], 20, 100) &&
-            (value['outlinePx'] === undefined ||
-                TextLayerSource.range(value['outlinePx'], 0, 5)) &&
+            (value['outlinePx'] === undefined || TextLayerSource.range(value['outlinePx'], 0, 5)) &&
             (value['shadow'] === undefined || typeof value['shadow'] === 'boolean') &&
             effect(value['effect']) &&
             Array.isArray(value['lines']) &&

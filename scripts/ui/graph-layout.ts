@@ -103,6 +103,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
     const layout = await session.evaluate<{
         rowCount: number;
         routeCount: number;
+        nodeOverlaps: string[];
         nodeHeadersCovered: boolean;
         portsMatchHeaders: boolean;
         routeObstructions: string[];
@@ -114,6 +115,20 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         )];
         const nodes = nodeElements.map((element) => element.getBoundingClientRect());
         const rows = new Set(nodes.map((node) => Math.round(node.top)));
+        const nodeOverlaps = [];
+        for (let left = 0; left < nodeElements.length; left += 1) {
+            for (let right = left + 1; right < nodeElements.length; right += 1) {
+                const leftBounds = nodeElements[left].getBoundingClientRect();
+                const rightBounds = nodeElements[right].getBoundingClientRect();
+                if (leftBounds.left < rightBounds.right && leftBounds.right > rightBounds.left &&
+                    leftBounds.top < rightBounds.bottom && leftBounds.bottom > rightBounds.top) {
+                    nodeOverlaps.push(
+                        nodeElements[left].getAttribute('model-id') + ':' +
+                        nodeElements[right].getAttribute('model-id')
+                    );
+                }
+            }
+        }
         const connections = ${JSON.stringify(project.connections)};
         const routeObstructions = connections.flatMap((connection) => {
             const link = document.querySelector(
@@ -196,6 +211,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         return {
             rowCount: rows.size,
             routeCount: document.querySelectorAll('[data-testid="graph-canvas"] .joint-link').length,
+            nodeOverlaps,
             nodeHeadersCovered,
             portsMatchHeaders,
             routeObstructions,
@@ -209,6 +225,7 @@ export async function verifyGraphAutoLayout(session: RemoteSession): Promise<voi
         project.connections.length,
         'auto layout: every edge needs a route.',
     );
+    assert.deepEqual(layout.nodeOverlaps, [], 'auto layout: nodes must never overlap.');
     assert.equal(
         (await session.state('[data-testid="graph-zoom-reset"]')).text,
         zoomBeforeLayout,
@@ -287,13 +304,12 @@ export async function verifyCenteredNodeInsertion(session: RemoteSession): Promi
     await session.setViewport(1440, 1000);
     await session.refresh();
     const project = ProjectFormat.create('Centered insertion');
-    project.nodes[0]!.position = { x: 24, y: 24 };
-    project.nodes[1]!.position = { x: 304, y: 24 };
     const projectPath = join(outputDirectory, 'centered-insertion.btd.json');
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
     await session.waitForValue('.project-title input', 'Centered insertion', 10_000);
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
+    await waitForStableGraph(session);
     await session.evaluate(`
         const graph = document.querySelector('[data-testid="graph-canvas"]');
         graph.dispatchEvent(new WheelEvent('wheel', {
@@ -305,10 +321,22 @@ export async function verifyCenteredNodeInsertion(session: RemoteSession): Promi
     `);
     await session.click('[data-testid="graph-zoom-in"]');
     await session.click('[data-testid="graph-zoom-in"]');
+    const existingBeforeInsertion = await graphNodeRects(session);
     await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="node-category-browser"]');
     await session.click('[data-testid="add-javascript-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
+    await waitForStableGraph(session);
+    const afterInsertion = await graphNodeRects(session);
+
+    for (const original of existingBeforeInsertion) {
+        assert.deepEqual(
+            afterInsertion.find((node) => node.id === original.id),
+            original,
+            `graph: adding a node must not move ${original.id}.`,
+        );
+    }
+
     const centerOffset = await session.evaluate<{ x: number; y: number }>(`
         const graph = document.querySelector('[data-testid="graph-canvas"]')
             .getBoundingClientRect();
@@ -322,5 +350,33 @@ export async function verifyCenteredNodeInsertion(session: RemoteSession): Promi
     assert.ok(
         Math.abs(centerOffset.x) <= 2 && Math.abs(centerOffset.y) <= 2,
         `graph: new nodes must open in the visible center (${JSON.stringify(centerOffset)}).`,
+    );
+    await session.click('[data-testid="delete-node"]');
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 5_000);
+    await waitForStableGraph(session);
+    assert.deepEqual(
+        await graphNodeRects(session),
+        existingBeforeInsertion,
+        'graph: deleting a node must not move the remaining nodes.',
+    );
+}
+
+async function waitForStableGraph(session: RemoteSession): Promise<void> {
+    await session.waitForScript(
+        `const key = [...document.querySelectorAll(
+            '[data-testid="graph-canvas"] .joint-element'
+        )].map((element) => {
+            const rect = element.getBoundingClientRect();
+            return [
+                element.getAttribute('model-id'),
+                Math.round(rect.x),
+                Math.round(rect.y)
+            ].join(':');
+        }).join('|');
+        const previous = window.__directorGraphPositionCheck;
+        window.__directorGraphPositionCheck = key;
+        return previous === key;`,
+        [],
+        5_000,
     );
 }

@@ -139,6 +139,41 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
 
     await session.click('[data-testid="node-actions-trigger"]');
+    await session.click('[data-testid="node-category-flow"]');
+    await session.click('[data-testid="add-delay-node"]');
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
+    await session.waitForValue('[data-testid="delay-duration"]', '1000', 5_000);
+    await session.fill('[data-testid="delay-duration"]', '500');
+    const delayStartedAt = Date.now();
+    await session.click('[data-testid="play-node-current"]');
+    await session.waitForScript(
+        `return document.querySelector('[data-testid="play-node-current"]').disabled;`,
+        [],
+        5_000,
+    );
+    await session.waitForScript(
+        `return !document.querySelector('[data-testid="play-node-current"]').disabled;`,
+        [],
+        5_000,
+    );
+    assert.ok(
+        Date.now() - delayStartedAt >= 400,
+        'nodes: a visual delay must remain part of live playback.',
+    );
+    await session.fill('[data-testid="delay-duration"]', '1250');
+    await session.click('[data-testid="delay-convert"]');
+    await session.waitForElement('[data-testid="action-dialog-confirm"]', 5_000);
+    await session.click('[data-testid="action-dialog-confirm"]');
+    await session.waitForElement('.source-editor textarea', 5_000);
+    assert.equal(
+        (await session.state('.source-editor textarea')).value,
+        'await director.wait(1250);',
+        'nodes: converting a delay must preserve its generated JavaScript source.',
+    );
+    await session.click('[data-testid="delete-node"]');
+    await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 3, 5_000);
+
+    await session.click('[data-testid="node-actions-trigger"]');
     await session.click('[data-testid="node-category-layers"]');
     await session.click('[data-testid="add-layer-node"]');
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 4, 5_000);
@@ -170,7 +205,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     }>(`
         const input = document.querySelector('[data-testid="layer-duration"]');
         const label = input.closest('label');
-        const toggle = document.querySelector('.layer-playback-properties__toggle');
+        const toggle = document.querySelector('[data-testid="layer-remove-after"]').closest('label');
         const checkbox = toggle.querySelector('input');
         const text = toggle.querySelector('span');
         const toggleBounds = toggle.getBoundingClientRect();
@@ -355,10 +390,11 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         const text = line.querySelector('[data-testid="text-layer-line-0"]');
         const color = line.querySelector('input[type="color"]');
         const options = line.querySelector('.text-layer-editor__line-options');
+        const optionControls = [...options.querySelectorAll('select')];
         return {
             contentRow: Math.round(text.getBoundingClientRect().top) ===
                 Math.round(color.getBoundingClientRect().top),
-            optionRow: new Set([...options.children].map((element) =>
+            optionRow: new Set(optionControls.map((element) =>
                 Math.round(element.getBoundingClientRect().top),
             )).size === 1,
         };
@@ -370,7 +406,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
     const narrowLineLayout = await session.evaluate<{ settingsBelow: boolean }>(`
         const options = document.querySelector('.text-layer-editor__line-options');
         return {
-            settingsBelow: options.querySelector('.text-layer-editor__effect').getBoundingClientRect().top >
+            settingsBelow: options.querySelector('.text-effect-control__settings').getBoundingClientRect().top >
                 options.querySelector('select').getBoundingClientRect().top,
         };
     `);
@@ -382,7 +418,8 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         overflow: boolean;
     }>(`
         const options = document.querySelector('.text-layer-editor__line-options');
-        const bounds = [...options.children].map((element) => element.getBoundingClientRect());
+        const effect = options.querySelector('.text-effect-control > .property-field');
+        const settings = options.querySelector('.text-effect-control__settings');
         const effectSelect = options.querySelector('[data-testid="text-layer-effect-0"]');
         const duration = options.querySelector('[data-testid="text-layer-line-duration-0"]');
         const direction = options.querySelector('[data-testid="text-layer-line-direction-0"]');
@@ -392,7 +429,8 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
             controlsBottomAligned: [duration, direction].every((control) =>
                 Math.abs(control.getBoundingClientRect().bottom - rowBottom) < 1,
             ),
-            settingsToRight: bounds[2].left > bounds[1].left,
+            settingsToRight: settings.getBoundingClientRect().left >
+                effect.getBoundingClientRect().left,
             overflow: panel.scrollWidth > panel.clientWidth,
         };
     `);
@@ -542,7 +580,7 @@ export async function verifyNodeEditing(session: RemoteSession): Promise<void> {
         const warning = document.querySelector('.layer-duration-warning');
         const input = document.querySelector('[data-testid="layer-duration"]');
         const name = document.querySelector('[data-testid="node-name"]');
-        const toggle = document.querySelector('.layer-playback-properties__toggle');
+        const toggle = document.querySelector('[data-testid="layer-remove-after"]').closest('label');
         return {
             beneathName: warning.closest('.panel__header--editor') !== null &&
                 warning.getBoundingClientRect().top >= name.getBoundingClientRect().bottom,

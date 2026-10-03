@@ -35,6 +35,13 @@ export async function verifyPlayback(session: RemoteSession): Promise<void> {
     await session.waitForElement('.director-layer', 5_000);
     await session.switchFrame();
     await session.waitForCount('[data-testid="play-workflow"]', 1, 10_000);
+    await session.waitForScript(
+        `return !document.querySelector('[data-testid="editor-properties-scroll"]')?.hasAttribute('inert') &&
+            !document.querySelector('[data-testid="node-name"]')?.disabled &&
+            !document.querySelector('[data-testid="delete-node"]')?.disabled;`,
+        [],
+        5_000,
+    );
 }
 
 export async function verifyGlobalStylesheet(session: RemoteSession): Promise<void> {

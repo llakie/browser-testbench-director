@@ -164,7 +164,7 @@
 .editor-node-name input {
     width: 100%;
     height: var(--control-size);
-    padding-inline: 10px;
+    padding-inline: var(--control-inline-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-small);
     color: var(--color-text);

@@ -1,4 +1,4 @@
-import type { RuntimeStep } from './runtime-protocol.js';
+import { MERGE_RACE_ABORT_REASON, type RuntimeStep } from './runtime-protocol.js';
 import { AudioEnvelope } from './audio-envelope.js';
 import type { AudioEnvelopePoint } from './project-format.js';
 
@@ -8,6 +8,7 @@ type AudioRuntimeStep = RuntimeStep & {
     readonly envelope: readonly AudioEnvelopePoint[];
     readonly waitForEnd: boolean;
     readonly loop?: boolean;
+    readonly startOffsetMs?: number;
     readonly fadeInMs?: number;
     readonly fadeOutMs?: number;
 };
@@ -17,6 +18,7 @@ interface ActiveAudio {
     readonly stop: () => Promise<void>;
     readonly position: () => AudioPlaybackPosition;
     readonly seek: (seconds: number) => void;
+    readonly setStartOffset: (seconds: number) => void;
     readonly pause: () => void;
     readonly resume: () => void;
 }
@@ -67,16 +69,34 @@ export class PreviewAudioPlayback {
         const context = this.context();
         const buffer = await this.buffer(source, step.inputId ?? step.id);
         this.throwIfAborted(signal);
+        const requestedStartOffset = (step.startOffsetMs ?? 0) / 1000;
+
+        if (requestedStartOffset >= buffer.duration) {
+            throw new Error(`Audio start offset must be before the file end: ${step.id}`);
+        }
+
         const requestedFadeIn = (step.fadeInMs ?? 0) / 1000;
         const fadeOutSeconds = (step.fadeOutMs ?? 0) / 1000;
-        const fileFadeScale = !step.loop && requestedFadeIn + fadeOutSeconds > buffer.duration
-            ? buffer.duration / (requestedFadeIn + fadeOutSeconds)
-            : 1;
-        const fadeInSeconds = requestedFadeIn * fileFadeScale;
-        const naturalFadeOutSeconds = fadeOutSeconds * fileFadeScale;
-        const naturalFadeStart = step.loop || naturalFadeOutSeconds === 0
-            ? null
-            : buffer.duration - naturalFadeOutSeconds;
+        let clipOffset = 0;
+        let clipDuration = buffer.duration;
+        let fadeInSeconds = requestedFadeIn;
+        let naturalFadeOutSeconds = fadeOutSeconds;
+        let naturalFadeStart: number | null = null;
+        const updateClip = (seconds: number): void => {
+            clipOffset = Math.min(buffer.duration, Math.max(0, seconds));
+            clipDuration = buffer.duration - clipOffset;
+            const fileFadeScale =
+                !step.loop && requestedFadeIn + fadeOutSeconds > clipDuration
+                    ? clipDuration / (requestedFadeIn + fadeOutSeconds)
+                    : 1;
+            fadeInSeconds = requestedFadeIn * fileFadeScale;
+            naturalFadeOutSeconds = fadeOutSeconds * fileFadeScale;
+            naturalFadeStart =
+                step.loop || naturalFadeOutSeconds === 0
+                    ? null
+                    : clipDuration - naturalFadeOutSeconds;
+        };
+        updateClip(requestedStartOffset);
         this.cancel(step.id);
 
         await new Promise<void>((resolve, reject) => {
@@ -85,7 +105,7 @@ export class PreviewAudioPlayback {
             let playback: AudioBufferSourceNode | null = null;
             let fade: GainNode;
             let startedAt = context.currentTime;
-            let startOffset = 0;
+            let startPosition = 0;
             let pausedAt = 0;
             let paused = false;
             let resolveStopped: () => void = () => {};
@@ -123,6 +143,15 @@ export class PreviewAudioPlayback {
                     reject(new DOMException('The execution was stopped.', 'AbortError'));
                 }
             };
+            const currentSeconds = (): number =>
+                paused
+                    ? pausedAt
+                    : Math.min(
+                          clipDuration,
+                          step.loop
+                              ? (context.currentTime - startedAt + startPosition) % clipDuration
+                              : context.currentTime - startedAt + startPosition,
+                      );
             const stop = (): Promise<void> => {
                 if (stopRequested) {
                     return stopped;
@@ -136,13 +165,12 @@ export class PreviewAudioPlayback {
                 }
 
                 const now = context.currentTime;
-                const elapsed = Math.max(0, now - startedAt + startOffset);
-                const fadeInLevel = fadeInSeconds > 0
-                    ? Math.min(1, elapsed / fadeInSeconds)
-                    : 1;
-                const level = naturalFadeStart !== null && elapsed > naturalFadeStart
-                    ? Math.max(0, (buffer.duration - elapsed) / naturalFadeOutSeconds)
-                    : fadeInLevel;
+                const elapsed = currentSeconds();
+                const fadeInLevel = fadeInSeconds > 0 ? Math.min(1, elapsed / fadeInSeconds) : 1;
+                const level =
+                    naturalFadeStart !== null && elapsed > naturalFadeStart
+                        ? Math.max(0, (clipDuration - elapsed) / naturalFadeOutSeconds)
+                        : fadeInLevel;
                 fade.gain.cancelScheduledValues(now);
                 fade.gain.setValueAtTime(level, now);
 
@@ -158,73 +186,80 @@ export class PreviewAudioPlayback {
 
                 return stopped;
             };
-            const currentSeconds = (): number => paused
-                ? pausedAt
-                : Math.min(
-                    buffer.duration,
-                    step.loop
-                        ? (context.currentTime - startedAt + startOffset) % buffer.duration
-                        : context.currentTime - startedAt + startOffset,
-                );
             const position = (): AudioPlaybackPosition => ({
                 positionMs: currentSeconds() * 1000,
-                durationMs: buffer.duration * 1000,
+                durationMs: clipDuration * 1000,
                 paused,
             });
-            const startAt = (offset: number): void => {
+            const startAt = (position: number): void => {
                 const previous = playback;
                 const now = context.currentTime;
+                const sourceOffset = clipOffset + position;
                 const gain = context.createGain();
                 const nextFade = context.createGain();
                 const next = context.createBufferSource();
                 startedAt = now;
-                startOffset = offset;
+                startPosition = position;
                 paused = false;
                 fade = nextFade;
                 playback = next;
                 next.buffer = buffer;
                 next.loop = step.loop ?? false;
+                next.loopStart = clipOffset;
+                next.loopEnd = buffer.duration;
                 next.connect(gain).connect(nextFade).connect(context.destination);
 
-                if (offset === 0) {
+                if (position === 0) {
                     AudioEnvelope.schedule(
-                        gain.gain, step.envelope, step.volume, now, buffer.duration,
+                        gain.gain,
+                        step.envelope,
+                        step.volume,
+                        now,
+                        clipDuration,
                     );
                 } else {
                     AudioEnvelope.scheduleFrom(
-                        gain.gain, step.envelope, step.volume, now, buffer.duration, offset,
+                        gain.gain,
+                        step.envelope,
+                        step.volume,
+                        now,
+                        clipDuration,
+                        position,
                     );
                 }
 
-                const fadeInLevel = fadeInSeconds > 0
-                    ? Math.min(1, offset / fadeInSeconds)
-                    : 1;
-                const fadeLevel = naturalFadeStart !== null && offset > naturalFadeStart
-                    ? Math.max(0, (buffer.duration - offset) / naturalFadeOutSeconds)
-                    : fadeInLevel;
+                const fadeInLevel = fadeInSeconds > 0 ? Math.min(1, position / fadeInSeconds) : 1;
+                const fadeLevel =
+                    naturalFadeStart !== null && position > naturalFadeStart
+                        ? Math.max(0, (clipDuration - position) / naturalFadeOutSeconds)
+                        : fadeInLevel;
                 nextFade.gain.setValueAtTime(fadeLevel, now);
 
-                if (offset < fadeInSeconds) {
-                    nextFade.gain.linearRampToValueAtTime(1, now + fadeInSeconds - offset);
+                if (position < fadeInSeconds) {
+                    nextFade.gain.linearRampToValueAtTime(1, now + fadeInSeconds - position);
                 }
 
                 if (naturalFadeStart !== null) {
-                    const remaining = naturalFadeStart - offset;
+                    const remaining = naturalFadeStart - position;
 
                     if (remaining > 0) {
                         nextFade.gain.cancelScheduledValues(now + remaining);
                         nextFade.gain.setValueAtTime(1, now + remaining);
                     }
 
-                    nextFade.gain.linearRampToValueAtTime(0, now + buffer.duration - offset);
+                    nextFade.gain.linearRampToValueAtTime(0, now + clipDuration - position);
                 }
 
-                next.addEventListener('ended', () => {
-                    if (playback === next) {
-                        completed();
-                    }
-                }, { once: true });
-                next.start(0, offset);
+                next.addEventListener(
+                    'ended',
+                    () => {
+                        if (playback === next) {
+                            completed();
+                        }
+                    },
+                    { once: true },
+                );
+                next.start(0, sourceOffset);
 
                 if (previous) {
                     previous.stop();
@@ -233,14 +268,26 @@ export class PreviewAudioPlayback {
             };
             const seek = (seconds: number): void => {
                 if (!stopRequested && Number.isFinite(seconds) && !step.loop) {
-                    const offset = Math.min(buffer.duration, Math.max(0, seconds));
+                    const position = Math.min(clipDuration, Math.max(0, seconds));
 
                     if (paused) {
-                        pausedAt = offset;
+                        pausedAt = position;
                     } else {
-                        startAt(offset);
+                        startAt(position);
                     }
                 }
+            };
+            const setStartOffset = (seconds: number): void => {
+                if (!paused || stopRequested || !Number.isFinite(seconds)) {
+                    return;
+                }
+
+                if (seconds >= buffer.duration) {
+                    throw new Error(`Audio start offset must be before the file end: ${step.id}`);
+                }
+
+                updateClip(seconds);
+                pausedAt = 0;
             };
             const pause = (): void => {
                 if (paused || stopRequested || !playback) {
@@ -259,8 +306,23 @@ export class PreviewAudioPlayback {
                     startAt(pausedAt);
                 }
             };
-            const aborted = (): void => cancel();
-            this.#active.set(step.id, { cancel, stop, position, seek, pause, resume });
+            const aborted = (): void => {
+                if (signal.reason === MERGE_RACE_ABORT_REASON) {
+                    void stop();
+                    return;
+                }
+
+                cancel();
+            };
+            this.#active.set(step.id, {
+                cancel,
+                stop,
+                position,
+                seek,
+                setStartOffset,
+                pause,
+                resume,
+            });
             signal.addEventListener('abort', aborted, { once: true });
             startAt(0);
 
@@ -281,6 +343,10 @@ export class PreviewAudioPlayback {
 
     seek(nodeId: string, seconds: number): void {
         this.#active.get(nodeId)?.seek(seconds);
+    }
+
+    setStartOffset(nodeId: string, seconds: number): void {
+        this.#active.get(nodeId)?.setStartOffset(seconds);
     }
 
     pause(nodeId: string): void {

@@ -40,6 +40,7 @@ export const AudioEnvelopeEditor = defineComponent({
     },
     data: () => ({
         canvasWidth: 600,
+        drawingHeight,
         resizeObserver: null as ResizeObserver | null,
         selectedIndex: null as number | null,
         draggingPointerId: null as number | null,

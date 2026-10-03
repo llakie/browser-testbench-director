@@ -42,7 +42,10 @@ export class AudioEnvelope {
         offset: number,
     ): void {
         parameter.cancelScheduledValues(startTime);
-        parameter.setValueAtTime(volume * AudioEnvelope.gainAt(points, offset / duration), startTime);
+        parameter.setValueAtTime(
+            volume * AudioEnvelope.gainAt(points, offset / duration),
+            startTime,
+        );
 
         for (const point of points) {
             const pointTime = point.time * duration;

@@ -11,6 +11,7 @@ import type {
     CapabilityNode,
     VideoOutputNode,
 } from './project-format.js';
+import { DelayNodeSource } from './delay-node-source.js';
 import { TextLayerSource } from './text-layer-source.js';
 
 export class ProjectNodes {
@@ -89,6 +90,7 @@ export class ProjectNodes {
             ],
             waitForEnd: true,
             loop: false,
+            startOffsetMs: 0,
             fadeInMs: 0,
             fadeOutMs: 0,
         };
@@ -113,6 +115,13 @@ export class ProjectNodes {
             position: null,
             source: '',
         };
+    }
+
+    static createDelay(project: DirectorProject, name: string): JavaScriptNode {
+        const node = ProjectNodes.createJavaScript(project, name);
+        node.delay = DelayNodeSource.create();
+        node.source = DelayNodeSource.render(node.delay);
+        return node;
     }
 
     static createBrowserAction(project: DirectorProject, name: string): BrowserActionNode {
@@ -151,7 +160,13 @@ export class ProjectNodes {
         const position = null;
 
         if (node.type === 'javascript') {
-            return { ...node, id, name, position };
+            return {
+                ...node,
+                id,
+                name,
+                position,
+                ...(node.delay ? { delay: { ...node.delay } } : {}),
+            };
         }
 
         if (node.type === 'capability') {

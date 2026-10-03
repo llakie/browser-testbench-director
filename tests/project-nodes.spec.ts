@@ -14,6 +14,8 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     project.nodes.push(layer);
     const script = ProjectNodes.createJavaScript(project, 'JavaScript');
     project.nodes.push(script);
+    const delay = ProjectNodes.createDelay(project, 'Delay');
+    project.nodes.push(delay);
     const action = ProjectNodes.createBrowserAction(project, 'Klick');
     project.nodes.push(action);
     const wait = ProjectNodes.createBrowserWait(project, 'Warten');
@@ -27,6 +29,9 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     assert.equal(camera.capability, 'camera');
     assert.equal(camera.id, 'camera-1');
     assert.equal(script.id, 'javascript-1');
+    assert.equal(delay.id, 'javascript-2');
+    assert.deepEqual(delay.delay, { durationMs: 1_000 });
+    assert.equal(delay.source, 'await director.wait(1000);');
     assert.equal(layer.position, null);
     assert.equal(script.position, null);
     assert.equal(action.selector, 'button');
@@ -43,6 +48,7 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     ]);
     assert.equal(audio.waitForEnd, true);
     assert.equal(audio.loop, false);
+    assert.equal(audio.startOffsetMs, 0);
     assert.equal(audio.fadeInMs, 0);
     assert.equal(audio.fadeOutMs, 0);
     assert.equal(output.type, 'video-output');
@@ -66,6 +72,21 @@ test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
     duplicate.playback.removeAfter = true;
     assert.notEqual(original.source.html, duplicate.source.html);
     assert.equal(original.playback.removeAfter, false);
+});
+
+test('Projekt-Nodes dupliziert Delay-Einstellungen ohne gemeinsame Referenz', () => {
+    const project = ProjectFormat.create();
+    const original = ProjectNodes.createDelay(project, 'Delay');
+    const duplicate = ProjectNodes.duplicate(project, original, 'Delay copy');
+
+    assert.equal(duplicate?.type, 'javascript');
+
+    if (duplicate?.type !== 'javascript' || !duplicate.delay || !original.delay) {
+        throw new Error('Expected a delay duplicate.');
+    }
+
+    duplicate.delay.durationMs = 2_000;
+    assert.equal(original.delay.durationMs, 1_000);
 });
 
 test('Website und Video-Ausgabe sind nicht duplizierbar', () => {

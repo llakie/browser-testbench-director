@@ -1,6 +1,7 @@
 import { defineComponent, markRaw } from 'vue';
 
 import { DirectorTopbar } from './director-topbar.js';
+import { audioPlaybackMethods } from './audio-playback-controller.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { browserSessionMethods } from './browser-session-controller.js';
 import { GraphPanel } from './graph-panel.js';
@@ -10,6 +11,7 @@ import { PreviewPanel } from './preview-panel.js';
 import { ProjectSettingsDialog } from './project-settings-dialog.js';
 import { projectMethods } from './project-controller.js';
 import { workspaceEditingMethods } from './workspace-editing-controller.js';
+import { workspaceDialogMethods } from './workspace-dialog-controller.js';
 import { workspaceExecutionMethods } from './workspace-execution-controller.js';
 import { workspaceLayoutMethods } from './workspace-layout-controller.js';
 import {
@@ -79,7 +81,6 @@ export const EditorWorkspace = defineComponent({
             lastPreviewPlan: null as WorkflowPlan | null,
             lastPreviewInputs: {} as Record<string, string>,
             staleNodeIds: new Set<string>(),
-            hasPlayed: false,
             dirty: false,
             savingProject: false,
             filename: ProjectFiles.filename(project.name),
@@ -138,7 +139,10 @@ export const EditorWorkspace = defineComponent({
             mcpSetupOpen: false,
             mobileMenuOpen: false,
             projectSettingsOpen: false,
-            pendingTextLayerConversionId: null as string | null,
+            pendingSourceConversion: null as {
+                id: string;
+                kind: 'text-layer' | 'delay';
+            } | null,
             projectPermissionsOpen: false,
             browserPermissions: BROWSER_PERMISSIONS,
             mcpClients: [] as McpClientStatus[],
@@ -182,13 +186,15 @@ export const EditorWorkspace = defineComponent({
             return this.activeNode?.type === 'audio' ? this.activeNode : null;
         },
         activeAudioInputId(): string | null {
-            return this.project.connections.find(
-                (connection) =>
-                    connection.target === this.activeAudio?.id &&
-                    this.project.nodes.some(
-                        (node) => node.id === connection.source && node.type === 'input',
-                    ),
-            )?.source ?? null;
+            return (
+                this.project.connections.find(
+                    (connection) =>
+                        connection.target === this.activeAudio?.id &&
+                        this.project.nodes.some(
+                            (node) => node.id === connection.source && node.type === 'input',
+                        ),
+                )?.source ?? null
+            );
         },
         activeInstantAudio(): boolean {
             return Boolean(
@@ -201,13 +207,13 @@ export const EditorWorkspace = defineComponent({
         audioSeekEnabled(): boolean {
             return this.activeInstantAudio && this.audioPlaybackActive;
         },
-        audioProgressPercent(): string {
-            if (this.audioDurationMs <= 0) {
-                return '0%';
-            }
-
-            const progress = (this.audioPositionMs / this.audioDurationMs) * 100;
-            return `${Math.min(100, Math.max(0, progress))}%`;
+        audioPlayableDurationMs(): number {
+            return Math.max(0, this.audioDurationMs - (this.activeAudio?.startOffsetMs ?? 0));
+        },
+        audioMaximumStartOffsetMs(): number | undefined {
+            return this.audioDurationMs > 0
+                ? Math.max(0, Math.ceil(this.audioDurationMs) - 1)
+                : undefined;
         },
         activeVideoOutput(): VideoOutputNode | null {
             return this.activeNode?.type === 'video-output' ? this.activeNode : null;
@@ -225,9 +231,6 @@ export const EditorWorkspace = defineComponent({
             const connectedNodeIds = WorkflowGraph.connectedNodeIds(this.project);
             return this.inputNodes.filter((input) => connectedNodeIds.has(input.id));
         },
-        cameraInputId(): string | null {
-            return WorkflowPlanner.plan(this.project, 'workflow').cameraInputId;
-        },
         audioInputIds(): ReadonlySet<string> {
             return new Set(
                 WorkflowPlanner.plan(this.project, 'workflow')
@@ -237,6 +240,9 @@ export const EditorWorkspace = defineComponent({
         },
         activeJavaScript(): JavaScriptNode | null {
             return this.activeNode?.type === 'javascript' ? this.activeNode : null;
+        },
+        activeDelay(): JavaScriptNode | null {
+            return this.activeJavaScript?.delay ? this.activeJavaScript : null;
         },
         activeBrowserAction(): BrowserActionNode | null {
             return this.activeNode?.type === 'browser-action' ? this.activeNode : null;
@@ -266,9 +272,20 @@ export const EditorWorkspace = defineComponent({
         activeNodeLocked(): boolean {
             return Boolean(this.activeNodeId && this.executionLockedNodeIds.has(this.activeNodeId));
         },
+        instantAudioPaused(): boolean {
+            return Boolean(
+                this.executionRunning &&
+                this.instantAudioNodeId &&
+                this.audioPaused &&
+                !this.recordingWorkflow,
+            );
+        },
+        editorPanelLocked(): boolean {
+            return this.activeNodeLocked && !this.instantAudioPaused;
+        },
         activeAudioEditLocked(): boolean {
             if (this.activeInstantAudio) {
-                return !this.audioPaused;
+                return !this.audioPaused || this.audioScrubbing;
             }
 
             return this.activeNodeLocked;
@@ -285,9 +302,6 @@ export const EditorWorkspace = defineComponent({
 
             return this.executionState.nodes[this.activeNodeId]?.error ?? '';
         },
-        websiteNode(): WebsiteNode | null {
-            return this.project.nodes.find((node) => node.type === 'website') ?? null;
-        },
         browserSession() {
             return this.project.browserSession;
         },
@@ -296,15 +310,6 @@ export const EditorWorkspace = defineComponent({
             return permissions.length
                 ? permissions.map((permission) => this.t(`browserSession.${permission}`)).join(', ')
                 : this.t('browserSession.noPermissions');
-        },
-        sourceLineCount(): number {
-            const source =
-                this.activeLayer?.source[this.activeSource] ??
-                this.activeJavaScript?.source ??
-                (this.activeBrowserWait?.condition === 'script'
-                    ? this.activeBrowserWait.script
-                    : undefined);
-            return source?.split('\n').length ?? 0;
         },
         placementReferenceType(): 'viewport' | 'layer' | 'dom' {
             return this.activeLayer?.placement.reference.type ?? 'viewport';
@@ -326,11 +331,6 @@ export const EditorWorkspace = defineComponent({
         },
         verticalAlignment(): VerticalAlignment {
             return this.activeLayer?.placement.vertical ?? 'center';
-        },
-        lineNumbers(): string {
-            return Array.from({ length: this.sourceLineCount }, (_value, index) => index + 1).join(
-                '\n',
-            );
         },
         previewOrientation(): 'portrait' | 'landscape' {
             return this.previewViewport.height > this.previewViewport.width
@@ -420,13 +420,6 @@ export const EditorWorkspace = defineComponent({
         browserTestbenchLifecycleLabel(): string {
             return this.t(`preview.testbench.${this.browserTestbenchState}`);
         },
-        playActionLabel(): string {
-            if (this.activeWebsite) {
-                return this.t('preview.reloadWebsite');
-            }
-
-            return this.t(this.hasPlayed ? 'preview.playAgain' : 'preview.play');
-        },
         editorPanelTitle(): string {
             if (this.activeWebsite) {
                 return this.t('website.title');
@@ -448,6 +441,10 @@ export const EditorWorkspace = defineComponent({
                 return this.t('audio.title');
             }
 
+            if (this.activeDelay) {
+                return this.t('delay.title');
+            }
+
             if (this.activeJavaScript) {
                 return this.t('javascript.title');
             }
@@ -462,9 +459,6 @@ export const EditorWorkspace = defineComponent({
 
             return this.t('editor.title');
         },
-        previewScale(): number {
-            return this.previewFitScale;
-        },
         graphZoomPercent(): number {
             return Math.round(this.graphZoom * 100);
         },
@@ -474,9 +468,9 @@ export const EditorWorkspace = defineComponent({
             return {
                 '--preview-frame-width': `${width}px`,
                 '--preview-frame-height': `${height}px`,
-                '--preview-scale': String(this.previewScale),
-                '--preview-rendered-width': `${width * this.previewScale}px`,
-                '--preview-rendered-height': `${height * this.previewScale}px`,
+                '--preview-scale': String(this.previewFitScale),
+                '--preview-rendered-width': `${width * this.previewFitScale}px`,
+                '--preview-rendered-height': `${height * this.previewFitScale}px`,
             };
         },
         workspaceStyle(): Record<string, string> {
@@ -571,7 +565,9 @@ export const EditorWorkspace = defineComponent({
         this.stopResize();
     },
     methods: {
+        ...audioPlaybackMethods,
         ...workspaceEditingMethods,
+        ...workspaceDialogMethods,
         ...browserSessionMethods,
         ...workspaceLayoutMethods,
         ...workspaceExecutionMethods,

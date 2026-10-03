@@ -136,14 +136,24 @@ export class BrowserTestbenchPreview {
         return this.lifecycleRequest();
     }
 
-    static proxyWebsite(url: string): Promise<string> {
+    static proxyWebsite(url: string, configuration?: BrowserSessionConfiguration): Promise<string> {
         if (!url.trim()) {
             throw new TypeError('Website URL must not be empty.');
         }
 
+        const body = {
+            url: this.absoluteUrl(url),
+            ...(configuration
+                ? {
+                      language: configuration.language,
+                      locale: configuration.locale,
+                  }
+                : {}),
+        };
+
         return this.fetch<ProxiedWebsite>('/director-api/website-proxies', {
             method: 'POST',
-            body: JSON.stringify({ url: this.absoluteUrl(url) }),
+            body: JSON.stringify(body),
         }).then((website) => website.url);
     }
 
@@ -545,11 +555,19 @@ export class BrowserTestbenchPreview {
         });
     }
 
-    static async setAudioPaused(
+    static async setAudioStartOffset(
         sessionId: string,
         nodeId: string,
-        paused: boolean,
+        seconds: number,
     ): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.setAudioStartOffset?.(arguments[0], arguments[1]);',
+            arguments: [nodeId, seconds],
+        });
+    }
+
+    static async setAudioPaused(sessionId: string, nodeId: string, paused: boolean): Promise<void> {
         await this.browserAction(sessionId, {
             action: 'evaluate',
             script: 'window.__director?.setAudioPaused?.(arguments[0], arguments[1]);',

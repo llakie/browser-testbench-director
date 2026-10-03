@@ -1,0 +1,15 @@
+<template>
+    <details
+        class="property-accordion"
+        :name="group || undefined"
+        :open="open"
+        :data-testid="testId || undefined"
+    >
+        <summary class="property-accordion__summary" :data-testid="summaryTestId || undefined">
+            <span>{{ title }}</span>
+            <span class="property-accordion__preview">{{ preview }}</span>
+            <span class="property-accordion__caret bi bi-chevron-down" aria-hidden="true"></span>
+        </summary>
+        <slot></slot>
+    </details>
+</template>
