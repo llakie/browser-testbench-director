@@ -1,95 +1,28 @@
 <template>
-    <section class="panel editor-panel" :aria-label="editorPanelTitle">
-        <header class="panel__header panel__header--editor">
-            <div v-if="activeNode" class="editor-node-header">
-                <label class="editor-node-name">
-                    <span class="visually-hidden">{{ t('node.name') }}</span>
-                    <input
-                        v-model="activeNode.name"
-                        type="text"
-                        data-testid="node-name"
-                        :disabled="activeNodeLocked"
-                        :aria-label="t('node.name')"
-                        @input="markDirty(); renderGraph()"
-                    />
-                </label>
-                <p v-if="activeNodeError" class="node-execution-error" role="alert">
-                    <span class="bi bi-exclamation-triangle-fill" aria-hidden="true"></span>
-                    <span>{{ activeNodeError }}</span>
-                </p>
-                <button
-                    v-if="activeVideoOutput"
-                    :class="[
-                                'icon-button',
-                                'recording-control',
-                                { 'is-recording': recordingActive },
-                            ]"
-                    type="button"
-                    data-testid="record-video-output"
-                    :disabled="
-                        !recordingActive &&
-                        (!browserSessionInputsReady || browserTargetOpening || executionRunning)
-                    "
-                    :aria-label="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
-                    :title="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
-                    @click="playNode(activeVideoOutput.id)"
-                >
-                    <span
-                        :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"
-                        aria-hidden="true"
-                    ></span>
-                </button>
-                <button
-                    v-if="activeLayer || activeJavaScript || activeBrowserAction || activeAudio"
-                    class="icon-button direct-run-control"
-                    type="button"
-                    data-testid="play-node-current"
-                    :disabled="executionRunning || browserTargetOpening"
-                    :aria-label="t('playback.currentNode')"
-                    :title="t('playback.currentNode')"
-                    @click="playActiveNodeOnCurrentState"
-                >
-                    <svg
-                        class="direct-run-icon"
-                        viewBox="0 0 20 20"
-                        aria-hidden="true"
-                        focusable="false"
-                    >
-                        <path class="direct-run-icon__play" d="M3.25 4.25v11.5L11 10 3.25 4.25Z" />
-                        <path
-                            class="direct-run-icon__bolt"
-                            d="m15.35 1.5-4.1 6.65h3.05l-1.15 5.65 4.6-7.45h-3.1l2.05-4.85h-1.35Z"
-                        />
-                    </svg>
-                </button>
-                <button
-                    v-if="!activeWebsite"
-                    class="icon-button icon-button--danger"
-                    type="button"
-                    data-testid="delete-node"
-                    :disabled="executionRunning"
-                    :aria-label="t('node.delete')"
-                    :title="t('node.delete')"
-                    @click="deleteActiveNode"
-                >
-                    <span class="bi bi-trash3" aria-hidden="true"></span>
-                </button>
-                <button
-                    class="icon-button"
-                    type="button"
-                    data-testid="maximize-editor"
-                    :aria-label="t(maximizedPanel === 'editor' ? 'workspace.restoreLayout' : 'workspace.maximizeEditor')"
-                    :title="t(maximizedPanel === 'editor' ? 'workspace.restoreLayout' : 'workspace.maximizeEditor')"
-                    @click="togglePanelMaximized('editor')"
-                >
-                    <span
-                        :class="['fullscreen-icon', { 'is-exit': maximizedPanel === 'editor' }]"
-                        aria-hidden="true"
-                        ><span></span><span></span><span></span><span></span
-                    ></span>
-                </button>
-            </div>
-        </header>
+    <section
+        :class="['panel', 'editor-panel', { 'editor-panel--audio': activeAudio }]"
+        :aria-label="editorPanelTitle"
+    >
+        <node-editor-header :workspace="workspace"></node-editor-header>
+
+        <div v-if="activeAudio" class="audio-playhead" data-testid="audio-playhead">
+            <range-control
+                :model-value="audioPositionMs"
+                :min="0"
+                :max="Math.max(1, audioPlayableDurationMs)"
+                :step="10"
+                :disabled="!audioSeekEnabled || audioPlayableDurationMs <= 0"
+                :aria-label="t('audio.position')"
+                :value-text="`${formatAudioTime(audioPositionMs)} / ${formatAudioTime(audioPlayableDurationMs)}`"
+                value-width="time"
+                tone="audio"
+                test-id="audio-position"
+                @pointerdown="audioScrubbing = true"
+                @pointercancel="audioScrubbing = false"
+                @update:model-value="audioPositionMs = $event"
+                @change="seekActiveAudio(Number($event.target.value))"
+            ></range-control>
+        </div>
 
         <div
             :class="[
@@ -97,119 +30,63 @@
                         {
                             'editor-panel__body--layer': activeLayer,
                             'editor-panel__body--javascript': activeJavaScript,
-                            'editor-panel__body--locked': activeNodeLocked,
+                            'editor-panel__body--locked': editorPanelLocked && !activeAudio,
                             'editor-panel__body--wait-script':
                                 activeBrowserWait?.condition === 'script',
                         },
                     ]"
-            :aria-disabled="activeNodeLocked"
-            :inert="activeNodeLocked"
+            :aria-disabled="editorPanelLocked && !activeAudio"
+            :inert="editorPanelLocked && !activeAudio"
             data-testid="editor-properties-scroll"
             tabindex="0"
         >
-            <template v-if="activeLayer">
-                <div
-                    class="layer-alignment-field"
-                    role="group"
-                    :aria-label="t('placement.alignment')"
+            <layer-node-properties
+                v-if="activeLayer"
+                :workspace="workspace"
+            ></layer-node-properties>
+            <template v-else-if="activeJavaScript">
+                <property-accordion
+                    v-if="activeDelay"
+                    :title="t('delay.timing')"
+                    open
+                    test-id="delay-timing-group"
                 >
-                    <span>{{ t('placement.alignment') }}</span>
-                    <div class="layer-alignment-controls">
-                        <select
-                            class="placement-reference-select"
-                            data-testid="placement-reference"
-                            :aria-label="t('placement.position')"
-                            :value="placementReferenceType"
-                            @change="setPlacementReference"
-                        >
-                            <option value="viewport">{{ t('placement.viewport') }}</option>
-                            <option value="layer" :disabled="!availableParentLayers.length">
-                                {{ t('placement.layer') }}
-                            </option>
-                            <option value="dom">{{ t('placement.dom') }}</option>
-                        </select>
-                        <div class="alignment-controls">
-                            <div
-                                class="alignment-button-group"
-                                role="group"
-                                :aria-label="t('placement.horizontal')"
-                            >
-                                <button
-                                    v-for="alignment in ['left', 'center', 'right']"
-                                    :key="alignment"
-                                    :class="['alignment-icon-button', { 'is-active': horizontalAlignment === alignment }]"
-                                    type="button"
-                                    :data-testid="`horizontal-${alignment}`"
-                                    :aria-label="t(`placement.${alignment}`)"
-                                    :title="t(`placement.${alignment}`)"
-                                    :aria-pressed="String(horizontalAlignment === alignment)"
-                                    @click="setHorizontalAlignment(alignment)"
-                                >
-                                    <span
-                                        :class="['alignment-icon', `alignment-icon--horizontal-${alignment}`]"
-                                        aria-hidden="true"
-                                        ><span></span><span></span><span></span
-                                    ></span>
-                                </button>
-                            </div>
-                            <div
-                                class="alignment-button-group"
-                                role="group"
-                                :aria-label="t('placement.vertical')"
-                            >
-                                <button
-                                    v-for="alignment in ['top', 'center', 'bottom']"
-                                    :key="alignment"
-                                    :class="['alignment-icon-button', { 'is-active': verticalAlignment === alignment }]"
-                                    type="button"
-                                    :data-testid="`vertical-${alignment}`"
-                                    :aria-label="t(`placement.${alignment}`)"
-                                    :title="t(`placement.${alignment}`)"
-                                    :aria-pressed="String(verticalAlignment === alignment)"
-                                    @click="setVerticalAlignment(alignment)"
-                                >
-                                    <span
-                                        :class="['alignment-icon', `alignment-icon--vertical-${alignment}`]"
-                                        aria-hidden="true"
-                                        ><span></span><span></span><span></span
-                                    ></span>
-                                </button>
-                            </div>
-                        </div>
+                    <div class="automation-properties">
+                        <property-field :label="t('delay.duration')">
+                            <number-control
+                                v-model="activeDelay.delay.durationMs"
+                                :min="0"
+                                :step="100"
+                                suffix="ms"
+                                test-id="delay-duration"
+                                :disabled="editorPanelLocked"
+                                @input="updateActiveDelay"
+                            ></number-control>
+                        </property-field>
                     </div>
-                </div>
-                <div
-                    v-if="activeLayer.placement.reference.type === 'layer'"
-                    class="layer-placement-properties"
-                >
-                    <label>
-                        <span>{{ t('placement.parentLayer') }}</span>
-                        <select
-                            :value="activeLayer.placement.reference.nodeId"
-                            data-testid="placement-parent-layer"
-                            @change="setParentLayer"
-                        >
-                            <option
-                                v-for="layer in availableParentLayers"
-                                :key="layer.id"
-                                :value="layer.id"
-                            >
-                                {{ layer.name }}
-                            </option>
-                        </select>
-                    </label>
-                </div>
-                <div
-                    v-if="activeLayer.placement.reference.type === 'dom'"
-                    class="layer-placement-properties"
-                >
-                    <label>
-                        <span>{{ t('placement.domSelector') }}</span>
+                </property-accordion>
+                <source-editor
+                    v-else
+                    :model-value="activeJavaScript.source"
+                    :label="t('editor.javascriptLabel')"
+                    :formatting="formattingSource"
+                    @update:model-value="updateJavaScriptSource"
+                    @format="formatActiveSource"
+                ></source-editor>
+            </template>
+            <property-accordion
+                v-else-if="activeBrowserAction"
+                :title="t('browserAction.title')"
+                :preview="activeBrowserAction.selector"
+                open
+            >
+                <div class="automation-properties">
+                    <property-field :label="t('browser.selector')">
                         <span class="selector-field">
                             <input
-                                v-model="activeLayer.placement.reference.selector"
+                                v-model="activeBrowserAction.selector"
                                 type="text"
-                                data-testid="placement-dom-selector"
+                                data-testid="browser-action-selector"
                                 spellcheck="false"
                                 @input="markActiveNodeStale"
                             />
@@ -217,209 +94,13 @@
                                 type="button"
                                 :class="['icon-button', { 'is-active': selectorPicking }]"
                                 :disabled="
-                                            !selectorPicking &&
-                                            (!selectedBrowserTarget ||
-                                                executionRunning ||
-                                                !browserSessionInputsReady)
-                                        "
-                                data-testid="pick-placement-dom-selector"
-                                :aria-label="t(selectorPicking ? 'browser.selectorPickerCancel' : 'browser.selectorPicker')"
-                                @click="toggleSelectorPicker"
-                            >
-                                <i
-                                    :class="['bi', selectorPicking ? 'bi-x-lg' : 'bi-crosshair']"
-                                    aria-hidden="true"
-                                ></i>
-                            </button>
-                        </span>
-                    </label>
-                </div>
-                <div class="layer-playback-properties">
-                    <label>
-                        <span>{{ t('layer.duration') }}</span>
-                        <input
-                            v-model.number="activeLayer.playback.durationMs"
-                            type="number"
-                            min="0"
-                            step="100"
-                            data-testid="layer-duration"
-                            @input="markActiveNodeStale"
-                        />
-                    </label>
-                    <label class="layer-playback-properties__toggle">
-                        <input
-                            v-model="activeLayer.playback.removeAfter"
-                            type="checkbox"
-                            data-testid="layer-remove-after"
-                            @change="markActiveNodeStale"
-                        />
-                        <span>{{ t('layer.removeAfter') }}</span>
-                    </label>
-                </div>
-                <div class="source-toolbar">
-                    <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
-                        <button
-                            v-for="source in sourceTypes"
-                            :id="`source-tab-${source}`"
-                            :key="source"
-                            :class="['source-tab', `source-tab--${source}`, { 'is-active': activeSource === source }]"
-                            type="button"
-                            role="tab"
-                            :aria-selected="String(activeSource === source)"
-                            :aria-controls="`source-panel-${source}`"
-                            @click="activeSource = source"
-                        >
-                            <span class="source-tab__dot" aria-hidden="true"></span>
-                            {{ t(`editor.${source}`) }}
-                        </button>
-                    </div>
-                    <button
-                        class="icon-button icon-button--small source-format-button"
-                        type="button"
-                        data-testid="format-source"
-                        aria-keyshortcuts="Alt+Shift+F"
-                        :disabled="formattingSource"
-                        :aria-label="t('editor.format')"
-                        :title="`${t('editor.format')} · Alt/Option+Shift+F`"
-                        @click="formatActiveSource"
-                    >
-                        <i
-                            :class="['bi', formattingSource ? 'bi-arrow-repeat source-format-spinner' : 'bi-braces-asterisk']"
-                            aria-hidden="true"
-                        ></i>
-                    </button>
-                </div>
-
-                <div
-                    :id="`source-panel-${activeSource}`"
-                    class="source-editor"
-                    role="tabpanel"
-                    :aria-labelledby="`source-tab-${activeSource}`"
-                >
-                    <span
-                        data-workspace-ref="sourceGutter"
-                        class="source-editor__gutter"
-                        aria-hidden="true"
-                        >{{ lineNumbers }}</span
-                    >
-                    <textarea
-                        :value="activeLayer.source[activeSource]"
-                        :aria-label="t(`editor.${activeSource}Label`)"
-                        autocapitalize="off"
-                        autocomplete="off"
-                        spellcheck="false"
-                        wrap="off"
-                        @input="updateSource"
-                        @keydown="handleEditorKeydown"
-                        @scroll="syncSourceGutter"
-                    ></textarea>
-                </div>
-            </template>
-            <template v-else-if="activeJavaScript">
-                <div class="source-toolbar source-toolbar--actions">
-                    <button
-                        class="icon-button icon-button--small source-format-button"
-                        type="button"
-                        data-testid="format-source"
-                        aria-keyshortcuts="Alt+Shift+F"
-                        :disabled="formattingSource"
-                        :aria-label="t('editor.format')"
-                        :title="`${t('editor.format')} · Alt/Option+Shift+F`"
-                        @click="formatActiveSource"
-                    >
-                        <i
-                            :class="['bi', formattingSource ? 'bi-arrow-repeat source-format-spinner' : 'bi-braces-asterisk']"
-                            aria-hidden="true"
-                        ></i>
-                    </button>
-                </div>
-                <div class="source-editor">
-                    <span
-                        data-workspace-ref="sourceGutter"
-                        class="source-editor__gutter"
-                        aria-hidden="true"
-                        >{{ lineNumbers }}</span
-                    >
-                    <textarea
-                        :value="activeJavaScript.source"
-                        :aria-label="t('editor.javascriptLabel')"
-                        autocapitalize="off"
-                        autocomplete="off"
-                        spellcheck="false"
-                        wrap="off"
-                        @input="updateJavaScriptSource"
-                        @keydown="handleEditorKeydown"
-                        @scroll="syncSourceGutter"
-                    ></textarea>
-                </div>
-            </template>
-            <div v-else-if="activeBrowserAction" class="automation-properties">
-                <label>
-                    <span>{{ t('browser.selector') }}</span>
-                    <span class="selector-field">
-                        <input
-                            v-model="activeBrowserAction.selector"
-                            type="text"
-                            data-testid="browser-action-selector"
-                            spellcheck="false"
-                            @input="markActiveNodeStale"
-                        />
-                        <button
-                            type="button"
-                            :class="['icon-button', { 'is-active': selectorPicking }]"
-                            :disabled="
                                         !selectorPicking &&
                                         (!selectedBrowserTarget ||
                                             browserTargetOpening ||
                                             executionRunning ||
                                             !browserSessionInputsReady)
                                     "
-                            data-testid="pick-browser-action-selector"
-                            :aria-label="t(selectorPicking ? 'browser.selectorPickerCancel' : 'browser.selectorPicker')"
-                            @click="toggleSelectorPicker"
-                        >
-                            <i
-                                :class="['bi', selectorPicking ? 'bi-x-lg' : 'bi-crosshair']"
-                                aria-hidden="true"
-                            ></i>
-                        </button>
-                    </span>
-                </label>
-            </div>
-            <template v-else-if="activeBrowserWait">
-                <div class="automation-properties">
-                    <label>
-                        <span>{{ t('browserWait.condition') }}</span>
-                        <select
-                            :value="activeBrowserWait.condition"
-                            data-testid="browser-wait-condition"
-                            @change="setBrowserWaitCondition"
-                        >
-                            <option value="element">{{ t('browserWait.element') }}</option>
-                            <option value="url">{{ t('browserWait.url') }}</option>
-                            <option value="script">{{ t('browserWait.script') }}</option>
-                        </select>
-                    </label>
-                    <label v-if="activeBrowserWait.condition === 'element'">
-                        <span>{{ t('browser.selector') }}</span>
-                        <span class="selector-field">
-                            <input
-                                v-model="activeBrowserWait.selector"
-                                type="text"
-                                data-testid="browser-wait-selector"
-                                spellcheck="false"
-                                @input="markActiveNodeStale"
-                            />
-                            <button
-                                type="button"
-                                :class="['icon-button', { 'is-active': selectorPicking }]"
-                                :disabled="
-                                            !selectorPicking &&
-                                            (!selectedBrowserTarget ||
-                                                executionRunning ||
-                                                !browserSessionInputsReady)
-                                        "
-                                data-testid="pick-browser-wait-selector"
+                                data-testid="pick-browser-action-selector"
                                 :aria-label="t(selectorPicking ? 'browser.selectorPickerCancel' : 'browser.selectorPicker')"
                                 @click="toggleSelectorPicker"
                             >
@@ -429,316 +110,219 @@
                                 ></i>
                             </button>
                         </span>
-                    </label>
-                    <label v-else-if="activeBrowserWait.condition === 'url'">
-                        <span>{{ t('browserWait.urlValue') }}</span>
-                        <input
-                            v-model="activeBrowserWait.value"
-                            type="text"
-                            data-testid="browser-wait-url"
-                            spellcheck="false"
-                            @input="markActiveNodeStale"
-                        />
-                    </label>
+                    </property-field>
                 </div>
-                <template v-if="activeBrowserWait.condition === 'script'">
-                    <div class="source-toolbar">
-                        <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
-                            <span
-                                id="source-tab-wait-javascript"
-                                class="source-tab source-tab--javascript is-active"
-                                role="tab"
-                                aria-selected="true"
-                                aria-controls="source-panel-wait-javascript"
-                            >
-                                <span class="source-tab__dot" aria-hidden="true"></span>
-                                {{ t('editor.javascript') }}
-                            </span>
-                        </div>
-                        <button
-                            class="icon-button icon-button--small source-format-button"
-                            type="button"
-                            data-testid="format-source"
-                            aria-keyshortcuts="Alt+Shift+F"
-                            :disabled="formattingSource"
-                            :aria-label="t('editor.format')"
-                            :title="`${t('editor.format')} · Alt/Option+Shift+F`"
-                            @click="formatActiveSource"
-                        >
-                            <i
-                                :class="['bi', formattingSource ? 'bi-arrow-repeat source-format-spinner' : 'bi-braces-asterisk']"
-                                aria-hidden="true"
-                            ></i>
-                        </button>
-                    </div>
-                    <div
-                        id="source-panel-wait-javascript"
-                        class="source-editor"
-                        role="tabpanel"
-                        aria-labelledby="source-tab-wait-javascript"
-                    >
-                        <span
-                            data-workspace-ref="sourceGutter"
-                            class="source-editor__gutter"
-                            aria-hidden="true"
-                            >{{ lineNumbers }}</span
-                        >
-                        <textarea
-                            :value="activeBrowserWait.script"
-                            data-testid="browser-wait-script"
-                            :aria-label="t('browserWait.scriptSource')"
-                            autocapitalize="off"
-                            autocomplete="off"
-                            spellcheck="false"
-                            wrap="off"
-                            @input="updateBrowserWaitScript"
-                            @keydown="handleEditorKeydown"
-                            @scroll="syncSourceGutter"
-                        ></textarea>
-                    </div>
-                </template>
-                <div class="automation-properties">
-                    <label>
-                        <span>{{ t('browser.timeout') }}</span>
-                        <input
-                            v-model.number="activeBrowserWait.timeoutMs"
-                            type="number"
-                            min="1"
-                            step="1000"
-                            data-testid="browser-wait-timeout"
-                            @input="markActiveNodeStale"
-                        />
-                    </label>
-                    <label class="automation-properties__toggle">
-                        <input
-                            v-model="activeBrowserWait.omitFromRecording"
-                            type="checkbox"
-                            data-testid="browser-wait-omit-from-recording"
-                            @change="markActiveNodeStale"
-                        />
-                        <span>{{ t('browserWait.omitFromRecording') }}</span>
-                    </label>
-                </div>
-            </template>
-            <div v-else-if="activeWebsite" class="website-properties">
-                <label for="website-url">{{ t('website.url') }}</label>
-                <input
-                    id="website-url"
-                    :value="activeWebsite.url"
-                    type="url"
-                    inputmode="url"
-                    autocomplete="url"
-                    data-testid="website-url"
-                    :placeholder="t('website.urlPlaceholder')"
-                    @input="updateWebsiteUrl"
-                />
-                <p>{{ t('website.frameHint') }}</p>
-            </div>
-            <div v-else-if="activeInput" class="project-inputs">
-                <div class="project-input">
-                    <label>
-                        <span>{{ t('project.inputId') }}</span>
-                        <input :value="activeInput.id" type="text" spellcheck="false" readonly />
-                    </label>
-                    <label>
-                        <span>{{ t('project.inputAccept') }}</span>
-                        <span class="tag-combobox">
-                            <span
-                                v-for="value in inputAcceptValues(activeInput)"
-                                :key="value"
-                                class="tag-pill"
-                            >
-                                {{ value }}
-                                <button
-                                    type="button"
-                                    :aria-label="t('project.removeInputAccept', { value })"
-                                    @click="removeInputAccept(activeInput, value)"
-                                >
-                                    <i class="bi bi-x" aria-hidden="true"></i>
-                                </button>
-                            </span>
-                            <input
-                                v-model="inputAcceptQueries[activeInput.id]"
-                                type="text"
-                                role="combobox"
-                                autocomplete="off"
-                                spellcheck="false"
-                                :data-testid="`project-input-${activeInput.id}-accept`"
-                                :aria-expanded="String(activeInputAcceptId === activeInput.id)"
-                                :aria-controls="`project-input-${activeInput.id}-accept-options`"
-                                :placeholder="t('project.inputAcceptPlaceholder')"
-                                @focus="focusInputAccept(activeInput.id)"
-                                @input="focusInputAccept(activeInput.id)"
-                                @blur="blurInputAccept(activeInput.id)"
-                                @keydown="handleInputAcceptKeydown(activeInput, $event)"
-                            />
-                            <span
-                                v-if="
-                                                activeInputAcceptId === activeInput.id &&
-                                                inputAcceptSuggestions(activeInput).length
-                                            "
-                                :id="`project-input-${activeInput.id}-accept-options`"
-                                class="tag-suggestions"
-                                role="listbox"
-                            >
-                                <button
-                                    v-for="suggestion in inputAcceptSuggestions(activeInput)"
-                                    :key="suggestion"
-                                    type="button"
-                                    role="option"
-                                    @mousedown.prevent
-                                    @click="addInputAccept(activeInput, suggestion)"
-                                >
-                                    {{ suggestion }}
-                                </button>
-                            </span>
-                        </span>
-                    </label>
-                    <label class="project-input__required">
-                        <input
-                            v-model="activeInput.required"
-                            type="checkbox"
-                            :data-testid="`project-input-${activeInput.id}-required`"
-                            @change="markExecutionDirty"
-                        />
-                        <span>{{ t('project.inputRequiredToggle') }}</span>
-                    </label>
-                    <label>
-                        <span>{{ t('project.inputValue') }}</span>
-                        <input
-                            :data-testid="`project-input-${activeInput.id}`"
-                            type="file"
-                            :accept="activeInput.accept"
-                            @change="updateInputFile(activeInput.id, $event)"
-                        />
-                    </label>
-                    <div class="project-preparations">
-                        <span>{{ t('project.prepareModules') }}</span>
-                        <div
-                            v-for="(module, index) in activeInput.prepare?.modules ?? []"
-                            :key="`${activeInput.id}-${index}`"
-                            class="project-preparation"
-                        >
-                            <input
-                                :value="module"
-                                type="text"
-                                spellcheck="false"
-                                :data-testid="`project-input-${activeInput.id}-prepare-module-${index}`"
-                                :aria-label="t('project.prepareModule')"
-                                :placeholder="t('project.prepareModulePlaceholder')"
-                                @input="updateInputPreparation(activeInput.id, index, $event)"
-                            />
-                            <button
-                                class="icon-button icon-button--small"
-                                type="button"
-                                :data-testid="`project-input-${activeInput.id}-remove-prepare-module-${index}`"
-                                :aria-label="t('project.removePrepareModule')"
-                                @click="removeInputPreparation(activeInput.id, index)"
-                            >
-                                <i class="bi bi-x-lg" aria-hidden="true"></i>
-                            </button>
-                        </div>
-                        <button
-                            class="text-action"
-                            type="button"
-                            :data-testid="`project-input-${activeInput.id}-add-prepare-module`"
-                            @click="addInputPreparation(activeInput.id)"
-                        >
-                            <i class="bi bi-plus-lg" aria-hidden="true"></i>
-                            {{ t('project.addPrepareModule') }}
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div v-else-if="activeCapability" class="capability-properties">
-                <p>{{ t('capability.cameraHint') }}</p>
-            </div>
-            <div v-else-if="activeMerge" class="automation-properties">
-                <label>
-                    <span>{{ t('merge.waitFor') }}</span>
-                    <select
-                        v-model="activeMerge.waitFor"
-                        data-testid="merge-wait-for"
-                        @change="markActiveNodeStale"
-                    >
-                        <option value="all">{{ t('merge.all') }}</option>
-                        <option value="any">{{ t('merge.any') }}</option>
-                    </select>
-                </label>
-            </div>
-            <div v-else-if="activeAudio" class="automation-properties">
-                <label>
-                    <span>{{ t('audio.volume') }}</span>
-                    <span class="audio-volume-field">
-                        <input
-                            v-model.number="activeAudio.volume"
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            data-testid="audio-volume"
-                            @input="markActiveNodeStale"
-                        />
-                        <output>{{ Math.round(activeAudio.volume * 100) }} %</output>
-                    </span>
-                </label>
-                <label class="audio-envelope-field">
-                    <span>{{ t('audio.envelope') }}</span>
-                    <audio-envelope-editor
-                        v-model="activeAudio.envelope"
-                        :label="t('audio.envelope')"
-                        :delete-label="t('audio.deleteEnvelopePoint')"
-                        @change="markActiveNodeStale"
-                    ></audio-envelope-editor>
-                </label>
-                <label class="automation-properties__toggle">
-                    <input
-                        v-model="activeAudio.waitForEnd"
-                        type="checkbox"
-                        data-testid="audio-wait-for-end"
-                        @change="markActiveNodeStale"
-                    />
-                    <span>{{ t('audio.waitForEnd') }}</span>
-                </label>
-                <p
-                    class="property-hint"
-                    :class="{ 'audio-file-name': activeAudioFileName }"
-                    :title="activeAudioFileName"
-                    data-testid="audio-file-name"
+            </property-accordion>
+            <template v-else-if="activeBrowserWait">
+                <property-accordion
+                    :title="t('browserWait.condition')"
+                    :preview="t(`browserWait.${activeBrowserWait.condition}`)"
+                    group="browser-wait-properties"
+                    open
+                    test-id="browser-wait-condition-group"
+                    summary-test-id="browser-wait-condition-summary"
                 >
-                    {{ activeAudioFileName || t('audio.inputHint') }}
-                </p>
-            </div>
-            <div v-else-if="activeVideoOutput" class="automation-properties">
-                <label>
-                    <span>{{ t('videoOutput.target') }}</span>
-                    <select
-                        v-model="activeVideoOutput.targetId"
-                        data-testid="video-output-target"
-                        @change="markDirty(); renderGraph()"
-                    >
-                        <option value="">{{ t('videoOutput.selectTarget') }}</option>
-                        <option
-                            v-for="target in availableRecordingTargets"
-                            :key="target.id"
-                            :value="target.id"
+                    <div class="automation-properties">
+                        <property-field :label="t('browserWait.condition')">
+                            <select
+                                :value="activeBrowserWait.condition"
+                                data-testid="browser-wait-condition"
+                                @change="setBrowserWaitCondition"
+                            >
+                                <option value="element">{{ t('browserWait.element') }}</option>
+                                <option value="url">{{ t('browserWait.url') }}</option>
+                                <option value="script">{{ t('browserWait.script') }}</option>
+                            </select>
+                        </property-field>
+                        <property-field
+                            v-if="activeBrowserWait.condition === 'element'"
+                            :label="t('browser.selector')"
                         >
-                            {{ browserTargetLabel(target) }} · {{ recordingTargetStatus(target) }}
-                        </option>
-                    </select>
-                </label>
-                <label>
-                    <span>{{ t('videoOutput.filename') }}</span>
-                    <input
-                        v-model.trim="activeVideoOutput.filename"
-                        type="text"
-                        data-testid="video-output-filename"
-                        placeholder="video.mp4"
-                        @input="markDirty"
-                        @change="renderGraph"
-                    />
-                </label>
-            </div>
+                            <span class="selector-field">
+                                <input
+                                    v-model="activeBrowserWait.selector"
+                                    type="text"
+                                    data-testid="browser-wait-selector"
+                                    spellcheck="false"
+                                    @input="markActiveNodeStale"
+                                />
+                                <button
+                                    type="button"
+                                    :class="['icon-button', { 'is-active': selectorPicking }]"
+                                    :disabled="
+                                            !selectorPicking &&
+                                            (!selectedBrowserTarget ||
+                                                executionRunning ||
+                                                !browserSessionInputsReady)
+                                        "
+                                    data-testid="pick-browser-wait-selector"
+                                    :aria-label="t(selectorPicking ? 'browser.selectorPickerCancel' : 'browser.selectorPicker')"
+                                    @click="toggleSelectorPicker"
+                                >
+                                    <i
+                                        :class="['bi', selectorPicking ? 'bi-x-lg' : 'bi-crosshair']"
+                                        aria-hidden="true"
+                                    ></i>
+                                </button>
+                            </span>
+                        </property-field>
+                        <property-field
+                            v-else-if="activeBrowserWait.condition === 'url'"
+                            :label="t('browserWait.urlValue')"
+                        >
+                            <input
+                                v-model="activeBrowserWait.value"
+                                type="text"
+                                data-testid="browser-wait-url"
+                                spellcheck="false"
+                                @input="markActiveNodeStale"
+                            />
+                        </property-field>
+                    </div>
+                </property-accordion>
+                <template v-if="activeBrowserWait.condition === 'script'">
+                    <source-editor
+                        :model-value="activeBrowserWait.script"
+                        :label="t('browserWait.scriptSource')"
+                        panel-id="source-panel-wait-javascript"
+                        labelled-by="source-tab-wait-javascript"
+                        test-id="browser-wait-script"
+                        :formatting="formattingSource"
+                        @update:model-value="updateBrowserWaitScript"
+                        @format="formatActiveSource"
+                    >
+                        <template #tabs>
+                            <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
+                                <span
+                                    id="source-tab-wait-javascript"
+                                    class="source-tab source-tab--javascript is-active"
+                                    role="tab"
+                                    aria-selected="true"
+                                    aria-controls="source-panel-wait-javascript"
+                                >
+                                    <span class="source-tab__dot" aria-hidden="true"></span>
+                                    {{ t('editor.javascript') }}
+                                </span>
+                            </div>
+                        </template>
+                    </source-editor>
+                </template>
+                <property-accordion
+                    :title="t('layer.timing')"
+                    :preview="activeBrowserWait.timeoutMs + ' ms'"
+                    group="browser-wait-properties"
+                    test-id="browser-wait-timing-group"
+                    summary-test-id="browser-wait-timing-summary"
+                >
+                    <div class="automation-properties">
+                        <property-field :label="t('browser.timeout')">
+                            <number-control
+                                v-model="activeBrowserWait.timeoutMs"
+                                :min="1"
+                                :step="1000"
+                                test-id="browser-wait-timeout"
+                                @input="markActiveNodeStale"
+                            ></number-control>
+                        </property-field>
+                        <toggle-control
+                            v-model="activeBrowserWait.omitFromRecording"
+                            :label="t('browserWait.omitFromRecording')"
+                            test-id="browser-wait-omit-from-recording"
+                            @change="markActiveNodeStale"
+                        ></toggle-control>
+                    </div>
+                </property-accordion>
+            </template>
+            <property-accordion
+                v-else-if="activeWebsite"
+                :title="t('website.url')"
+                :preview="activeWebsite.url"
+                open
+            >
+                <div class="website-properties">
+                    <property-field :label="t('website.url')">
+                        <input
+                            id="website-url"
+                            :value="activeWebsite.url"
+                            type="url"
+                            inputmode="url"
+                            autocomplete="url"
+                            data-testid="website-url"
+                            :placeholder="t('website.urlPlaceholder')"
+                            @input="updateWebsiteUrl"
+                        />
+                    </property-field>
+                    <p>{{ t('website.frameHint') }}</p>
+                </div>
+            </property-accordion>
+            <input-node-properties
+                v-else-if="activeInput"
+                :workspace="workspace"
+            ></input-node-properties>
+            <property-accordion v-else-if="activeCapability" :title="t('capability.title')" open>
+                <div class="capability-properties">
+                    <p>{{ t('capability.cameraHint') }}</p>
+                </div>
+            </property-accordion>
+            <property-accordion
+                v-else-if="activeMerge"
+                :title="t('merge.waitFor')"
+                :preview="t(`merge.${activeMerge.waitFor}`)"
+                open
+            >
+                <div class="automation-properties">
+                    <property-field :label="t('merge.waitFor')">
+                        <select
+                            v-model="activeMerge.waitFor"
+                            data-testid="merge-wait-for"
+                            @change="markActiveNodeStale"
+                        >
+                            <option value="all">{{ t('merge.all') }}</option>
+                            <option value="any">{{ t('merge.any') }}</option>
+                        </select>
+                    </property-field>
+                </div>
+            </property-accordion>
+            <audio-node-properties
+                v-else-if="activeAudio"
+                :workspace="workspace"
+            ></audio-node-properties>
+            <property-accordion
+                v-else-if="activeVideoOutput"
+                :title="t('videoOutput.settings')"
+                :preview="activeVideoOutput.filename"
+                open
+            >
+                <div class="automation-properties">
+                    <property-field :label="t('videoOutput.target')">
+                        <select
+                            v-model="activeVideoOutput.targetId"
+                            data-testid="video-output-target"
+                            @change="markDirty(); renderGraph()"
+                        >
+                            <option value="">{{ t('videoOutput.selectTarget') }}</option>
+                            <option
+                                v-for="target in availableRecordingTargets"
+                                :key="target.id"
+                                :value="target.id"
+                            >
+                                {{ browserTargetLabel(target) }} · {{ recordingTargetStatus(target)
+                                }}
+                            </option>
+                        </select>
+                    </property-field>
+                    <property-field :label="t('videoOutput.filename')">
+                        <input
+                            v-model.trim="activeVideoOutput.filename"
+                            type="text"
+                            data-testid="video-output-filename"
+                            placeholder="video.mp4"
+                            @input="markDirty"
+                            @change="renderGraph"
+                        />
+                    </property-field>
+                </div>
+            </property-accordion>
         </div>
     </section>
 </template>

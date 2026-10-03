@@ -1,0 +1,149 @@
+<template>
+    <header class="panel__header panel__header--editor">
+        <div class="editor-node-header">
+            <label v-if="activeNode" class="editor-node-name">
+                <span class="visually-hidden">{{ t('node.name') }}</span>
+                <input
+                    v-model="activeNode.name"
+                    type="text"
+                    data-testid="node-name"
+                    :disabled="activeAudio ? activeAudioEditLocked : editorPanelLocked"
+                    :aria-label="t('node.name')"
+                    @input="markDirty(); renderGraph()"
+                />
+            </label>
+            <p v-if="activeNodeError" class="node-execution-error" role="alert">
+                <span class="bi bi-exclamation-triangle-fill" aria-hidden="true"></span>
+                <span>{{ activeNodeError }}</span>
+            </p>
+            <button
+                v-if="activeVideoOutput"
+                :class="['icon-button', 'recording-control', { 'is-recording': recordingActive }]"
+                type="button"
+                data-testid="record-video-output"
+                :disabled="
+                    !recordingActive &&
+                    (!browserSessionInputsReady || browserTargetOpening || executionRunning)
+                "
+                :aria-label="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
+                :title="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
+                @click="playNode(activeVideoOutput.id)"
+            >
+                <span
+                    :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"
+                    aria-hidden="true"
+                ></span>
+            </button>
+            <button
+                v-if="activeLayer || activeJavaScript || activeBrowserAction || activeAudio"
+                class="icon-button direct-run-control"
+                type="button"
+                data-testid="play-node-current"
+                :disabled="
+                    (executionRunning && !audioSeekEnabled) ||
+                    browserTargetOpening ||
+                    audioScrubbing
+                "
+                :aria-label="
+                    t(
+                        activeInstantAudio
+                            ? audioPaused
+                                ? 'audio.resume'
+                                : 'audio.pause'
+                            : 'playback.currentNode',
+                    )
+                "
+                :title="
+                    t(
+                        activeInstantAudio
+                            ? audioPaused
+                                ? 'audio.resume'
+                                : 'audio.pause'
+                            : 'playback.currentNode',
+                    )
+                "
+                @click="playActiveNodeOnCurrentState"
+            >
+                <span
+                    v-if="activeInstantAudio"
+                    :class="['bi', audioPaused ? 'bi-play-fill' : 'bi-pause-fill']"
+                    aria-hidden="true"
+                ></span>
+                <svg
+                    v-else
+                    class="direct-run-icon"
+                    viewBox="0 0 20 20"
+                    aria-hidden="true"
+                    focusable="false"
+                >
+                    <path class="direct-run-icon__play" d="M3.25 4.25v11.5L11 10 3.25 4.25Z" />
+                    <path
+                        class="direct-run-icon__bolt"
+                        d="m15.35 1.5-4.1 6.65h3.05l-1.15 5.65 4.6-7.45h-3.1l2.05-4.85h-1.35Z"
+                    />
+                </svg>
+            </button>
+            <button
+                v-if="activeLayer?.text || activeDelay"
+                class="icon-button"
+                type="button"
+                :data-testid="activeDelay ? 'delay-convert' : 'text-layer-convert'"
+                :disabled="activeNodeLocked"
+                :aria-label="t(activeDelay ? 'delay.convert' : 'textLayer.convert')"
+                :title="t(activeDelay ? 'delay.convert' : 'textLayer.convert')"
+                @click="activeDelay ? convertActiveDelay() : convertActiveTextLayer()"
+            >
+                <span class="bi bi-code" aria-hidden="true"></span>
+            </button>
+            <button
+                v-if="activeNode && !activeWebsite"
+                class="icon-button icon-button--danger"
+                type="button"
+                data-testid="delete-node"
+                :disabled="executionRunning"
+                :aria-label="t('node.delete')"
+                :title="t('node.delete')"
+                @click="deleteActiveNode"
+            >
+                <span class="bi bi-trash3" aria-hidden="true"></span>
+            </button>
+            <button
+                class="icon-button"
+                type="button"
+                data-testid="maximize-editor"
+                :aria-label="
+                    t(
+                        maximizedPanel === 'editor'
+                            ? 'workspace.restoreLayout'
+                            : 'workspace.maximizeEditor',
+                    )
+                "
+                :title="
+                    t(
+                        maximizedPanel === 'editor'
+                            ? 'workspace.restoreLayout'
+                            : 'workspace.maximizeEditor',
+                    )
+                "
+                @click="togglePanelMaximized('editor')"
+            >
+                <span
+                    :class="['fullscreen-icon', { 'is-exit': maximizedPanel === 'editor' }]"
+                    aria-hidden="true"
+                    ><span></span><span></span><span></span><span></span
+                ></span>
+            </button>
+            <p
+                v-if="
+                    activeLayer?.text &&
+                    activeTextLayerLatestEnd > activeLayer.playback.durationMs
+                "
+                id="layer-duration-warning"
+                class="layer-duration-warning"
+                role="status"
+            >
+                {{ t('textLayer.durationWarning', { duration: activeTextLayerLatestEnd }) }}
+            </p>
+        </div>
+    </header>
+</template>

@@ -1,0 +1,127 @@
+<template>
+    <div class="project-inputs">
+        <property-accordion
+            :title="t('project.inputValue')"
+            :preview="activeInput.file?.name ?? ''"
+            group="input-properties"
+            open
+            test-id="input-file-group"
+            summary-test-id="input-file-summary"
+        >
+            <div class="project-input">
+                <property-field :label="t('project.inputId')">
+                    <input :value="activeInput.id" type="text" spellcheck="false" readonly />
+                </property-field>
+                <property-field :label="t('project.inputAccept')">
+                    <span class="tag-combobox">
+                        <span
+                            v-for="value in inputAcceptValues(activeInput)"
+                            :key="value"
+                            class="tag-pill"
+                        >
+                            {{ value }}
+                            <button
+                                type="button"
+                                :aria-label="t('project.removeInputAccept', { value })"
+                                @click="removeInputAccept(activeInput, value)"
+                            >
+                                <i class="bi bi-x" aria-hidden="true"></i>
+                            </button>
+                        </span>
+                        <input
+                            v-model="inputAcceptQueries[activeInput.id]"
+                            type="text"
+                            role="combobox"
+                            autocomplete="off"
+                            spellcheck="false"
+                            :data-testid="`project-input-${activeInput.id}-accept`"
+                            :aria-expanded="String(activeInputAcceptId === activeInput.id)"
+                            :aria-controls="`project-input-${activeInput.id}-accept-options`"
+                            :placeholder="t('project.inputAcceptPlaceholder')"
+                            @focus="focusInputAccept(activeInput.id)"
+                            @input="focusInputAccept(activeInput.id)"
+                            @blur="blurInputAccept(activeInput.id)"
+                            @keydown="handleInputAcceptKeydown(activeInput, $event)"
+                        />
+                        <span
+                            v-if="
+                                activeInputAcceptId === activeInput.id &&
+                                inputAcceptSuggestions(activeInput).length
+                            "
+                            :id="`project-input-${activeInput.id}-accept-options`"
+                            class="tag-suggestions"
+                            role="listbox"
+                        >
+                            <button
+                                v-for="suggestion in inputAcceptSuggestions(activeInput)"
+                                :key="suggestion"
+                                type="button"
+                                role="option"
+                                @mousedown.prevent
+                                @click="addInputAccept(activeInput, suggestion)"
+                            >
+                                {{ suggestion }}
+                            </button>
+                        </span>
+                    </span>
+                </property-field>
+                <toggle-control
+                    v-model="activeInput.required"
+                    :label="t('project.inputRequiredToggle')"
+                    :test-id="`project-input-${activeInput.id}-required`"
+                    @change="markExecutionDirty"
+                ></toggle-control>
+                <property-field :label="t('project.inputValue')">
+                    <input
+                        :data-testid="`project-input-${activeInput.id}`"
+                        type="file"
+                        :accept="activeInput.accept"
+                        @change="updateInputFile(activeInput.id, $event)"
+                    />
+                </property-field>
+            </div>
+        </property-accordion>
+        <property-accordion
+            :title="t('project.prepareModules')"
+            group="input-properties"
+            test-id="input-prepare-group"
+            summary-test-id="input-prepare-summary"
+        >
+            <div class="project-preparations">
+                <div
+                    v-for="(module, index) in activeInput.prepare?.modules ?? []"
+                    :key="`${activeInput.id}-${index}`"
+                    class="project-preparation"
+                >
+                    <input
+                        :value="module"
+                        type="text"
+                        spellcheck="false"
+                        :data-testid="`project-input-${activeInput.id}-prepare-module-${index}`"
+                        :aria-label="t('project.prepareModule')"
+                        :placeholder="t('project.prepareModulePlaceholder')"
+                        @input="updateInputPreparation(activeInput.id, index, $event)"
+                    />
+                    <button
+                        class="icon-button icon-button--small"
+                        type="button"
+                        :data-testid="`project-input-${activeInput.id}-remove-prepare-module-${index}`"
+                        :aria-label="t('project.removePrepareModule')"
+                        @click="removeInputPreparation(activeInput.id, index)"
+                    >
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <button
+                    class="text-action"
+                    type="button"
+                    :data-testid="`project-input-${activeInput.id}-add-prepare-module`"
+                    @click="addInputPreparation(activeInput.id)"
+                >
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                    {{ t('project.addPrepareModule') }}
+                </button>
+            </div>
+        </property-accordion>
+    </div>
+</template>

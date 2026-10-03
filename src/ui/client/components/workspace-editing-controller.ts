@@ -1,13 +1,12 @@
 import { markRaw, nextTick } from 'vue';
 
-import {
-    BrowserTestbenchPreview,
-    type BrowserTestbenchTarget,
-} from '../core/browser-testbench-preview.js';
+import { BrowserTestbenchPreview } from '../core/browser-testbench-preview.js';
+import { DelayNodeSource } from '../core/delay-node-source.js';
 import { positionFlyout } from '../core/flyout-position.js';
 import { ProjectAssets } from '../core/project-assets.js';
 import { ProjectNodes } from '../core/project-nodes.js';
 import { SourceFormatter } from '../core/source-formatter.js';
+import { TextLayerSource } from '../core/text-layer-source.js';
 import type {
     DirectorNode,
     BrowserPermission,
@@ -22,8 +21,6 @@ import { WorkflowConnectionError, WorkflowGraph } from '../core/workflow-graph.j
 import {
     commonInputTypes,
     type CreatableNodeType,
-    type McpClientStatus,
-    type ViewportPreset,
     type WorkspaceMethodMap,
 } from './workspace-model.js';
 
@@ -35,28 +32,28 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         return Translator.text(key, parameters);
     },
     renderGraph(): void {
-        this.graph?.render(
-            this.project.nodes,
-            this.project.connections,
-            this.activeNodeId,
-            this.activeConnectionId,
-            this.executionState.nodes,
-            WorkflowGraph.connectedNodeIds(this.project),
-            this.t('graph.disconnected'),
-            this.staleNodeIds,
-            Object.fromEntries(
+        this.graph?.render(this.project.nodes, this.project.connections, {
+            selectedNodeId: this.activeNodeId,
+            selectedConnectionId: this.activeConnectionId,
+            states: this.executionState.nodes,
+            connectedNodeIds: WorkflowGraph.connectedNodeIds(this.project),
+            disconnectedLabel: this.t('graph.disconnected'),
+            staleNodeIds: this.staleNodeIds,
+            inputFileNames: Object.fromEntries(
                 Object.entries(this.inputFiles as Record<string, File>).map(([id, file]) => [
                     id,
                     file.name,
                 ]),
             ),
-            this.t('input.chooseFile'),
-            this.recordingActive,
-            this.executionLockedNodeIds,
-            this.playbackTriggerNodeId,
-            this.executionRunning,
-            this.browserSessionInputsReady,
-        );
+            chooseFileLabel: this.t('input.chooseFile'),
+            recordingActive: this.recordingActive,
+            lockedNodeIds: this.executionLockedNodeIds,
+            playbackTriggerNodeId: this.playbackTriggerNodeId,
+            executionRunning: this.executionRunning,
+            recordingReady: this.browserSessionInputsReady,
+            pausedAudioNodeId:
+                this.executionRunning && this.audioPaused ? this.instantAudioNodeId : null,
+        });
     },
     connectNodes(source: string, target: string): boolean {
         try {
@@ -131,11 +128,19 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             return ProjectNodes.createLayer(this.project, this.t('node.defaultLayerName'));
         }
 
+        if (type === 'text-layer') {
+            return ProjectNodes.createTextLayer(this.project, this.t('node.defaultTextLayerName'));
+        }
+
         if (type === 'javascript') {
             return ProjectNodes.createJavaScript(
                 this.project,
                 this.t('node.defaultJavaScriptName'),
             );
+        }
+
+        if (type === 'delay') {
+            return ProjectNodes.createDelay(this.project, this.t('node.defaultDelayName'));
         }
 
         if (type === 'browser-action') {
@@ -163,7 +168,11 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         return ProjectNodes.createBrowserWait(this.project, this.t('node.defaultBrowserWaitName'));
     },
     duplicateActiveNode(): void {
-        if (!this.activeNode || this.executionRunning) {
+        if (
+            !this.activeNode ||
+            !ProjectNodes.canDuplicate(this.activeNode) ||
+            this.executionRunning
+        ) {
             return;
         }
 
@@ -223,6 +232,74 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         this.renderGraph();
         this.showNotice(this.t('node.deleted', { name: deleted.name }));
     },
+    convertActiveTextLayer(): void {
+        const layer = this.activeLayer;
+
+        if (!layer?.text || this.activeNodeLocked) {
+            return;
+        }
+
+        this.pendingSourceConversion = { id: layer.id, kind: 'text-layer' };
+    },
+    convertActiveDelay(): void {
+        const delay = this.activeDelay;
+
+        if (!delay || this.activeNodeLocked) {
+            return;
+        }
+
+        this.pendingSourceConversion = { id: delay.id, kind: 'delay' };
+    },
+    cancelSourceConversion(): void {
+        this.pendingSourceConversion = null;
+    },
+    confirmSourceConversion(): void {
+        const request = this.pendingSourceConversion;
+        this.pendingSourceConversion = null;
+
+        if (!request || this.activeNodeLocked) {
+            return;
+        }
+
+        if (request.kind === 'delay') {
+            const delay = this.activeDelay;
+
+            if (!delay || delay.id !== request.id) {
+                return;
+            }
+
+            delay.source = DelayNodeSource.render(delay.delay!);
+            delete delay.delay;
+            this.markActiveNodeStale();
+            return;
+        }
+
+        const layer = this.activeLayer;
+
+        if (!layer?.text || layer.id !== request.id) {
+            return;
+        }
+
+        layer.source = TextLayerSource.render(layer.text, layer.id);
+
+        if (layer.text.font === 'project') {
+            layer.fontInputId = layer.text.fontInputId;
+        }
+
+        delete layer.text;
+        this.markActiveNodeStale();
+    },
+    updateActiveDelay(): void {
+        const delay = this.activeDelay;
+
+        if (!delay) {
+            return;
+        }
+
+        delay.source = DelayNodeSource.render(delay.delay!);
+        this.markActiveNodeStale();
+        this.renderGraph();
+    },
     markDirty(): void {
         this.dirty = true;
     },
@@ -244,159 +321,20 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             this.renderGraph();
         }
     },
-    toggleMobileMenu(): void {
-        this.mobileMenuOpen = !this.mobileMenuOpen;
-
-        if (!this.mobileMenuOpen) {
+    updateSource(source: string): void {
+        if (!this.activeLayer) {
             return;
         }
 
-        void nextTick(() => this.workspaceElement('mobileMenu')?.focus());
-    },
-    closeMobileMenu(): void {
-        this.mobileMenuOpen = false;
-    },
-    openProjectSettings(): void {
-        this.projectPermissionsOpen = false;
-        this.projectSettingsOpen = true;
-    },
-    closeProjectSettings(): void {
-        this.projectPermissionsOpen = false;
-        this.projectSettingsOpen = false;
-    },
-    toggleProjectPermissions(): void {
-        this.projectPermissionsOpen = !this.projectPermissionsOpen;
-    },
-    closeProjectPermissions(): void {
-        this.projectPermissionsOpen = false;
-    },
-    async openMcpSetup(): Promise<void> {
-        this.mcpSetupOpen = true;
-        await this.loadMcpClients();
-    },
-    async loadMcpClients(): Promise<void> {
-        this.mcpLoading = true;
-        this.mcpLoadError = '';
-        this.mcpClients = [];
-
-        try {
-            const response = await fetch('/director-api/mcp', { cache: 'no-store' });
-            const clients = await this.readDirectorJson(response);
-
-            if (!Array.isArray(clients)) {
-                throw new Error('Invalid server response.');
-            }
-
-            this.mcpClients = clients as McpClientStatus[];
-        } catch (error) {
-            this.mcpLoadError = `${this.t('mcp.loadFailed')} ${this.errorMessage(error)}`;
-        } finally {
-            this.mcpLoading = false;
-        }
-    },
-    closeMcpSetup(): void {
-        this.mcpSetupOpen = false;
-    },
-    async connectMcpClient(client: McpClientStatus): Promise<void> {
-        if (!client.automatic || !client.installed || this.mcpLoading) {
-            return;
-        }
-
-        this.mcpLoading = true;
-
-        try {
-            const response = await fetch('/director-api/mcp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ client: client.id }),
-            });
-            const updated = (await this.readDirectorJson(response)) as McpClientStatus;
-            this.mcpClients = this.mcpClients.map((candidate: McpClientStatus) =>
-                candidate.id === updated.id ? updated : candidate,
-            );
-            this.showNotice(this.t('mcp.connected', { client: client.label }));
-        } catch (error) {
-            this.showNotice(`${this.t('mcp.connectFailed')} ${this.errorMessage(error)}`);
-        } finally {
-            this.mcpLoading = false;
-        }
-    },
-    async readDirectorJson(response: Response): Promise<unknown> {
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-
-        if (!response.headers.get('content-type')?.includes('application/json')) {
-            throw new Error(this.t('mcp.backendUnavailable'));
-        }
-
-        return response.json();
-    },
-    async copyMcpConfiguration(client: McpClientStatus): Promise<void> {
-        await navigator.clipboard.writeText(client.command);
-        this.showNotice(this.t('mcp.copied', { client: client.label }));
-    },
-    updateSource(event: Event): void {
-        const input = event.target;
-
-        if (!(input instanceof HTMLTextAreaElement) || !this.activeLayer) {
-            return;
-        }
-
-        this.activeLayer.source[this.activeSource] = input.value;
+        this.activeLayer.source[this.activeSource] = source;
         this.markActiveNodeStale();
     },
-    updateBrowserWaitScript(event: Event): void {
-        const input = event.target;
-
-        if (
-            !(input instanceof HTMLTextAreaElement) ||
-            this.activeBrowserWait?.condition !== 'script'
-        ) {
+    updateBrowserWaitScript(source: string): void {
+        if (this.activeBrowserWait?.condition !== 'script') {
             return;
         }
 
-        this.activeBrowserWait.script = input.value;
-        this.markActiveNodeStale();
-    },
-    handleEditorKeydown(event: KeyboardEvent): void {
-        if (event.altKey && event.shiftKey && event.key.toLowerCase() === 'f') {
-            event.preventDefault();
-            void this.formatActiveSource();
-
-            return;
-        }
-
-        if (event.key !== 'Tab') {
-            return;
-        }
-
-        event.preventDefault();
-        const input = event.target;
-        const scriptWait =
-            this.activeBrowserWait?.condition === 'script' ? this.activeBrowserWait : null;
-
-        if (
-            !(input instanceof HTMLTextAreaElement) ||
-            (!this.activeLayer && !this.activeJavaScript && !scriptWait)
-        ) {
-            return;
-        }
-
-        const start = input.selectionStart;
-        const end = input.selectionEnd;
-        const value = input.value;
-        input.value = `${value.slice(0, start)}    ${value.slice(end)}`;
-        input.selectionStart = input.selectionEnd = start + 4;
-
-        if (this.activeLayer) {
-            this.activeLayer.source[this.activeSource] = input.value;
-        } else if (this.activeJavaScript) {
-            this.activeJavaScript.source = input.value;
-        } else if (scriptWait) {
-            scriptWait.script = input.value;
-        }
-
+        this.activeBrowserWait.script = source;
         this.markActiveNodeStale();
     },
     async formatActiveSource(): Promise<void> {
@@ -445,16 +383,6 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         } finally {
             this.formattingSource = false;
         }
-    },
-    syncSourceGutter(event: Event): void {
-        const input = event.currentTarget;
-        const gutter = this.workspaceElement('sourceGutter');
-
-        if (!(input instanceof HTMLTextAreaElement) || !(gutter instanceof HTMLElement)) {
-            return;
-        }
-
-        gutter.scrollTop = input.scrollTop;
     },
     updateWebsiteUrl(event: Event): void {
         const input = event.target;
@@ -720,14 +648,12 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
 
         this.renderGraph();
     },
-    updateJavaScriptSource(event: Event): void {
-        const input = event.target;
-
-        if (!(input instanceof HTMLTextAreaElement) || !this.activeJavaScript) {
+    updateJavaScriptSource(source: string): void {
+        if (!this.activeJavaScript) {
             return;
         }
 
-        this.activeJavaScript.source = input.value;
+        this.activeJavaScript.source = source;
         this.markActiveNodeStale();
     },
     setBrowserWaitCondition(event: Event): void {
@@ -813,7 +739,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
 
         this.activeLayer.placement = {
-            reference: this.activeLayer.placement.reference,
+            ...this.activeLayer.placement,
             horizontal,
             vertical: this.verticalAlignment,
         };
@@ -825,30 +751,29 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
 
         this.activeLayer.placement = {
-            reference: this.activeLayer.placement.reference,
+            ...this.activeLayer.placement,
             horizontal: this.horizontalAlignment,
             vertical,
         };
         this.markActiveNodeStale();
     },
-    toggleDeviceMenu(): void {
-        this.deviceMenuOpen = !this.deviceMenuOpen;
-
-        if (this.deviceMenuOpen) {
-            this.positionFlyout('deviceFlyout');
-        }
-    },
-    closeDeviceMenu(event: PointerEvent): void {
-        const flyout = this.workspaceElement('deviceFlyout');
-
-        if (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) {
+    setLayerOffset(axis: 'x' | 'y', event: Event): void {
+        if (!this.activeLayer) {
             return;
         }
 
-        this.deviceMenuOpen = false;
+        const value = Number((event.target as HTMLInputElement).value);
+
+        if (!Number.isFinite(value)) {
+            return;
+        }
+
+        this.activeLayer.placement[axis === 'x' ? 'offsetXPercent' : 'offsetYPercent'] = value;
+        this.markActiveNodeStale();
     },
     toggleNodeMenu(): void {
         this.nodeMenuOpen = !this.nodeMenuOpen;
+        this.nodeMenuCategory = '';
 
         if (this.nodeMenuOpen) {
             this.positionFlyout('nodeFlyout');
@@ -880,72 +805,6 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         }
 
         this.nodeMenuOpen = false;
-    },
-    selectViewportPreset(preset: ViewportPreset): void {
-        const presetChanged = preset.id !== this.project.preview.preset;
-        this.deviceMenuOpen = false;
-
-        if (this.remotePreviewSessionId || this.selectedBrowserTargetId) {
-            void this.switchToLocalPreview();
-        }
-
-        if (!presetChanged) {
-            return;
-        }
-
-        this.project.preview.preset = preset.id;
-        this.markDirty();
-        void nextTick(() => {
-            this.renderGraph();
-            this.updatePreviewFitScale();
-        });
-    },
-    browserTargetLabel(target: BrowserTestbenchTarget): string {
-        return BrowserTestbenchPreview.label(target);
-    },
-    recordingTargetStatus(target: BrowserTestbenchTarget): string {
-        if (!this.isCompatibleRecordingTarget(target)) {
-            return this.t('recording.targetIncompatible');
-        }
-
-        if (!target.ready) {
-            return this.t('recording.targetUnavailable');
-        }
-
-        if (target.busy) {
-            return this.t('recording.targetBusy');
-        }
-
-        return this.t('recording.targetReady');
-    },
-    previewTargetStatus(target: BrowserTestbenchTarget): string {
-        if (!this.isCompatiblePreviewTarget(target)) {
-            return this.t('preview.targetIncompatible');
-        }
-
-        if (!target.ready) {
-            return this.t('preview.targetUnavailable');
-        }
-
-        if (target.busy) {
-            return this.t('preview.targetBusy');
-        }
-
-        return this.t('preview.targetReady');
-    },
-    isCompatiblePreviewTarget(target: BrowserTestbenchTarget): boolean {
-        if (
-            this.project.browserSession.permissions.some(
-                (permission: BrowserPermission) =>
-                    !target.capabilities.permissions.origin.includes(permission),
-            )
-        ) {
-            return false;
-        }
-
-        return true;
-    },
-    isCompatibleRecordingTarget(target: BrowserTestbenchTarget): boolean {
-        return target.capabilities.recording.viewport && this.isCompatiblePreviewTarget(target);
+        this.nodeMenuCategory = '';
     },
 };

@@ -13,7 +13,7 @@ test('ELK bricht einen langen Workflow kompakt in mehrere Zeilen um', async () =
             id: `node-${index}`,
             type: 'javascript',
             name: `Node ${index}`,
-            position: { x: index * 280, y: 8 },
+            position: null,
             source: '',
         };
         project.nodes.push(node);
@@ -41,6 +41,40 @@ test('ELK bricht einen langen Workflow kompakt in mehrere Zeilen um', async () =
             const overlaps =
                 a.x < b.x + 216 && a.x + 216 > b.x && a.y < b.y + 112 && a.y + 112 > b.y;
             assert.equal(overlaps, false, `Nodes ${left} und ${right} überlappen sich.`);
+        }
+    }
+});
+
+test('ELK lays automatic nodes around stored node positions without overlaps', async () => {
+    const project = ProjectFormat.create();
+    project.nodes[0]!.position = { x: 24, y: 24 };
+    project.nodes[1]!.position = null;
+
+    for (let index = 2; index <= 8; index += 1) {
+        project.nodes.push({
+            id: `automatic-${index}`,
+            type: 'javascript',
+            name: `Automatic ${index}`,
+            position: null,
+            source: '',
+        });
+    }
+
+    const positions = await GraphAutoLayout.positions(project.nodes, project.connections, 1.6);
+
+    assert.deepEqual(positions.get(project.nodes[0]!.id), { x: 24, y: 24 });
+
+    for (let left = 0; left < project.nodes.length; left += 1) {
+        for (let right = left + 1; right < project.nodes.length; right += 1) {
+            const a = positions.get(project.nodes[left]!.id)!;
+            const b = positions.get(project.nodes[right]!.id)!;
+            const overlaps =
+                a.x < b.x + 216 && a.x + 216 > b.x && a.y < b.y + 112 && a.y + 112 > b.y;
+            assert.equal(
+                overlaps,
+                false,
+                `${project.nodes[left]!.id} and ${project.nodes[right]!.id} overlap.`,
+            );
         }
     }
 });

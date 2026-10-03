@@ -1,5 +1,38 @@
 (() => {
-    const { prefix, targetOrigin } = {/* director:configuration */};
+    const configuration = {/* director:configuration */};
+    const { prefix, targetOrigin } = configuration;
+
+    if (configuration.browserLanguage) {
+        try {
+            const language = configuration.browserLanguage;
+            const languages = [language];
+            const defineNavigatorValue = (name, value) => {
+                try {
+                    Object.defineProperty(navigator, name, {
+                        configurable: true,
+                        get: () => value,
+                    });
+                    return true;
+                } catch {
+                    try {
+                        Object.defineProperty(Object.getPrototypeOf(navigator), name, {
+                            configurable: true,
+                            get: () => value,
+                        });
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                }
+            };
+
+            defineNavigatorValue('language', language);
+            defineNavigatorValue('languages', languages);
+            document.documentElement.lang = language;
+        } catch {
+            // Safari may expose navigator language as a non-configurable property.
+        }
+    }
 
     Object.defineProperty(globalThis, '__directorWebsitePathname', {
         value: () =>

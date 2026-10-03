@@ -1,35 +1,22 @@
 import template from '../templates/preview-panel.html?raw';
 import { defineWorkspaceSection } from './workspace-section.js';
+import { PreviewDeviceMenu } from './preview-device-menu.js';
 
 export const PreviewPanel = defineWorkspaceSection({
     name: 'PreviewPanel',
     template,
+    components: { PreviewDeviceMenu },
     bindings: [
         'browserTargetLabel',
         'browserTargetOpening',
-        'browserTestbenchRunning',
-        'compatiblePreviewTargets',
-        'currentViewportPreset',
-        'deviceMenuOpen',
-        'executionRunning',
         'maximizedPanel',
-        'previewDestinationLabel',
         'previewDocument',
         'previewRevision',
-        'previewTargetStatus',
         'remotePreviewError',
-        'selectRemotePreviewTarget',
-        'selectViewportPreset',
         'selectedBrowserTarget',
-        'selectedBrowserTargetId',
-        'stopPlayback',
         'stopRemotePreview',
         't',
-        'toggleDeviceMenu',
         'togglePanelMaximized',
-        'viewportLabel',
-        'viewportPresetIcon',
-        'viewportPresets',
         'viewportStyle',
     ],
 });

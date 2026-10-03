@@ -35,22 +35,6 @@
     text-transform: uppercase;
 }
 
-.automation-properties select,
-.layer-placement-properties select,
-.placement-reference-select {
-    appearance: none;
-    padding-right: 38px;
-    background-image: var(--select-chevron);
-    background-repeat: no-repeat;
-    background-position: right 13px center;
-    background-size: 13px 13px;
-}
-
-.icon-button:disabled {
-    opacity: 0.42;
-    cursor: default;
-}
-
 .icon-button.testbench-power.is-running {
     border-color: var(--color-primary);
     color: var(--color-primary);
@@ -142,7 +126,7 @@
     flex: 0 0 auto;
     overflow: hidden;
     border: 1px solid var(--color-border);
-    border-radius: 7px;
+    border-radius: var(--radius-small);
     background: var(--color-canvas);
 }
 
@@ -168,51 +152,6 @@
     background: var(--color-surface-soft);
 }
 
-.icon-button {
-    display: grid;
-    width: var(--control-size);
-    height: var(--control-size);
-    flex: 0 0 auto;
-    place-items: center;
-    padding: 0;
-    border: 1px solid var(--color-border);
-    border-radius: 7px;
-    color: var(--color-text-muted);
-    background: var(--color-surface-soft);
-    font-size: 15px;
-    cursor: pointer;
-    text-decoration: none;
-}
-
-.icon-button:hover:not(:disabled) {
-    border-color: var(--color-border-strong);
-    color: var(--color-accent-soft);
-}
-
-.icon-button--primary {
-    border-color: var(--color-accent);
-    color: var(--color-accent-ink);
-    background: var(--color-accent);
-}
-
-.icon-button--primary:hover:not(:disabled) {
-    border-color: var(--color-accent-soft);
-    color: var(--color-accent-ink);
-    background: var(--color-accent-soft);
-}
-
-.icon-button--danger {
-    border-color: var(--color-danger);
-    color: var(--color-danger);
-    background: transparent;
-}
-
-.icon-button--danger:hover:not(:disabled) {
-    border-color: var(--color-danger);
-    color: var(--color-danger);
-    background: var(--color-danger-soft);
-}
-
 .direct-run-icon {
     width: 18px;
     height: 18px;
@@ -230,10 +169,7 @@
     background: var(--color-play-surface);
 }
 
-.direct-run-icon__play {
-    fill: currentColor;
-}
-
+.direct-run-icon__play,
 .direct-run-icon__bolt {
     fill: currentColor;
 }
@@ -296,32 +232,4 @@
 
 .fullscreen-icon.is-exit > span:nth-child(4) {
     border-width: 1.5px 0 0 1.5px;
-}
-
-.play-button {
-    display: flex;
-    width: var(--control-size);
-    height: var(--control-size);
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: 1px solid var(--color-accent-border);
-    border-radius: 9px;
-    color: var(--color-accent);
-    background: var(--color-accent-surface);
-    cursor: pointer;
-}
-
-.play-button:hover {
-    color: var(--color-accent-ink);
-    background: var(--color-accent);
-}
-
-.play-button__icon {
-    width: 0;
-    height: 0;
-    border-top: 5px solid transparent;
-    border-bottom: 5px solid transparent;
-    border-left: 8px solid currentColor;
 }

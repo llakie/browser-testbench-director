@@ -1,9 +1,11 @@
 import template from '../templates/director-topbar.html?raw';
+import { MobileProjectMenu } from './mobile-project-menu.js';
 import { defineWorkspaceSection } from './workspace-section.js';
 
 export const DirectorTopbar = defineWorkspaceSection({
     name: 'DirectorTopbar',
     template,
+    components: { MobileProjectMenu },
     bindings: [
         'browserTestbenchLifecycleLabel',
         'browserTestbenchRunning',
@@ -13,9 +15,7 @@ export const DirectorTopbar = defineWorkspaceSection({
         'executionRunning',
         'loadProject',
         'markDirty',
-        'mobileMenuOpen',
         'newProject',
-        'closeMobileMenu',
         'openMcpSetup',
         'openProjectSettings',
         'openProject',
@@ -27,6 +27,5 @@ export const DirectorTopbar = defineWorkspaceSection({
         'stopRecordingWorkflow',
         't',
         'toggleBrowserTestbench',
-        'toggleMobileMenu',
     ],
 });

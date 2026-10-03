@@ -1,10 +1,15 @@
-import { DirectorRuntimeScript, type RuntimeStep } from './runtime-protocol.js';
+import {
+    DirectorRuntimeScript,
+    MERGE_RACE_ABORT_REASON,
+    type RuntimeStep,
+} from './runtime-protocol.js';
 
 interface PreviewRuntimeScriptValues {
     readonly steps: readonly RuntimeStep[];
     readonly executionId: number | null;
     readonly inputs: Readonly<Record<string, string>>;
     readonly cameraInputId: string | null;
+    readonly globalStylesheetInputIds: readonly string[];
 }
 
 export function renderPreviewRuntimeScript(values: PreviewRuntimeScriptValues): string {
@@ -13,19 +18,24 @@ const steps = ${JSON.stringify(values.steps)};
 const initialExecutionId = ${JSON.stringify(values.executionId)};
 const inputs = ${JSON.stringify(values.inputs)};
 const cameraInputId = ${JSON.stringify(values.cameraInputId)};
+const mergeRaceAbortReason = ${JSON.stringify(MERGE_RACE_ABORT_REASON)};
+let globalStylesheetInputIds = ${JSON.stringify(values.globalStylesheetInputIds)};
 const overlays = document.querySelector('#director-overlays') || (() => {
     const host = document.createElement('div');
     host.id = 'director-overlays';
     document.documentElement.append(host);
     return host;
 })();
+let globalStylesHost = null;
 const website = document.querySelector('.director-website');
 let activeController = new AbortController();
 let stepControllers = new Map();
 const results = {};
 const referenceRects = new Map();
 const activeAudio = new Map();
+const pendingFades = new Set();
 const audioBuffers = new Map();
+const globalStylesheets = new Map();
 let audioContext = null;
 let eventSequence = 0;
 let activeRun = null;
@@ -184,8 +194,8 @@ function referenceRect(reference) {
 function placeAnchor(step, anchor) {
     const rect = referenceRect(step.placement.reference);
     Object.assign(anchor.style, {
-        left: rect.left + 'px',
-        top: rect.top + 'px',
+        left: rect.left + rect.width * (step.placement.offsetXPercent || 0) / 100 + 'px',
+        top: rect.top + rect.height * (step.placement.offsetYPercent || 0) / 100 + 'px',
         width: rect.width + 'px',
         height: rect.height + 'px',
     });
@@ -201,7 +211,7 @@ function trackLayer(step, layer, anchor) {
     requestAnimationFrame(update);
 }
 
-function mountLayer(step) {
+async function mountLayer(step) {
     unmountLayer(step);
     const layer = document.createElement('div');
     layer.className = 'director-layer';
@@ -218,6 +228,25 @@ function mountLayer(step) {
     const style = document.createElement('style');
     style.dataset.directorNode = step.id;
     style.textContent = step.css;
+
+    if (step.fontInputId) {
+        const source = inputs[step.fontInputId];
+
+        if (!source) {
+            throw new Error('The selected project font is missing.');
+        }
+
+        const family = 'Director Font ' + step.fontInputId.replace(/[^a-zA-Z0-9_-]/g, '-');
+        style.textContent = '@font-face { font-family: "' + family + '"; src: url("' + source + '"); }\\n' + step.css;
+        overlays.append(style);
+
+        try {
+            await document.fonts.load('16px "' + family + '"');
+        } catch (error) {
+            style.remove();
+            throw error;
+        }
+    }
     const anchor = document.createElement('div');
     anchor.className = 'director-layer__anchor';
     anchor.dataset.horizontal = step.placement.horizontal;
@@ -265,6 +294,27 @@ function scheduleAudioEnvelope(parameter, step, startTime, duration) {
             step.volume * point.gain,
             startTime + point.time * duration,
         );
+    });
+}
+
+function scheduleAudioEnvelopeFrom(parameter, step, startTime, duration, offset) {
+    const points = step.envelope;
+    const nextIndex = points.findIndex((point) => point.time * duration >= offset);
+    const left = points[Math.max(0, nextIndex - 1)] || points[0];
+    const right = points[nextIndex] || points[points.length - 1];
+    const distance = (right.time - left.time) * duration;
+    const progress = distance > 0 ? (offset - left.time * duration) / distance : 0;
+    const level = left.gain + (right.gain - left.gain) * Math.max(0, Math.min(1, progress));
+    parameter.cancelScheduledValues(startTime);
+    parameter.setValueAtTime(step.volume * level, startTime);
+    points.forEach((point) => {
+        const pointTime = point.time * duration;
+        if (pointTime > offset) {
+            parameter.linearRampToValueAtTime(
+                step.volume * point.gain,
+                startTime + pointTime - offset,
+            );
+        }
     });
 }
 
@@ -356,7 +406,17 @@ async function preloadAudio(nextSteps) {
 }
 
 async function playAudio(step, signal) {
-    if (step.speed === 'catchup') return;
+    if (step.speed === 'catchup') {
+        if (step.loop && step.waitForEnd) {
+            await new Promise((resolve, reject) => {
+                signal.addEventListener('abort', () => {
+                    reject(new DOMException('The execution was stopped.', 'AbortError'));
+                }, { once: true });
+            });
+        }
+
+        return;
+    }
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
     const source = inputs[step.inputId];
     if (!source) throw new Error('Audio input is missing: ' + (step.inputId || step.id));
@@ -369,55 +429,208 @@ async function playAudio(step, signal) {
     const context = getAudioContext();
     const buffer = await loadAudioBuffer(step);
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
-    const playback = context.createBufferSource();
-    const gain = context.createGain();
-    gain.gain.value = step.volume * step.envelope[0].gain;
-    playback.buffer = buffer;
-    playback.connect(gain).connect(context.destination);
-    scheduleAudioEnvelope(
-        gain.gain,
-        step,
-        context.currentTime,
-        buffer.duration,
-    );
-    activeAudio.set(step.id, playback);
-    await context.resume();
-    playback.start();
-    if (!step.waitForEnd) {
-        const complete = () => {
-            signal.removeEventListener('abort', aborted);
-            activeAudio.delete(step.id);
-        };
-        const aborted = () => {
-            try {
-                playback.stop();
-            } catch {}
-            complete();
-        };
-        playback.addEventListener('ended', complete, { once: true });
-        signal.addEventListener('abort', aborted, { once: true });
-        return;
+    const requestedStartOffset = (step.startOffsetMs || 0) / 1000;
+    if (requestedStartOffset >= buffer.duration) {
+        throw new Error('Audio start offset must be before the file end: ' + step.id);
     }
+    const requestedFadeIn = (step.fadeInMs || 0) / 1000;
+    const fadeOutSeconds = (step.fadeOutMs || 0) / 1000;
+    let clipOffset = 0;
+    let clipDuration = buffer.duration;
+    let fadeInSeconds = requestedFadeIn;
+    let naturalFadeOutSeconds = fadeOutSeconds;
+    let naturalFadeStart = null;
+    const updateClip = (seconds) => {
+        clipOffset = Math.min(buffer.duration, Math.max(0, seconds));
+        clipDuration = buffer.duration - clipOffset;
+        const fileFadeScale = !step.loop && requestedFadeIn + fadeOutSeconds > clipDuration
+            ? clipDuration / (requestedFadeIn + fadeOutSeconds)
+            : 1;
+        fadeInSeconds = requestedFadeIn * fileFadeScale;
+        naturalFadeOutSeconds = fadeOutSeconds * fileFadeScale;
+        naturalFadeStart = step.loop || naturalFadeOutSeconds === 0
+            ? null
+            : clipDuration - naturalFadeOutSeconds;
+    };
+    updateClip(requestedStartOffset);
+    await context.resume();
     await new Promise((resolve, reject) => {
-        const complete = () => {
-            playback.removeEventListener('ended', ended);
+        let settled = false;
+        let stopRequested = false;
+        let playback;
+        let fade;
+        let startedAt = context.currentTime;
+        let startPosition = 0;
+        let pausedAt = 0;
+        let paused = false;
+        let resolveStopped = () => undefined;
+        const stopped = new Promise((complete) => {
+            resolveStopped = complete;
+        });
+        const cleanup = () => {
             signal.removeEventListener('abort', aborted);
+            if (activeAudio.get(step.id)?.cancel === cancel) {
+                activeAudio.delete(step.id);
+            }
+            resolveStopped();
         };
         const ended = () => {
-            complete();
-            activeAudio.delete(step.id);
-            resolve();
+            cleanup();
+            if (step.waitForEnd && !settled) {
+                settled = true;
+                resolve();
+            }
+        };
+        const cancel = () => {
+            cleanup();
+            try {
+                playback?.stop();
+            } catch {}
+            if (step.waitForEnd && !settled) {
+                settled = true;
+                reject(new DOMException('The execution was stopped.', 'AbortError'));
+            }
+        };
+        const currentSeconds = () => paused
+            ? pausedAt
+            : Math.min(
+                clipDuration,
+                step.loop
+                    ? (context.currentTime - startedAt + startPosition) % clipDuration
+                    : context.currentTime - startedAt + startPosition,
+            );
+        const stop = () => {
+            if (stopRequested) return stopped;
+            stopRequested = true;
+            if (paused || !playback) {
+                ended();
+                return stopped;
+            }
+            const now = context.currentTime;
+            const elapsed = currentSeconds();
+            const fadeInLevel = fadeInSeconds > 0
+                ? Math.min(1, elapsed / fadeInSeconds)
+                : 1;
+            const level = naturalFadeStart !== null && elapsed > naturalFadeStart
+                ? Math.max(0, (clipDuration - elapsed) / naturalFadeOutSeconds)
+                : fadeInLevel;
+            fade.gain.cancelScheduledValues(now);
+            fade.gain.setValueAtTime(level, now);
+            if (fadeOutSeconds > 0) {
+                fade.gain.linearRampToValueAtTime(0, now + fadeOutSeconds);
+            }
+            try {
+                playback.stop(now + fadeOutSeconds);
+            } catch {
+                ended();
+            }
+            return stopped;
+        };
+        const position = () => ({
+            positionMs: currentSeconds() * 1000,
+            durationMs: clipDuration * 1000,
+            paused,
+        });
+        const startAt = (position) => {
+            const previous = playback;
+            const now = context.currentTime;
+            const sourceOffset = clipOffset + position;
+            const gain = context.createGain();
+            const nextFade = context.createGain();
+            const next = context.createBufferSource();
+            startedAt = now;
+            startPosition = position;
+            paused = false;
+            fade = nextFade;
+            playback = next;
+            next.buffer = buffer;
+            next.loop = Boolean(step.loop);
+            next.loopStart = clipOffset;
+            next.loopEnd = buffer.duration;
+            next.connect(gain).connect(nextFade).connect(context.destination);
+            if (position === 0) {
+                scheduleAudioEnvelope(gain.gain, step, now, clipDuration);
+            } else {
+                scheduleAudioEnvelopeFrom(gain.gain, step, now, clipDuration, position);
+            }
+            const fadeInLevel = fadeInSeconds > 0 ? Math.min(1, position / fadeInSeconds) : 1;
+            const fadeLevel = naturalFadeStart !== null && position > naturalFadeStart
+                ? Math.max(0, (clipDuration - position) / naturalFadeOutSeconds)
+                : fadeInLevel;
+            nextFade.gain.setValueAtTime(fadeLevel, now);
+            if (position < fadeInSeconds) {
+                nextFade.gain.linearRampToValueAtTime(1, now + fadeInSeconds - position);
+            }
+            if (naturalFadeStart !== null) {
+                const remaining = naturalFadeStart - position;
+                if (remaining > 0) {
+                    nextFade.gain.cancelScheduledValues(now + remaining);
+                    nextFade.gain.setValueAtTime(1, now + remaining);
+                }
+                nextFade.gain.linearRampToValueAtTime(0, now + clipDuration - position);
+            }
+            next.addEventListener('ended', () => {
+                if (playback === next) {
+                    ended();
+                }
+            }, { once: true });
+            next.start(0, sourceOffset);
+            if (previous) {
+                previous.stop();
+                previous.disconnect();
+            }
+        };
+        const seek = (seconds) => {
+            if (!stopRequested && Number.isFinite(seconds) && !step.loop) {
+                const position = Math.min(clipDuration, Math.max(0, seconds));
+                if (paused) {
+                    pausedAt = position;
+                } else {
+                    startAt(position);
+                }
+            }
+        };
+        const setStartOffset = (seconds) => {
+            if (!paused || stopRequested || !Number.isFinite(seconds)) {
+                return;
+            }
+            if (seconds >= buffer.duration) {
+                throw new Error('Audio start offset must be before the file end: ' + step.id);
+            }
+            updateClip(seconds);
+            pausedAt = 0;
+        };
+        const pause = () => {
+            if (paused || stopRequested || !playback) {
+                return;
+            }
+            pausedAt = currentSeconds();
+            paused = true;
+            const current = playback;
+            playback = null;
+            current.stop();
+            current.disconnect();
+        };
+        const resume = () => {
+            if (paused && !stopRequested) {
+                startAt(pausedAt);
+            }
         };
         const aborted = () => {
-            complete();
-            try {
-                playback.stop();
-            } catch {}
-            activeAudio.delete(step.id);
-            reject(new DOMException('The execution was stopped.', 'AbortError'));
+            if (signal.reason === mergeRaceAbortReason) {
+                void stop();
+                return;
+            }
+
+            cancel();
         };
-        playback.addEventListener('ended', ended, { once: true });
+        activeAudio.set(step.id, { cancel, stop, position, seek, setStartOffset, pause, resume });
         signal.addEventListener('abort', aborted, { once: true });
+        startAt(0);
+        if (!step.waitForEnd) {
+            settled = true;
+            resolve();
+        }
     });
 }
 
@@ -425,7 +638,7 @@ async function execute(step, signal = activeController.signal) {
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
     if (step.type === 'audio') return playAudio(step, signal);
     if (step.type === 'layer' && step.placement.reference.type === 'dom') await websiteReady;
-    const root = step.type === 'layer' ? mountLayer(step) : null;
+    const root = step.type === 'layer' ? await mountLayer(step) : null;
     if (step.type === 'layer') {
         signal.addEventListener('abort', () => unmountLayer(step), { once: true });
     }
@@ -486,20 +699,44 @@ function begin() {
 }
 
 function stopAudio(nodeId) {
-    window.parent.__directorAudioPlayback?.cancel(nodeId);
     if (nodeId) {
-        try {
-            activeAudio.get(nodeId)?.stop();
-        } catch {}
-        activeAudio.delete(nodeId);
-        return;
+        const completion = window.parent.__directorAudioPlayback?.stop(nodeId)
+            || activeAudio.get(nodeId)?.stop()
+            || Promise.resolve();
+        pendingFades.add(completion);
+        void completion.finally(() => pendingFades.delete(completion));
+        return completion;
     }
+    window.parent.__directorAudioPlayback?.cancel();
     activeAudio.forEach((audio) => {
-        try {
-            audio.stop();
-        } catch {}
+        audio.cancel();
     });
     activeAudio.clear();
+    pendingFades.clear();
+    return Promise.resolve();
+}
+
+function seekAudio(nodeId, seconds) {
+    if (window.parent.__directorAudioPlayback) {
+        window.parent.__directorAudioPlayback.seek(nodeId, seconds);
+        return;
+    }
+
+    activeAudio.get(nodeId)?.seek(seconds);
+}
+
+function setAudioStartOffset(nodeId, seconds) {
+    if (window.parent.__directorAudioPlayback) {
+        window.parent.__directorAudioPlayback.setStartOffset(nodeId, seconds);
+        return;
+    }
+
+    activeAudio.get(nodeId)?.setStartOffset(seconds);
+}
+
+function setAudioPaused(nodeId, paused) {
+    const playback = window.parent.__directorAudioPlayback || activeAudio.get(nodeId);
+    playback?.[paused ? 'pause' : 'resume'](nodeId);
 }
 
 function cancel() {
@@ -518,6 +755,60 @@ function remove(nodeId) {
 
 function setInputs(nextInputs) {
     Object.assign(inputs, nextInputs);
+}
+
+function setGlobalStylesheetInputIds(inputIds) {
+    globalStylesheetInputIds = [...inputIds];
+
+    for (const [inputId, current] of globalStylesheets) {
+        if (!globalStylesheetInputIds.includes(inputId)) {
+            current.element.remove();
+            globalStylesheets.delete(inputId);
+        }
+    }
+}
+
+async function installGlobalStylesheets() {
+    if (globalStylesheetInputIds.length === 0) {
+        return;
+    }
+
+    if (!globalStylesHost) {
+        globalStylesHost = document.createElement('div');
+        globalStylesHost.id = 'director-global-styles';
+        overlays.prepend(globalStylesHost);
+    }
+
+    for (const inputId of globalStylesheetInputIds) {
+        const source = inputs[inputId];
+
+        if (!source) {
+            throw new Error('The global stylesheet is missing: ' + inputId);
+        }
+
+        const current = globalStylesheets.get(inputId);
+
+        if (current?.source === source) {
+            continue;
+        }
+
+        const response = await fetch(source);
+
+        if (!response.ok) {
+            throw new Error('The global stylesheet could not be loaded: ' + inputId);
+        }
+
+        const style = document.createElement('style');
+        style.dataset.directorStylesheet = inputId;
+        style.textContent = await response.text();
+        if (current) {
+            current.element.replaceWith(style);
+        } else {
+            globalStylesHost.append(style);
+        }
+
+        globalStylesheets.set(inputId, { source, element: style });
+    }
 }
 
 function report(executionId, nodeId, status, error) {
@@ -618,6 +909,10 @@ async function run(nextSteps, executionId = null, options = {}) {
     };
     activeRun = runState;
     try {
+        if (nextSteps.length > 0) {
+            await installGlobalStylesheets();
+        }
+
         await preloadAudio(nextSteps);
         if (runState.recording) {
             if (!options.clockUrl) throw new TypeError('Recording clock URL is missing.');
@@ -645,7 +940,9 @@ async function run(nextSteps, executionId = null, options = {}) {
         for (const dependencyId of dependencyIds) {
             if (dependencyId === winnerId) continue;
             for (const nodeId of ancestors(dependencyId)) {
-                if (!winnerBranch.has(nodeId)) stepControllers.get(nodeId)?.abort();
+                if (!winnerBranch.has(nodeId)) {
+                    stepControllers.get(nodeId)?.abort(mergeRaceAbortReason);
+                }
             }
         }
     };
@@ -670,7 +967,11 @@ async function run(nextSteps, executionId = null, options = {}) {
                 : Promise.all(dependencies);
         const execution = ready.then(async () => {
             if (controller.signal.aborted) {
-                report(executionId, step.id, 'cancelled');
+                report(
+                    executionId,
+                    step.id,
+                    controller.signal.reason === mergeRaceAbortReason ? 'success' : 'cancelled',
+                );
                 return;
             }
             report(executionId, step.id, 'running');
@@ -682,6 +983,10 @@ async function run(nextSteps, executionId = null, options = {}) {
                     result = step.type === 'merge'
                         ? undefined
                         : await execute(step, controller.signal);
+
+                    if (controller.signal.aborted) {
+                        throw new DOMException('The execution was stopped.', 'AbortError');
+                    }
                 } finally {
                     markEnd(step);
                 }
@@ -689,10 +994,12 @@ async function run(nextSteps, executionId = null, options = {}) {
                 report(executionId, step.id, 'success');
             } catch (error) {
                 const cancelled = controller.signal.aborted && error?.name === 'AbortError';
+                const plannedCancellation =
+                    cancelled && controller.signal.reason === mergeRaceAbortReason;
                 report(
                     executionId,
                     step.id,
-                    cancelled ? 'cancelled' : 'error',
+                    plannedCancellation ? 'success' : cancelled ? 'cancelled' : 'error',
                     cancelled ? undefined : error,
                 );
                 if (cancelled) return;
@@ -703,11 +1010,16 @@ async function run(nextSteps, executionId = null, options = {}) {
     }
     try {
         await Promise.all(executions.values());
+        await Promise.all(pendingFades);
         runState.state = runState.cancelRequested ? 'cancelled' : 'success';
     } catch (error) {
         runState.state = runState.cancelRequested ? 'cancelled' : 'error';
         runState.error = error instanceof Error ? error.message : String(error);
         throw error;
+    } finally {
+        if (activeRun === runState) {
+            stopAudio();
+        }
     }
 }
 
@@ -723,6 +1035,9 @@ function status(executionId, afterSequence = 0) {
         state: activeRun.state,
         error: activeRun.error,
         events: activeRun.events.filter((event) => event.sequence > afterSequence),
+        audioPositions: Object.fromEntries(
+            [...activeAudio].map(([nodeId, audio]) => [nodeId, audio.position()]),
+        ),
         marks: activeRun.state === 'running' ? [] : activeRun.recordingMarks,
     };
 }
@@ -739,8 +1054,12 @@ window.__director = Object.freeze({
     cancel,
     cancelStep,
     stopAudio,
+    seekAudio,
+    setAudioStartOffset,
+    setAudioPaused,
     remove,
     setInputs,
+    setGlobalStylesheetInputIds,
     ready,
 });
 ready.catch(showError);

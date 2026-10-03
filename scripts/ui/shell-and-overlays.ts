@@ -222,6 +222,13 @@ export async function verifyFlyoutCollision(session: RemoteSession): Promise<voi
         `flyout: bottom edge must remain visible (${bounds.bottom}/${bounds.viewportHeight}).`,
     );
     await session.screenshot(join(outputDirectory, 'flyout-viewport-collision.png'), true);
+    await session.click('[data-testid="node-category-layers"]');
+    const categoryHeading = await session.evaluate<string>(`
+        return document.querySelector('[data-testid="node-category-back"]')?.textContent?.trim() ?? '';
+    `);
+    assert.match(categoryHeading, /Inhalte|Content/u);
+    await session.click('[data-testid="node-category-back"]');
+    await session.waitForElement('[data-testid="node-category-layers"]', 5_000);
     await session.click('[data-testid="node-actions-trigger"]');
 }
 

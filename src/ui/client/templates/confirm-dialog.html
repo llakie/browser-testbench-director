@@ -1,0 +1,32 @@
+<template>
+    <modal-dialog
+        :open="open"
+        :title="title"
+        :close-label="closeLabel"
+        panel-class="modal-action-dialog"
+        :show-close-button="showCloseButton"
+        :close-on-backdrop="closeOnBackdrop"
+        @cancel="$emit('cancel')"
+    >
+        <p class="modal-action-dialog__message">{{ message }}</p>
+        <template #actions>
+            <button
+                class="button button--quiet"
+                type="button"
+                data-testid="action-dialog-cancel"
+                data-dialog-autofocus
+                @click="$emit('cancel')"
+            >
+                {{ cancelLabel }}
+            </button>
+            <button
+                class="button button--primary"
+                type="button"
+                data-testid="action-dialog-confirm"
+                @click="$emit('confirm')"
+            >
+                {{ confirmLabel }}
+            </button>
+        </template>
+    </modal-dialog>
+</template>

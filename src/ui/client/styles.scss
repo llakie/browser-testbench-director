@@ -1,9 +1,13 @@
 @use 'styles/tokens';
 @use 'styles/base';
+@use 'styles/controls';
 @use 'styles/shell';
 @use 'styles/workspace';
 @use 'styles/menus-and-alignment';
 @use 'styles/properties';
+@use 'styles/audio-editor';
+@use 'styles/source-editor';
+@use 'styles/text-layer-editor';
 @use 'styles/splitters';
 @use 'styles/preview-and-controls';
 @use 'styles/feedback';

@@ -35,6 +35,75 @@ export async function verifyPlayback(session: RemoteSession): Promise<void> {
     await session.waitForElement('.director-layer', 5_000);
     await session.switchFrame();
     await session.waitForCount('[data-testid="play-workflow"]', 1, 10_000);
+    await session.waitForScript(
+        `return !document.querySelector('[data-testid="editor-properties-scroll"]')?.hasAttribute('inert') &&
+            !document.querySelector('[data-testid="node-name"]')?.disabled &&
+            !document.querySelector('[data-testid="delete-node"]')?.disabled;`,
+        [],
+        5_000,
+    );
+}
+
+export async function verifyGlobalStylesheet(session: RemoteSession): Promise<void> {
+    const project = ProjectFormat.create('Shared stylesheet');
+    const website = project.nodes.find((node) => node.type === 'website')!;
+    website.url = exampleSiteUrl;
+    const first = project.nodes.find((node) => node.type === 'layer')!;
+    first.source.html = '<p class="shared-color" id="shared-first">First</p>';
+    const second = ProjectNodes.createLayer(project, 'Second');
+    second.source.html = '<p class="shared-color" id="shared-second">Second</p>';
+    project.nodes.push(second);
+    project.connections.push({
+        id: `${first.id}--${second.id}`,
+        source: first.id,
+        target: second.id,
+    });
+    project.nodes.unshift({
+        id: 'shared-css',
+        type: 'input',
+        name: 'Shared CSS',
+        position: null,
+        accept: 'text/css',
+        required: false,
+    });
+    project.connections.push({
+        id: 'shared-css--website-root',
+        source: 'shared-css',
+        target: 'website-root',
+    });
+
+    const projectPath = join(outputDirectory, 'shared-stylesheet.btd.json');
+    const cssPath = join(outputDirectory, 'shared-stylesheet.css');
+    await Promise.all([
+        writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
+        writeFile(cssPath, '.shared-color { color: rgb(23, 129, 200); }', 'utf8'),
+    ]);
+    await session.upload('[data-testid="project-file-input"]', projectPath);
+    await session.waitForValue('.project-title input', 'Shared stylesheet', 10_000);
+    await selectGraphNode(session, 'shared-css');
+    await session.waitForElement('[data-testid="project-input-shared-css"]', 5_000);
+    await session.upload('[data-testid="project-input-shared-css"]', cssPath);
+    await selectGraphNode(session, first.id);
+    await session.click('[data-testid="play-node-current"]');
+    await session.switchFrame('.preview-viewport iframe');
+    await session.waitForElement('#shared-first', 5_000);
+    await session.waitForScript(
+        `return getComputedStyle(document.querySelector('#shared-first')).color === 'rgb(23, 129, 200)';`,
+        [],
+        5_000,
+    );
+    await session.switchFrame();
+
+    await playGraphNode(session, second.id);
+    await session.switchFrame('.preview-viewport iframe');
+    await session.waitForElement('#shared-second', 5_000);
+    const colors = await session.evaluate<string[]>(`
+        return ['shared-first', 'shared-second'].map((id) =>
+            getComputedStyle(document.getElementById(id)).color
+        );
+    `);
+    assert.deepEqual(colors, ['rgb(23, 129, 200)', 'rgb(23, 129, 200)']);
+    await session.switchFrame();
 }
 
 export async function verifyExecutionControls(session: RemoteSession): Promise<void> {
@@ -85,13 +154,19 @@ director.root.querySelector('#execution-state-test').dataset.completed = 'true';
     await selectGraphNode(session, 'layer-1');
 
     await playGraphNode(session, 'layer-1');
-    await session.waitForCount('[data-testid="stop-workflow"]', 1, 5_000);
+    await session.waitForCount('[data-testid="play-workflow"]', 1, 5_000);
+    await session.waitForElement(
+        '[model-id="layer-1"] [joint-selector="statusRing"].is-running',
+        5_000,
+    );
+    await session.waitForCount('[data-testid="stop-preview-execution"]', 0, 5_000);
     await session.waitForElement('[model-id="layer-1"]', 5_000);
     const running = await session.evaluate<{
         animation: string;
         editorLocked: boolean;
         nameDisabled: boolean;
         opacity: number;
+        outline: string;
         playIcon: string;
         ring: string;
     }>(`
@@ -103,6 +178,7 @@ director.root.querySelector('#execution-state-test').dataset.completed = 'true';
                 ?.hasAttribute('inert') ?? false,
             nameDisabled: document.querySelector('[data-testid="node-name"]')?.disabled ?? false,
             opacity: Number(node.getAttribute('opacity') || getComputedStyle(node).opacity),
+            outline: node.querySelector('[joint-selector="outline"]')?.getAttribute('stroke') ?? '',
             playIcon: node.querySelector('[joint-selector="playIcon"]')?.getAttribute('d') || '',
             ring: node.outerHTML,
         };
@@ -112,6 +188,11 @@ director.root.querySelector('#execution-state-test').dataset.completed = 'true';
         running.animation,
         'none',
         'execution: active node needs an animated throbber.',
+    );
+    assert.equal(
+        running.outline,
+        'var(--color-accent)',
+        'execution: a selected running node keeps the blue selection outline.',
     );
     assert.equal(running.editorLocked, true, 'execution: participating properties must lock.');
     assert.equal(running.nameDisabled, true, 'execution: the participating node name must lock.');
@@ -220,8 +301,10 @@ director.root.querySelector('#execution-state-test').dataset.completed = 'true';
         editor.dispatchEvent(new Event('input', { bubbles: true }));
     `);
     await playGraphNode(session, 'layer-1');
-    await session.waitForCount('[data-testid="stop-workflow"]', 1, 5_000);
-    await session.waitForCount('[data-testid="play-workflow"]', 1, 5_000);
+    await session.waitForElement(
+        '[model-id="layer-1"] [joint-selector="statusRing"].is-error',
+        5_000,
+    );
     await session.waitForElement('[model-id="layer-1"]', 5_000);
     const failedNode = await session.evaluate<string>(`
         return document.querySelector('[model-id="layer-1"]').outerHTML;

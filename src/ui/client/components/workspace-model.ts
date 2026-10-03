@@ -12,7 +12,9 @@ export type CreatableNodeType =
     | 'input'
     | 'camera-capability'
     | 'layer'
+    | 'text-layer'
     | 'javascript'
+    | 'delay'
     | 'browser-action'
     | 'browser-wait'
     | 'audio'
@@ -31,6 +33,7 @@ export interface PreviewRuntime {
     readonly ready: Promise<void>;
     run(steps: readonly unknown[], executionId?: number | null): Promise<void>;
     setInputs(inputs: Readonly<Record<string, string>>): void;
+    setGlobalStylesheetInputIds(inputIds: readonly string[]): void;
     cancel(): void;
 }
 
@@ -89,6 +92,7 @@ export const commonInputTypes = [
     'application/zip',
     'application/octet-stream',
     'text/plain',
+    'text/css',
     'text/csv',
     'font/ttf',
     'font/otf',

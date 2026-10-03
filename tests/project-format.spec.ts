@@ -73,6 +73,26 @@ test('Director-Projektformat speichert JavaScript-Nodes ohne Quelltextverlust', 
     assert.equal(script?.source, "await director.waitFor('#card');");
 });
 
+test('Director-Projektformat regeneriert den Quelltext visueller Delay-Nodes', () => {
+    const project = ProjectFormat.create();
+    const delay = ProjectNodes.createDelay(project, 'Pause');
+    delay.delay!.durationMs = 1_500;
+    delay.source = 'outdated';
+    project.nodes.push(delay);
+
+    const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
+    const restored = loaded.nodes.find((node) => node.id === delay.id);
+
+    assert.equal(restored?.type, 'javascript');
+
+    if (restored?.type !== 'javascript') {
+        throw new Error('Expected a JavaScript node.');
+    }
+
+    assert.deepEqual(restored.delay, { durationMs: 1_500 });
+    assert.equal(restored.source, 'await director.wait(1500);');
+});
+
 test('Director-Projektformat speichert typisierte Browser-Aktionen und Wartebedingungen', () => {
     const project = ProjectFormat.create();
     project.nodes.push(
@@ -123,10 +143,38 @@ test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen',
         { time: 1, gain: 0.5 },
     ];
     audio.waitForEnd = false;
+    audio.loop = true;
+    audio.startOffsetMs = 1_200;
+    audio.fadeInMs = 500;
+    audio.fadeOutMs = 700;
     project.nodes.push(audio);
+
+    delete audio.startOffsetMs;
+    delete audio.fadeInMs;
+    delete audio.fadeOutMs;
+    const loadedWithoutFades = ProjectFormat.parse(JSON.stringify(project));
+    const restoredAudio = loadedWithoutFades.nodes.find((node) => node.id === audio.id);
+    assert.equal(restoredAudio?.type === 'audio' && restoredAudio.startOffsetMs, 0);
+    assert.equal(restoredAudio?.type === 'audio' && restoredAudio.fadeInMs, 0);
+    assert.equal(restoredAudio?.type === 'audio' && restoredAudio.fadeOutMs, 0);
+    audio.startOffsetMs = 1_200;
+    audio.fadeInMs = 500;
+    audio.fadeOutMs = 700;
 
     const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
     assert.deepEqual(loaded.nodes.at(-1), audio);
+
+    audio.loop = 'yes' as unknown as boolean;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /loop setting/u);
+    audio.loop = true;
+
+    audio.fadeOutMs = -1;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /fadeOutMs duration/u);
+    audio.fadeOutMs = 700;
+
+    audio.startOffsetMs = -1;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /startOffsetMs duration/u);
+    audio.startOffsetMs = 1_200;
 
     audio.volume = 1.1;
     assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /playback settings/u);
@@ -336,6 +384,8 @@ test('Director-Projektformat speichert Viewport-, Layer- und DOM-Bezugsflächen'
     });
     const dom = ProjectNodes.createLayer(project, 'DOM');
     dom.placement.reference = { type: 'dom', selector: '#price-card' };
+    dom.placement.offsetXPercent = -5;
+    dom.placement.offsetYPercent = 10;
     project.nodes.push(dom);
     project.connections.push({ id: `${child.id}--${dom.id}`, source: child.id, target: dom.id });
 
@@ -345,6 +395,14 @@ test('Director-Projektformat speichert Viewport-, Layer- und DOM-Bezugsflächen'
         loaded.nodes.filter((node) => node.type === 'layer').map((node) => node.placement),
         [parent.placement, child.placement, dom.placement],
     );
+});
+
+test('Layer offsets must stay within the reference rectangle percentage range', () => {
+    const project = ProjectFormat.create();
+    const layer = project.nodes.find((node) => node.type === 'layer')!;
+    layer.placement.offsetYPercent = 101;
+
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /invalid placement/u);
 });
 
 test('Director-Projektformat lehnt unbekannte Parent-Layer ab', () => {
@@ -418,6 +476,7 @@ test('Lokale Vorschau verwendet den konfigurierten Datei-Input als virtuelle Kam
             mode: 'workflow',
             inputs: [],
             cameraInputId: 'camera',
+            globalStylesheetInputIds: [],
             website: project.nodes.find((node) => node.type === 'website')!,
             resetWebsite: true,
             steps: [],

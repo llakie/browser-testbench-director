@@ -155,7 +155,7 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         const registration = await fetch(`${server.origin()}/director-api/website-proxies`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: target }),
+            body: JSON.stringify({ url: target, language: 'de', locale: 'DE' }),
         });
         assert.equal(registration.status, 201);
         const { url } = (await registration.json()) as { url: string };
@@ -168,6 +168,8 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         assert.match(html, /<base href="\/director-website\/[^/]+\/">/u);
         assert.match(html, /Element\.prototype\.setAttribute/u);
         assert.match(html, /new MutationObserver/u);
+        assert.match(html, /defineNavigatorValue\('language'/u);
+        assert.match(html, /"browserLanguage":"de-DE"/u);
         assert.match(html, /history\.pushState/u);
         assert.match(html, /DirectorWebSocket/u);
         assert.match(

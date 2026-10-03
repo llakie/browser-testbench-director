@@ -1,0 +1,40 @@
+<template>
+    <div
+        v-if="open"
+        class="modal-backdrop"
+        :data-testid="testId"
+        @pointerdown.self="cancelFromBackdrop"
+        @keydown="handleKeydown"
+    >
+        <section
+            ref="panel"
+            :class="['modal-dialog', panelClass]"
+            role="dialog"
+            aria-modal="true"
+            :aria-labelledby="titleId"
+            tabindex="-1"
+        >
+            <header>
+                <div>
+                    <h2 :id="titleId">{{ title }}</h2>
+                    <p v-if="description">{{ description }}</p>
+                </div>
+                <button
+                    v-if="showCloseButton"
+                    class="icon-button modal-dialog__close"
+                    type="button"
+                    :data-testid="closeTestId"
+                    :aria-label="closeLabel"
+                    :title="closeLabel"
+                    @click="cancel"
+                >
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            </header>
+            <slot></slot>
+            <footer v-if="$slots.actions" class="modal-dialog__actions">
+                <slot name="actions"></slot>
+            </footer>
+        </section>
+    </div>
+</template>

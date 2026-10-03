@@ -1,4 +1,5 @@
 import type { RuntimeStep } from '../../src/ui/client/core/runtime-protocol.js';
+import { MERGE_RACE_ABORT_REASON } from '../../src/ui/client/core/runtime-protocol.js';
 
 export async function executeRuntimeGraph(
     steps: readonly RuntimeStep[],
@@ -34,7 +35,7 @@ export async function executeRuntimeGraph(
 
             for (const nodeId of ancestors(dependencyId)) {
                 if (!winnerBranch.has(nodeId)) {
-                    controllers.get(nodeId)?.abort();
+                    controllers.get(nodeId)?.abort(MERGE_RACE_ABORT_REASON);
                 }
             }
         }

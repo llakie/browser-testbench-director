@@ -64,6 +64,8 @@ project.nodes.push({
         { time: 1, gain: 1 },
     ],
     waitForEnd: true,
+    fadeInMs: 200,
+    fadeOutMs: 200,
 });
 project.nodes.push({
     id: 'video-output',

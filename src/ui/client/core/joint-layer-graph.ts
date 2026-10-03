@@ -1,14 +1,17 @@
-import { dia, shapes } from '@joint/core';
+import { dia, g, routers, shapes } from '@joint/core';
 
 import type { NodeExecutionState } from './execution-controller.js';
+import { GraphNodePresentation } from './graph-node-presentation.js';
 import {
     GraphAutoLayout,
     type GraphEdgePoint,
+    type GraphLayout,
     type GraphNodePosition,
 } from './graph-auto-layout.js';
 import type { DirectorNode, WorkflowConnection } from './project-format.js';
 
 const graphNodeSize = { width: 216, height: 112 } as const;
+const routingMaximumLoops = 4_000;
 
 const GraphNode = dia.Element.define(
     'director.Node',
@@ -155,6 +158,23 @@ export interface JointLayerGraphCallbacks {
     readonly clearInputFile: (id: string) => void;
 }
 
+export interface GraphRenderOptions {
+    readonly selectedNodeId: string | null;
+    readonly selectedConnectionId: string | null;
+    readonly states: Readonly<Record<string, NodeExecutionState>>;
+    readonly connectedNodeIds: ReadonlySet<string>;
+    readonly disconnectedLabel: string;
+    readonly staleNodeIds: ReadonlySet<string>;
+    readonly inputFileNames: Readonly<Record<string, string>>;
+    readonly chooseFileLabel: string;
+    readonly recordingActive: boolean;
+    readonly lockedNodeIds: ReadonlySet<string>;
+    readonly playbackTriggerNodeId: string | null;
+    readonly executionRunning: boolean;
+    readonly recordingReady: boolean;
+    readonly pausedAudioNodeId: string | null;
+}
+
 export class JointLayerGraph {
     readonly #graph = new dia.Graph({}, { cellNamespace: shapes });
     readonly #paper: dia.Paper;
@@ -169,9 +189,10 @@ export class JointLayerGraph {
     #selectedConnectionId: string | null = null;
     #automaticPositions: ReadonlyMap<string, GraphNodePosition> = new Map();
     #automaticRoutes: ReadonlyMap<string, readonly GraphEdgePoint[]> = new Map();
-    #automaticLayoutKey = '';
     #automaticRouteKey = '';
     #automaticLayoutRun = 0;
+    #initialLayoutPending = true;
+    #initialLayoutInProgress = false;
     #preserveViewportOnNextRender = false;
     #dragStart: { readonly id: string; readonly x: number; readonly y: number } | null = null;
     readonly #deleteSelectedConnection = (event: KeyboardEvent): void => {
@@ -303,20 +324,24 @@ export class JointLayerGraph {
     render(
         nodes: readonly DirectorNode[],
         connections: readonly WorkflowConnection[],
-        selectedId: string | null,
-        selectedConnectionId: string | null,
-        states: Readonly<Record<string, NodeExecutionState>> = {},
-        connectedNodeIds: ReadonlySet<string> = new Set(),
-        disconnectedLabel = 'Not connected',
-        staleNodeIds: ReadonlySet<string> = new Set(),
-        inputFileNames: Readonly<Record<string, string>> = {},
-        chooseFileLabel = 'Choose file',
-        recordingActive = false,
-        lockedNodeIds: ReadonlySet<string> = new Set(),
-        playbackTriggerNodeId: string | null = null,
-        executionRunning = false,
-        recordingReady = true,
+        options: GraphRenderOptions,
     ): void {
+        const {
+            selectedNodeId,
+            selectedConnectionId,
+            states,
+            connectedNodeIds,
+            disconnectedLabel,
+            staleNodeIds,
+            inputFileNames,
+            chooseFileLabel,
+            recordingActive,
+            lockedNodeIds,
+            playbackTriggerNodeId,
+            executionRunning,
+            recordingReady,
+            pausedAudioNodeId,
+        } = options;
         const fitAutomaticLayout = !this.#preserveViewportOnNextRender;
         this.#preserveViewportOnNextRender = false;
         this.#states = states;
@@ -336,13 +361,12 @@ export class JointLayerGraph {
         const useAutomaticRoutes = routeKey === this.#automaticRouteKey;
 
         for (const [index, node] of nodes.entries()) {
-            const headerColor = JointLayerGraph.color(node);
+            const headerColor = GraphNodePresentation.headerColor(node);
             const execution = states[node.id];
+            const pausedAudio = node.id === pausedAudioNodeId && node.type === 'audio';
             const locked = lockedNodeIds.has(node.id);
             const stoppingPlayback = playbackTriggerNodeId === node.id;
             const stoppingRecording = recordingActive && node.type === 'video-output';
-            const playUnavailable =
-                node.type === 'video-output' && !recordingReady && !stoppingRecording;
             const connected = connectedNodeIds.has(node.id);
             const inputFileName = node.type === 'input' ? inputFileNames[node.id] : undefined;
             const incoming = incomingConnections.get(node.id) ?? [];
@@ -382,7 +406,7 @@ export class JointLayerGraph {
             const cell = new GraphNode({
                 id: node.id,
                 ports: {
-                    groups: JointLayerGraph.portGroups(headerColor),
+                    groups: GraphNodePresentation.portGroups(headerColor),
                     items: [...(node.type === 'input' ? [] : inputPorts), ...outputPorts],
                 },
             });
@@ -391,126 +415,26 @@ export class JointLayerGraph {
                 this.#automaticPositions.get(node.id) ??
                 JointLayerGraph.fallbackPosition(index);
             cell.position(position.x, position.y);
-            cell.attr({
-                root: { cursor: 'pointer', opacity: locked ? 0.62 : 1 },
-                body: {
-                    fill: 'var(--color-node-surface)',
-                    stroke: 'none',
-                    rx: 12,
-                    ry: 12,
-                },
-                header: {
-                    fill: headerColor,
-                    stroke: headerColor,
-                },
-                outline: {
-                    stroke: JointLayerGraph.borderColor(node.id === selectedId, execution),
-                    strokeWidth: node.id === selectedId ? 2 : 1,
-                    strokeDasharray: connected ? 'none' : '5 4',
-                },
-                headerText: {
-                    text:
-                        node.type === 'website'
-                            ? 'ROOT'
-                            : node.type === 'input'
-                              ? 'INPUT'
-                              : node.type === 'capability'
-                                ? 'CAPABILITY'
-                                : node.type === 'layer'
-                                  ? 'LAYER'
-                                  : node.type === 'merge'
-                                    ? 'MERGE'
-                                    : node.type === 'audio'
-                                      ? 'AUDIO'
-                                      : node.type === 'video-output'
-                                        ? 'VIDEO'
-                                        : node.type === 'javascript'
-                                          ? 'JS'
-                                          : node.type === 'browser-action'
-                                            ? 'ACTION'
-                                            : 'WAIT',
-                    fill: 'var(--color-node-header-text)',
-                    fontFamily: 'ui-monospace, monospace',
-                    fontSize: 10,
-                    fontWeight: 800,
-                    letterSpacing: 1.4,
-                },
-                bodyText: {
-                    text: JointLayerGraph.nodeText(node),
-                    fill: 'var(--color-text)',
-                    fontFamily: 'Inter, ui-sans-serif, system-ui',
-                    fontSize: 13,
-                    fontWeight: 650,
-                    lineHeight: 20,
-                },
-                playButton: {
-                    display: ['input', 'capability', 'audio'].includes(node.type)
-                        ? 'none'
-                        : 'block',
-                    class: staleNodeIds.has(node.id) ? 'is-stale' : '',
-                    cursor:
-                        playUnavailable || (locked && !stoppingPlayback && !stoppingRecording)
-                            ? 'not-allowed'
-                            : 'pointer',
-                    pointerEvents:
-                        playUnavailable || (locked && !stoppingPlayback && !stoppingRecording)
-                            ? 'none'
-                            : 'auto',
-                    opacity:
-                        playUnavailable || (locked && !stoppingPlayback && !stoppingRecording)
-                            ? 0.35
-                            : 1,
-                    fill:
-                        node.type === 'video-output'
-                            ? 'var(--color-danger-soft)'
-                            : 'var(--color-node-control)',
-                    stroke:
-                        node.type === 'video-output'
-                            ? 'var(--color-recording-strong)'
-                            : 'var(--color-play)',
-                    strokeWidth: staleNodeIds.has(node.id) ? 2.5 : 1,
-                },
-                playIcon: {
-                    display: ['input', 'capability', 'audio'].includes(node.type)
-                        ? 'none'
-                        : 'block',
-                    d:
-                        stoppingPlayback || stoppingRecording
-                            ? 'M5 5h6v6H5z'
-                            : node.type === 'video-output'
-                              ? 'M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8'
-                              : 'M12.5 4a.5.5 0 0 0-1 0v3.248L5.233 3.612C4.693 3.3 4 3.678 4 4.308v7.384c0 .63.692 1.01 1.233.697L11.5 8.753V12a.5.5 0 0 0 1 0z',
-                    fill:
-                        node.type === 'video-output'
-                            ? 'var(--color-recording-strong)'
-                            : 'var(--color-play)',
-                    opacity: locked && !stoppingPlayback && !stoppingRecording ? 0.35 : 1,
-                },
-                fileButton: {
-                    display: node.type === 'input' && !inputFileName ? 'block' : 'none',
-                },
-                fileButtonText: {
-                    display: node.type === 'input' && !inputFileName ? 'block' : 'none',
-                    text: chooseFileLabel,
-                },
-                fileName: {
-                    display: inputFileName ? 'block' : 'none',
-                    text: JointLayerGraph.ellipsize(inputFileName ?? '', 27),
-                },
-                clearButton: {
-                    display: inputFileName ? 'block' : 'none',
-                },
-                clearText: {
-                    display: inputFileName ? 'block' : 'none',
-                },
-                statusRing: JointLayerGraph.statusRing(execution, executionRunning),
-                statusIcon: JointLayerGraph.statusIcon(execution, executionRunning),
-                statusText: JointLayerGraph.statusText(execution),
-            });
-            const title = [connected ? '' : disconnectedLabel, JointLayerGraph.nodeDetail(node)]
-                .filter(Boolean)
-                .join(' · ');
-            cell.attr('body/title', title);
+            cell.attr(
+                GraphNodePresentation.attributes(node, {
+                    selected: node.id === selectedNodeId,
+                    connected,
+                    execution,
+                    executionRunning,
+                    pausedAudio,
+                    stale: staleNodeIds.has(node.id),
+                    locked,
+                    stoppingPlayback,
+                    stoppingRecording,
+                    recordingReady,
+                    inputFileName,
+                    chooseFileLabel,
+                }),
+            );
+            cell.attr(
+                'body/title',
+                GraphNodePresentation.title(node, connected, disconnectedLabel),
+            );
             cell.addTo(this.#graph);
         }
 
@@ -537,66 +461,37 @@ export class JointLayerGraph {
                 : null,
         );
 
-        if (nodes.some((node) => node.position === null)) {
-            const key = this.#layoutKey(nodes, connections);
+        if (this.#initialLayoutPending) {
+            if (!nodes.some((node) => node.position === null)) {
+                this.#initialLayoutPending = false;
+            } else {
+                if (!this.#initialLayoutInProgress) {
+                    this.#initialLayoutInProgress = true;
+                    const layoutRun = this.#automaticLayoutRun;
+                    void this.arrangeAutomatically(nodes, connections, fitAutomaticLayout)
+                        .then((zoom) => this.#callbacks.zoomChanged(zoom))
+                        .catch(() => undefined)
+                        .finally(() => {
+                            if (layoutRun !== this.#automaticLayoutRun) {
+                                return;
+                            }
 
-            if (key !== this.#automaticLayoutKey) {
-                this.#automaticLayoutKey = key;
-                void this.arrangeAutomatically(nodes, connections, fitAutomaticLayout)
-                    .then((zoom) => this.#callbacks.zoomChanged(zoom))
-                    .catch(() => undefined);
+                            this.#initialLayoutInProgress = false;
+                            this.#initialLayoutPending = false;
+                        });
+                }
+
+                return;
             }
         }
-    }
 
-    private static nodeDetail(node: DirectorNode): string {
-        if (node.type === 'browser-action') {
-            return node.selector;
+        if (this.#initialLayoutInProgress) {
+            return;
         }
 
-        if (node.type === 'browser-wait' && node.condition === 'element') {
-            return node.selector;
+        if (routeKey !== this.#automaticRouteKey) {
+            void this.rerouteConnections(nodes, connections).catch(() => undefined);
         }
-
-        return '';
-    }
-
-    private static nodeText(node: DirectorNode): string {
-        const detail =
-            node.type === 'website'
-                ? JointLayerGraph.compactUrl(node.url)
-                : node.type === 'input'
-                  ? ''
-                  : node.type === 'capability'
-                    ? 'Virtual camera'
-                    : node.type === 'layer'
-                      ? 'HTML  ·  CSS  ·  JS'
-                      : node.type === 'merge'
-                        ? `Wait ${node.waitFor}`
-                        : node.type === 'audio'
-                          ? `${Math.round(node.volume * 100)} % · ${node.waitForEnd ? 'Wait' : 'Continue'}`
-                          : node.type === 'video-output'
-                            ? `${node.filename} · ${node.targetId || 'Select target'}`
-                            : node.type === 'javascript'
-                              ? 'JavaScript'
-                              : node.type === 'browser-action'
-                                ? `Click · ${node.selector}`
-                                : node.condition === 'element'
-                                  ? `Element · ${node.selector}`
-                                  : node.condition === 'url'
-                                    ? `URL · ${node.value}`
-                                    : 'Script';
-        return `${JointLayerGraph.ellipsize(node.name, 27)}\n${JointLayerGraph.ellipsize(detail, 27)}`;
-    }
-
-    private static ellipsize(value: string, maximumLength: number): string {
-        const characters = Array.from(value);
-
-        if (characters.length <= maximumLength) {
-            return value;
-        }
-
-        return `${characters.slice(0, maximumLength - 1).join('')}…`;
     }
 
     select(id: string | null): void {
@@ -604,7 +499,7 @@ export class JointLayerGraph {
             const selected = String(element.id) === id;
             element.attr(
                 'outline/stroke',
-                JointLayerGraph.borderColor(selected, this.#states[String(element.id)]),
+                GraphNodePresentation.borderColor(selected, this.#states[String(element.id)]),
             );
             element.attr('outline/strokeWidth', selected ? 2 : 1);
         }
@@ -658,18 +553,14 @@ export class JointLayerGraph {
         connections: readonly WorkflowConnection[],
         fit = false,
     ): Promise<number> {
-        const run = ++this.#automaticLayoutRun;
-        const height = this.#paper.el.clientHeight;
-        const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
-        const layout = await GraphAutoLayout.layout(nodes, connections, aspectRatio);
+        const result = await this.#calculateLayout(nodes, connections);
 
-        if (run !== this.#automaticLayoutRun) {
+        if (!result) {
             return this.#zoom;
         }
 
-        const layoutKey = this.#layoutKey(nodes, connections);
+        const { layout } = result;
         this.#automaticPositions = layout.positions;
-        this.#automaticLayoutKey = layoutKey;
 
         for (const node of nodes) {
             if (node.position !== null) {
@@ -684,29 +575,158 @@ export class JointLayerGraph {
             }
         }
 
-        this.#applyRoutes(connections, layout.routes, layoutKey);
-
         this.#paper.updateViews();
+        this.#automaticRoutes = layout.routes;
+        await this.rerouteConnections(nodes, connections, layout.routes);
         return fit ? this.fitToContent() : this.#zoom;
     }
 
     async rerouteConnections(
         nodes: readonly DirectorNode[],
         connections: readonly WorkflowConnection[],
+        preferredRoutes?: ReadonlyMap<string, readonly GraphEdgePoint[]>,
     ): Promise<void> {
-        const run = ++this.#automaticLayoutRun;
-        const height = this.#paper.el.clientHeight;
-        const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
-        const layout = await GraphAutoLayout.layout(nodes, connections, aspectRatio);
+        const routes = new Map<string, readonly GraphEdgePoint[]>();
+        const reservedSegments: Array<readonly [GraphEdgePoint, GraphEdgePoint]> = [];
+        const incoming = JointLayerGraph.incomingConnections(connections);
+        const outgoing = JointLayerGraph.outgoingConnections(connections);
+        const nodeBounds = new Map(
+            nodes.flatMap((node) => {
+                const cell = this.#graph.getCell(node.id);
+                return cell?.isElement() ? [[node.id, cell.getBBox()] as const] : [];
+            }),
+        );
 
-        if (run !== this.#automaticLayoutRun) {
-            return;
+        for (const connection of connections) {
+            const link = this.#graph.getCell(connection.id);
+
+            if (!link?.isLink()) {
+                continue;
+            }
+
+            JointLayerGraph.applyRoute(link);
         }
 
-        const layoutKey = this.#layoutKey(nodes, connections);
-        this.#automaticLayoutKey = layoutKey;
-        this.#applyRoutes(connections, layout.routes, layoutKey);
         this.#paper.updateViews();
+
+        for (const connection of connections) {
+            const link = this.#graph.getCell(connection.id);
+
+            if (!link?.isLink()) {
+                continue;
+            }
+
+            const view = this.#paper.requireView<dia.LinkView>(link);
+            const sourceAnchor = view.sourceAnchor;
+            const targetAnchor = view.targetAnchor;
+            const outgoingIndex =
+                outgoing.get(connection.source)?.findIndex((entry) => entry.id === connection.id) ??
+                0;
+            const incomingIndex =
+                incoming.get(connection.target)?.findIndex((entry) => entry.id === connection.id) ??
+                0;
+            const outgoingCount = outgoing.get(connection.source)?.length ?? 1;
+            const incomingCount = incoming.get(connection.target)?.length ?? 1;
+            const outgoingOffset = (outgoingIndex - (outgoingCount - 1) / 2) * 16;
+            const incomingOffset = (incomingIndex - (incomingCount - 1) / 2) * 16;
+            const guidePoints = [
+                {
+                    x: sourceAnchor.x + 32 + outgoingIndex * 8,
+                    y: sourceAnchor.y + outgoingOffset,
+                },
+                {
+                    x: targetAnchor.x - 32 - incomingIndex * 8,
+                    y: targetAnchor.y + incomingOffset,
+                },
+            ];
+            const calculateRoute = (avoidExistingRoutes: boolean): GraphEdgePoint[] =>
+                routers
+                    .manhattan(
+                        guidePoints,
+                        {
+                            padding: 24,
+                            step: 8,
+                            maximumLoops: routingMaximumLoops,
+                            startDirections: ['right'],
+                            endDirections: ['left'],
+                            fallbackRouter: routers.orthogonal,
+                            isPointObstacle: (point) => {
+                                for (const [nodeId, bounds] of nodeBounds) {
+                                    if (
+                                        nodeId !== connection.source &&
+                                        nodeId !== connection.target &&
+                                        bounds.clone().inflate(16).containsPoint(point)
+                                    ) {
+                                        return true;
+                                    }
+                                }
+
+                                return (
+                                    avoidExistingRoutes &&
+                                    reservedSegments.some((segment) =>
+                                        JointLayerGraph.pointTouchesSegment(point, segment, 6),
+                                    )
+                                );
+                            },
+                        },
+                        view,
+                    )
+                    .map((point) => ({
+                        x: Math.round(point.x),
+                        y: Math.round(point.y),
+                    }));
+            const withAnchors = (route: readonly GraphEdgePoint[]): GraphEdgePoint[] =>
+                JointLayerGraph.simplifyRoute([
+                    { x: sourceAnchor.x, y: sourceAnchor.y },
+                    ...route,
+                    { x: targetAnchor.x, y: targetAnchor.y },
+                ]);
+            const preferredRoute = preferredRoutes?.get(connection.id);
+
+            if (preferredRoute?.length) {
+                const vertices = preferredRoute.slice(1, -1);
+                routes.set(connection.id, vertices);
+
+                for (let index = 1; index < preferredRoute.length; index += 1) {
+                    reservedSegments.push([preferredRoute[index - 1]!, preferredRoute[index]!]);
+                }
+
+                JointLayerGraph.applyRoute(link, vertices);
+                continue;
+            }
+
+            let points = withAnchors(calculateRoute(true));
+
+            if (JointLayerGraph.routeCrossesNode(points, connection, nodeBounds)) {
+                points = withAnchors(calculateRoute(false));
+            }
+
+            const vertices = points.slice(1, -1);
+            routes.set(connection.id, vertices);
+
+            for (let index = 1; index < points.length; index += 1) {
+                reservedSegments.push([points[index - 1]!, points[index]!]);
+            }
+
+            JointLayerGraph.applyRoute(link, vertices);
+        }
+
+        this.#applyRoutes(connections, routes, this.#layoutKey(nodes, connections));
+        this.#paper.updateViews();
+    }
+
+    async #calculateLayout(
+        nodes: readonly DirectorNode[],
+        connections: readonly WorkflowConnection[],
+    ): Promise<{ readonly layout: GraphLayout; readonly layoutKey: string } | null> {
+        const run = ++this.#automaticLayoutRun;
+        const layout = await GraphAutoLayout.layout(nodes, connections, this.#aspectRatio());
+
+        if (run !== this.#automaticLayoutRun) {
+            return null;
+        }
+
+        return { layout, layoutKey: this.#layoutKey(nodes, connections) };
     }
 
     #applyRoutes(
@@ -715,7 +735,7 @@ export class JointLayerGraph {
         layoutKey: string,
     ): void {
         this.#automaticRoutes = routes;
-        this.#automaticRouteKey = routes.size ? layoutKey : '';
+        this.#automaticRouteKey = layoutKey;
 
         for (const connection of connections) {
             const link = this.#graph.getCell(connection.id);
@@ -734,6 +754,15 @@ export class JointLayerGraph {
 
     preserveViewportOnNextRender(): void {
         this.#preserveViewportOnNextRender = true;
+    }
+
+    resetAutomaticLayout(): void {
+        this.#automaticLayoutRun += 1;
+        this.#automaticPositions = new Map();
+        this.#automaticRoutes = new Map();
+        this.#automaticRouteKey = '';
+        this.#initialLayoutPending = true;
+        this.#initialLayoutInProgress = false;
     }
 
     centeredNodePosition(): GraphNodePosition {
@@ -793,9 +822,10 @@ export class JointLayerGraph {
         link.router('manhattan', {
             padding: 24,
             step: 8,
-            maximumLoops: 20_000,
+            maximumLoops: routingMaximumLoops,
             startDirections: ['right'],
             endDirections: ['left'],
+            fallbackRouter: routers.orthogonal,
         });
     }
 
@@ -827,54 +857,13 @@ export class JointLayerGraph {
         return outgoing;
     }
 
-    private static portGroups(fill: string): Record<string, dia.Element.PortGroup> {
-        return {
-            in: {
-                position: { name: 'left' },
-                attrs: {
-                    portBody: {
-                        r: 6,
-                        fill,
-                        stroke: 'var(--color-border)',
-                        strokeWidth: 2,
-                        magnet: 'passive',
-                        cursor: 'crosshair',
-                    },
-                },
-            },
-            out: {
-                position: { name: 'right' },
-                attrs: {
-                    portBody: {
-                        r: 6,
-                        fill,
-                        stroke: 'var(--color-border)',
-                        strokeWidth: 2,
-                        magnet: true,
-                        cursor: 'crosshair',
-                    },
-                },
-            },
-        };
-    }
-
     private selectLink(view: dia.LinkView): void {
         this.select(null);
         this.#callbacks.selectNode(null);
         this.selectConnection(String(view.model.id));
     }
 
-    private static compactUrl(url: string): string {
-        if (!url) {
-            return 'URL';
-        }
-
-        return url.length > 28 ? `${url.slice(0, 25)}…` : url;
-    }
-
     #layoutKey(nodes: readonly DirectorNode[], connections: readonly WorkflowConnection[]): string {
-        const height = this.#paper.el.clientHeight;
-        const aspectRatio = height > 0 ? this.#paper.el.clientWidth / height : 1.6;
         return `${nodes
             .map((node) =>
                 node.position
@@ -883,116 +872,105 @@ export class JointLayerGraph {
             )
             .join(',')}|${connections
             .map((connection) => `${connection.source}>${connection.target}`)
-            .join(',')}|${aspectRatio.toFixed(2)}`;
+            .join(',')}|${this.#aspectRatio().toFixed(2)}`;
+    }
+
+    #aspectRatio(): number {
+        const height = this.#paper.el.clientHeight;
+        return height > 0 ? this.#paper.el.clientWidth / height : 1.6;
     }
 
     private static fallbackPosition(index: number): GraphNodePosition {
         return { x: 24 + (index % 3) * 280, y: 24 + Math.floor(index / 3) * 152 };
     }
 
-    private static color(node: DirectorNode): string {
-        if (node.type === 'website') {
-            return 'var(--color-node-website)';
+    private static pointTouchesSegment(
+        point: GraphEdgePoint,
+        [start, end]: readonly [GraphEdgePoint, GraphEdgePoint],
+        distance: number,
+    ): boolean {
+        if (start.x === end.x) {
+            const touches =
+                Math.abs(point.x - start.x) <= distance &&
+                point.y >= Math.min(start.y, end.y) - distance &&
+                point.y <= Math.max(start.y, end.y) + distance;
+            return touches && !JointLayerGraph.isCrossingGate(point.y);
         }
 
-        if (node.type === 'input') {
-            return 'var(--color-node-input)';
-        }
-
-        if (node.type === 'capability') {
-            return 'var(--color-node-capability)';
-        }
-
-        if (node.type === 'merge') {
-            return 'var(--color-node-merge)';
-        }
-
-        if (node.type === 'audio') {
-            return 'var(--color-node-audio)';
-        }
-
-        if (node.type === 'video-output') {
-            return 'var(--color-recording-strong)';
-        }
-
-        if (node.type === 'javascript') {
-            return 'var(--color-node-javascript)';
-        }
-
-        if (node.type === 'browser-action') {
-            return 'var(--color-node-action)';
-        }
-
-        if (node.type === 'browser-wait') {
-            return 'var(--color-node-wait)';
-        }
-
-        return 'var(--color-node-layer)';
+        const touches =
+            Math.abs(point.y - start.y) <= distance &&
+            point.x >= Math.min(start.x, end.x) - distance &&
+            point.x <= Math.max(start.x, end.x) + distance;
+        return touches && !JointLayerGraph.isCrossingGate(point.x);
     }
 
-    private static borderColor(selected: boolean, state?: NodeExecutionState): string {
-        if (state?.status === 'error') {
-            return 'var(--color-status-error)';
-        }
-
-        if (state?.status === 'running') {
-            return 'var(--color-status-running)';
-        }
-
-        return selected ? 'var(--color-accent)' : 'var(--color-border)';
+    private static isCrossingGate(value: number): boolean {
+        const spacing = 32;
+        return Math.abs(value - Math.round(value / spacing) * spacing) <= 4;
     }
 
-    private static statusRing(
-        state: NodeExecutionState | undefined,
-        executionRunning: boolean,
-    ): Record<string, unknown> {
-        if (!state || (state.status === 'idle' && !executionRunning)) {
-            return { display: 'none' };
+    private static simplifyRoute(route: readonly GraphEdgePoint[]): GraphEdgePoint[] {
+        const simplified: GraphEdgePoint[] = [];
+
+        for (const point of route) {
+            const previous = simplified.at(-1);
+
+            if (previous?.x === point.x && previous.y === point.y) {
+                continue;
+            }
+
+            const beforePrevious = simplified.at(-2);
+
+            if (
+                beforePrevious &&
+                previous &&
+                ((beforePrevious.x === previous.x && previous.x === point.x) ||
+                    (beforePrevious.y === previous.y && previous.y === point.y))
+            ) {
+                simplified[simplified.length - 1] = point;
+                continue;
+            }
+
+            simplified.push(point);
         }
 
-        const colors = {
-            idle: 'var(--color-status-pending)',
-            running: 'var(--color-status-running)',
-            success: 'var(--color-status-success)',
-            error: 'var(--color-status-error)',
-            cancelled: 'var(--color-status-cancelled)',
-        } as const;
-        return {
-            display: 'block',
-            class: `graph-node-status is-${state.status === 'idle' ? 'pending' : state.status}`,
-            fill: ['idle', 'running'].includes(state.status) ? 'none' : colors[state.status],
-            stroke: colors[state.status],
-            strokeWidth: ['idle', 'running'].includes(state.status) ? 2 : 0,
-            strokeDasharray: state.status === 'running' ? '8 5' : 'none',
-        };
+        return simplified;
     }
 
-    private static statusIcon(
-        state: NodeExecutionState | undefined,
-        executionRunning: boolean,
-    ): Record<string, unknown> {
-        const pending = executionRunning && state?.status === 'idle';
-        return {
-            display: pending ? 'block' : 'none',
-            class: 'graph-node-pending-icon',
-        };
-    }
+    private static routeCrossesNode(
+        route: readonly GraphEdgePoint[],
+        connection: WorkflowConnection,
+        nodeBounds: ReadonlyMap<string, g.Rect>,
+    ): boolean {
+        return [...nodeBounds].some(([nodeId, bounds]) => {
+            if (nodeId === connection.source || nodeId === connection.target) {
+                return false;
+            }
 
-    private static statusText(state?: NodeExecutionState): Record<string, unknown> {
-        const text =
-            state?.status === 'success'
-                ? '✓'
-                : state?.status === 'error'
-                  ? '!'
-                  : state?.status === 'cancelled'
-                    ? '■'
-                    : '';
-        return {
-            text,
-            fill:
-                state?.status === 'success' || state?.status === 'error'
-                    ? 'var(--color-on-strong)'
-                    : 'var(--color-text)',
-        };
+            const obstacle = bounds.clone().inflate(8);
+            const left = obstacle.x;
+            const right = obstacle.x + obstacle.width;
+            const top = obstacle.y;
+            const bottom = obstacle.y + obstacle.height;
+            return route.slice(1).some((end, index) => {
+                const start = route[index]!;
+
+                if (start.x === end.x) {
+                    return (
+                        start.x > left &&
+                        start.x < right &&
+                        Math.max(start.y, end.y) > top &&
+                        Math.min(start.y, end.y) < bottom
+                    );
+                }
+
+                return (
+                    start.y > top &&
+                    start.y < bottom &&
+                    Math.max(start.x, end.x) > left &&
+                    Math.min(start.x, end.x) < right
+                );
+            });
+        });
     }
 }

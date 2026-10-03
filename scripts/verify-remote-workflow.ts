@@ -37,6 +37,14 @@ try {
 const cardName = director.results['wait-for-action'].cardName;
 director.root.dataset.cardName = cardName;
 return { cardName };`;
+    project.nodes.unshift({
+        id: 'shared-css',
+        type: 'input',
+        name: 'Shared CSS',
+        position: null,
+        accept: 'text/css',
+        required: false,
+    });
     project.nodes.splice(1, 0, {
         id: 'prepare-website',
         type: 'javascript',
@@ -83,6 +91,11 @@ return button ? { cardName: 'Pikachu' } : false;`,
     });
     project.connections = [
         {
+            id: 'shared-css--website-root',
+            source: 'shared-css',
+            target: 'website-root',
+        },
+        {
             id: 'website-root--prepare-website',
             source: 'website-root',
             target: 'prepare-website',
@@ -110,10 +123,16 @@ return button ? { cardName: 'Pikachu' } : false;`,
     ];
     const directory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-remote-'));
     const projectPath = join(directory, 'remote-workflow.btd.json');
-    await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
+    const cssPath = join(directory, 'remote-shared.css');
+    await Promise.all([
+        writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
+        writeFile(cssPath, ':root { --remote-shared-color: rgb(23, 129, 200); }', 'utf8'),
+    ]);
     await controller.upload('[data-testid="project-file-input"]', projectPath);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    await controller.waitForCount('[data-testid="graph-canvas"] .joint-element', 6, 5_000);
+    await controller.waitForCount('[data-testid="graph-canvas"] .joint-element', 7, 5_000);
+    await selectGraphNode(controller, 'shared-css');
+    await controller.upload('[data-testid="project-input-shared-css"]', cssPath);
     await selectGraphNode(controller, 'website-root');
     const existing = new Set((await testbench.sessions()).map((session) => session.id));
     await controller.click('[data-testid="viewport-device-trigger"]');
@@ -150,6 +169,12 @@ return button ? { cardName: 'Pikachu' } : false;`,
         10_000,
     );
     await preview.waitForState('[data-director-node="layer-1"]', 'absent', 10_000);
+    await preview.waitForScript(
+        `return document.querySelector('[data-director-stylesheet="shared-css"]')
+            ?.textContent.includes('--remote-shared-color');`,
+        [],
+        10_000,
+    );
     await preview.waitForScript(
         `const body = document.querySelector('.director-website')?.contentDocument?.body;
         return body?.dataset.remoteRuns === '1' &&

@@ -1,0 +1,272 @@
+<template>
+    <div class="layer-node-properties">
+        <div :class="['layer-settings', { 'layer-settings--text': activeLayer.text }]">
+            <property-accordion
+                :title="t('layer.layoutGroup')"
+                :preview="
+                    t(`placement.${placementReferenceType}`) +
+                    ' · ' +
+                    activeLayer.playback.durationMs +
+                    ' ms'
+                "
+                :group="activeLayer.text ? 'text-layer-properties' : ''"
+                :open="!activeLayer.text"
+                test-id="text-layer-layout-group"
+                summary-test-id="text-layer-layout-summary"
+            >
+                <div class="layer-overview">
+                    <div
+                        class="layer-alignment-field"
+                        role="group"
+                        :aria-label="t('placement.alignment')"
+                    >
+                        <span>{{ t('placement.alignment') }}</span>
+                        <div class="layer-alignment-controls">
+                            <property-field
+                                :label="t('placement.position')"
+                                class="layer-reference-field"
+                            >
+                                <select
+                                    class="placement-reference-select"
+                                    data-testid="placement-reference"
+                                    :value="placementReferenceType"
+                                    @change="setPlacementReference"
+                                >
+                                    <option value="viewport">{{ t('placement.viewport') }}</option>
+                                    <option value="layer" :disabled="!availableParentLayers.length">
+                                        {{ t('placement.layer') }}
+                                    </option>
+                                    <option value="dom">{{ t('placement.dom') }}</option>
+                                </select>
+                            </property-field>
+                            <div class="alignment-controls">
+                                <div class="layer-axis-field">
+                                    <span>{{ t('placement.horizontal') }}</span>
+                                    <div
+                                        class="alignment-button-group"
+                                        role="group"
+                                        :aria-label="t('placement.horizontal')"
+                                    >
+                                        <button
+                                            v-for="alignment in ['left', 'center', 'right']"
+                                            :key="alignment"
+                                            :class="[
+                                                'alignment-icon-button',
+                                                { 'is-active': horizontalAlignment === alignment },
+                                            ]"
+                                            type="button"
+                                            :data-testid="`horizontal-${alignment}`"
+                                            :aria-label="t(`placement.${alignment}`)"
+                                            :title="t(`placement.${alignment}`)"
+                                            :aria-pressed="String(horizontalAlignment === alignment)"
+                                            @click="setHorizontalAlignment(alignment)"
+                                        >
+                                            <span
+                                                :class="[
+                                                    'alignment-icon',
+                                                    `alignment-icon--horizontal-${alignment}`,
+                                                ]"
+                                                aria-hidden="true"
+                                                ><span></span><span></span><span></span
+                                            ></span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="layer-axis-field">
+                                    <span>{{ t('placement.vertical') }}</span>
+                                    <div
+                                        class="alignment-button-group"
+                                        role="group"
+                                        :aria-label="t('placement.vertical')"
+                                    >
+                                        <button
+                                            v-for="alignment in ['top', 'center', 'bottom']"
+                                            :key="alignment"
+                                            :class="[
+                                                'alignment-icon-button',
+                                                { 'is-active': verticalAlignment === alignment },
+                                            ]"
+                                            type="button"
+                                            :data-testid="`vertical-${alignment}`"
+                                            :aria-label="t(`placement.${alignment}`)"
+                                            :title="t(`placement.${alignment}`)"
+                                            :aria-pressed="String(verticalAlignment === alignment)"
+                                            @click="setVerticalAlignment(alignment)"
+                                        >
+                                            <span
+                                                :class="[
+                                                    'alignment-icon',
+                                                    `alignment-icon--vertical-${alignment}`,
+                                                ]"
+                                                aria-hidden="true"
+                                                ><span></span><span></span><span></span
+                                            ></span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div
+                                class="layer-offset-controls"
+                                role="group"
+                                :aria-label="t('placement.offset')"
+                            >
+                                <property-field label="X">
+                                    <number-control
+                                        :model-value="activeLayer.placement.offsetXPercent ?? 0"
+                                        :min="-100"
+                                        :max="100"
+                                        :step="1"
+                                        suffix="%"
+                                        test-id="placement-offset-x"
+                                        :aria-label="t('placement.offsetX')"
+                                        @input="setLayerOffset('x', $event)"
+                                    ></number-control>
+                                </property-field>
+                                <property-field label="Y">
+                                    <number-control
+                                        :model-value="activeLayer.placement.offsetYPercent ?? 0"
+                                        :min="-100"
+                                        :max="100"
+                                        :step="1"
+                                        suffix="%"
+                                        test-id="placement-offset-y"
+                                        :aria-label="t('placement.offsetY')"
+                                        @input="setLayerOffset('y', $event)"
+                                    ></number-control>
+                                </property-field>
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        v-if="activeLayer.placement.reference.type === 'layer'"
+                        class="layer-placement-properties"
+                    >
+                        <property-field :label="t('placement.parentLayer')">
+                            <select
+                                :value="activeLayer.placement.reference.nodeId"
+                                data-testid="placement-parent-layer"
+                                @change="setParentLayer"
+                            >
+                                <option
+                                    v-for="layer in availableParentLayers"
+                                    :key="layer.id"
+                                    :value="layer.id"
+                                >
+                                    {{ layer.name }}
+                                </option>
+                            </select>
+                        </property-field>
+                    </div>
+                    <div
+                        v-if="activeLayer.placement.reference.type === 'dom'"
+                        class="layer-placement-properties"
+                    >
+                        <property-field :label="t('placement.domSelector')">
+                            <span class="selector-field">
+                                <input
+                                    v-model="activeLayer.placement.reference.selector"
+                                    type="text"
+                                    data-testid="placement-dom-selector"
+                                    spellcheck="false"
+                                    @input="markActiveNodeStale"
+                                />
+                                <button
+                                    type="button"
+                                    :class="['icon-button', { 'is-active': selectorPicking }]"
+                                    :disabled="
+                                        !selectorPicking &&
+                                        (!selectedBrowserTarget ||
+                                            executionRunning ||
+                                            !browserSessionInputsReady)
+                                    "
+                                    data-testid="pick-placement-dom-selector"
+                                    :aria-label="
+                                        t(
+                                            selectorPicking
+                                                ? 'browser.selectorPickerCancel'
+                                                : 'browser.selectorPicker',
+                                        )
+                                    "
+                                    @click="toggleSelectorPicker"
+                                >
+                                    <i
+                                        :class="[
+                                            'bi',
+                                            selectorPicking ? 'bi-x-lg' : 'bi-crosshair',
+                                        ]"
+                                        aria-hidden="true"
+                                    ></i>
+                                </button>
+                            </span>
+                        </property-field>
+                    </div>
+                    <div class="layer-playback-properties">
+                        <span class="layer-playback-properties__title"
+                            >{{ t('layer.timing') }}</span
+                        >
+                        <property-field :label="t('layer.duration')">
+                            <number-control
+                                v-model="activeLayer.playback.durationMs"
+                                :min="0"
+                                :step="100"
+                                test-id="layer-duration"
+                                :aria-describedby="
+                                    activeLayer.text &&
+                                    activeTextLayerLatestEnd > activeLayer.playback.durationMs
+                                        ? 'layer-duration-warning'
+                                        : ''
+                                "
+                                @input="markActiveNodeStale"
+                            ></number-control>
+                        </property-field>
+                        <toggle-control
+                            v-model="activeLayer.playback.removeAfter"
+                            :label="t('layer.removeAfter')"
+                            test-id="layer-remove-after"
+                            @change="markActiveNodeStale"
+                        ></toggle-control>
+                    </div>
+                </div>
+            </property-accordion>
+            <text-layer-editor
+                v-if="activeLayer.text"
+                :layer="activeLayer"
+                :font-inputs="fontInputNodes"
+                @change="markActiveNodeStale"
+            ></text-layer-editor>
+        </div>
+        <source-editor
+            v-if="!activeLayer.text"
+            :model-value="activeLayer.source[activeSource]"
+            :label="t(`editor.${activeSource}Label`)"
+            :panel-id="`source-panel-${activeSource}`"
+            :labelled-by="`source-tab-${activeSource}`"
+            :formatting="formattingSource"
+            @update:model-value="updateSource"
+            @format="formatActiveSource"
+        >
+            <template #tabs>
+                <div class="source-tabs" role="tablist" :aria-label="t('editor.title')">
+                    <button
+                        v-for="source in sourceTypes"
+                        :id="`source-tab-${source}`"
+                        :key="source"
+                        :class="[
+                            'source-tab',
+                            `source-tab--${source}`,
+                            { 'is-active': activeSource === source },
+                        ]"
+                        type="button"
+                        role="tab"
+                        :aria-selected="String(activeSource === source)"
+                        :aria-controls="`source-panel-${source}`"
+                        @click="activeSource = source"
+                    >
+                        <span class="source-tab__dot" aria-hidden="true"></span>
+                        {{ t(`editor.${source}`) }}
+                    </button>
+                </div>
+            </template>
+        </source-editor>
+    </div>
+</template>

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { ExecutionController } from '../src/ui/client/core/execution-controller.js';
+import { ProjectFormat } from '../src/ui/client/core/project-format.js';
+import { workspaceExecutionMethods } from '../src/ui/client/components/workspace-execution-controller.js';
 
 test('Execution Controller verhindert parallele Läufe', () => {
     const controller = new ExecutionController();
@@ -61,4 +63,43 @@ test('Execution Controller kann einen behobenen Node-Fehler zurücksetzen', () =
 
     assert.equal(controller.clear('input-1'), true);
     assert.equal(controller.snapshot().nodes['input-1'], undefined);
+});
+
+test('Playback synchronizes the editor after a post-run state error', async () => {
+    const controller = new ExecutionController();
+    const project = ProjectFormat.create('Post-run state error');
+    let published = 0;
+    let viewState = controller.snapshot();
+    const workspace = {
+        project,
+        executionController: controller,
+        executionState: viewState,
+        previewInitialization: null,
+        remotePreviewSessionId: null,
+        selectedBrowserTargetId: '',
+        preparePlanInputs: async () => undefined,
+        executeLocalPlan: async () => undefined,
+        syncRemotePreview: async () => undefined,
+        stopPlaybackAudio: async () => undefined,
+        capturePreviewState: () => {
+            throw new Error('state capture failed');
+        },
+        publishExecutionState: () => {
+            published += 1;
+            viewState = controller.snapshot();
+        },
+        showNotice: () => undefined,
+        t: (key: string) => key,
+        errorMessage: (error: unknown) => String(error),
+        recordingWorkflow: false,
+        restoreLocalPreview: async () => undefined,
+    };
+
+    const runPlayback = workspaceExecutionMethods.runPlayback!;
+    const completed = await runPlayback.call(workspace, 'root');
+
+    assert.equal(completed, false);
+    assert.equal(controller.snapshot().running, false);
+    assert.equal(viewState.running, false);
+    assert.equal(published, 2);
 });

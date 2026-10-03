@@ -22,8 +22,9 @@ working directory.
 
 ## Director UI
 
-The Director editor supports input nodes, one website root, and layer, JavaScript, browser action, wait, merge, and
-audio nodes. Each layer occupies a transparent full-screen surface. Its content can be aligned within that surface or
+The Director editor supports input nodes, one website root, and layer, JavaScript, delay, browser action, wait, merge,
+and audio nodes. A delay is a visual JavaScript specialization that keeps its configured duration in preview and the
+final recording; it can be converted one-way to its generated `await director.wait(...)` source. Each layer occupies a transparent full-screen surface. Its content can be aligned within that surface or
 placed at an inherited position, while its own CSS determines its size. Browser actions and wait conditions use typed
 configuration. Element, URL, and script waits as well as clicks run both locally and through Browser Testbench.
 Multiple outputs start parallel branches. Only a merge node may have multiple workflow inputs; it continues after
@@ -73,13 +74,18 @@ Physical devices, simulators, and emulators retain their native fixed video reso
 Director derives the output from the CSS viewport and DPR of the centrally defined preview preset. Server-side removal
 of omitted wait times preserves those dimensions; the project stores only the portable preset ID.
 
-Recording uses Browser Testbench 0.7.2 or newer and OBS. Configure OBS and any per-device audio offset in the
+Recording uses Browser Testbench 0.7.3 or newer and OBS. Configure OBS and any per-device audio offset in the
 Browser Testbench setup UI; Director does not maintain separate recorder or synchronization settings.
 Desktop browsers stay visible during recording. Audio nodes play on the target just as they do in preview,
 including volume envelopes and branch cancellation. Director preserves the captured audio and cuts it together
 with the video when omitting wait times; it does not mix replacement audio tracks. Because desktop capture includes
 system audio, silence unrelated applications while recording. OBS and FFmpeg must be installed on the Testbench
 machine, and FFmpeg is also required on the Director server for the final export.
+
+For a paired remote Testbench, run Director with `--host 0.0.0.0` and open the editor through the
+Director computer's LAN address rather than `localhost`. The remote host must be able to reach
+Director's separate HTTP player port. OBS and FFmpeg run on the remote Testbench computer; the
+captured video returns through the local Testbench gateway before Director performs its final export.
 
 Projects declare runtime files as input nodes before the website root. The file picker and current selection are shown
 directly in the node; MIME types, required state, and preparation modules are configured in its properties. Selected
@@ -88,8 +94,8 @@ size, and SHA-256. Director restores them automatically when the project is reop
 connected input before starting the website.
 
 Camera sources are transferred to Browser Testbench as binary assets. Other files are available to scripts as data
-URLs through `director.inputs`. Audio inputs feed audio nodes, which support volume control and optionally wait for
-playback to finish. For local Android URLs, Director enables Browser Testbench's secure reverse mapping automatically.
+URLs through `director.inputs`. Audio inputs feed audio nodes, which support a virtual start offset, volume control,
+and optionally wait for playback to finish. For local Android URLs, Director enables Browser Testbench's secure reverse mapping automatically.
 A project can therefore start an Android emulator with camera permission, language and locale, an injected camera
 image, and a font without storing binary data or transport-specific network details in its `.btd.json` file.
 

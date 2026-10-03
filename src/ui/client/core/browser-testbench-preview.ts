@@ -1,4 +1,5 @@
 import type { RuntimeStep } from './runtime-protocol.js';
+import type { AudioPlaybackPosition } from './preview-audio-playback.js';
 import type { BrowserSessionConfiguration, ProjectFileInput } from './project-format.js';
 
 interface MessageDescriptor {
@@ -107,6 +108,7 @@ interface RemoteRuntimeStatus {
     readonly error?: string;
     readonly events: readonly RemoteRuntimeEvent[];
     readonly marks?: readonly RecordingMark[];
+    readonly audioPositions?: Readonly<Record<string, AudioPlaybackPosition>>;
 }
 
 export class BrowserTestbenchPreview {
@@ -134,14 +136,24 @@ export class BrowserTestbenchPreview {
         return this.lifecycleRequest();
     }
 
-    static proxyWebsite(url: string): Promise<string> {
+    static proxyWebsite(url: string, configuration?: BrowserSessionConfiguration): Promise<string> {
         if (!url.trim()) {
             throw new TypeError('Website URL must not be empty.');
         }
 
+        const body = {
+            url: this.absoluteUrl(url),
+            ...(configuration
+                ? {
+                      language: configuration.language,
+                      locale: configuration.locale,
+                  }
+                : {}),
+        };
+
         return this.fetch<ProxiedWebsite>('/director-api/website-proxies', {
             method: 'POST',
-            body: JSON.stringify({ url: this.absoluteUrl(url) }),
+            body: JSON.stringify(body),
         }).then((website) => website.url);
     }
 
@@ -389,6 +401,9 @@ export class BrowserTestbenchPreview {
         markIntervals = false,
         executionSignal?: AbortSignal,
         onEvent: (event: RemoteRuntimeEvent) => void = () => undefined,
+        onAudioPositions: (
+            positions: Readonly<Record<string, AudioPlaybackPosition>>,
+        ) => void = () => undefined,
     ): Promise<readonly RecordingMark[]> {
         const executionId = crypto.randomUUID();
         await this.setRuntimePlan(sessionId, steps);
@@ -434,6 +449,8 @@ export class BrowserTestbenchPreview {
                 sequence = Math.max(sequence, event.sequence);
                 onEvent(event);
             }
+
+            onAudioPositions(status.audioPositions ?? {});
 
             if (status.state === 'success') {
                 return status.marks ?? [];
@@ -527,6 +544,34 @@ export class BrowserTestbenchPreview {
             action: 'evaluate',
             script: 'window.__director?.stopAudio?.(arguments[0]);',
             arguments: [nodeId],
+        });
+    }
+
+    static async seekAudio(sessionId: string, nodeId: string, seconds: number): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.seekAudio?.(arguments[0], arguments[1]);',
+            arguments: [nodeId, seconds],
+        });
+    }
+
+    static async setAudioStartOffset(
+        sessionId: string,
+        nodeId: string,
+        seconds: number,
+    ): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.setAudioStartOffset?.(arguments[0], arguments[1]);',
+            arguments: [nodeId, seconds],
+        });
+    }
+
+    static async setAudioPaused(sessionId: string, nodeId: string, paused: boolean): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.setAudioPaused?.(arguments[0], arguments[1]);',
+            arguments: [nodeId, paused],
         });
     }
 
@@ -824,12 +869,21 @@ export class BrowserTestbenchPreview {
         );
     }
 
-    private static playerOrigin(): Promise<PlayerOrigin> {
+    private static async playerOrigin(): Promise<PlayerOrigin> {
         if (globalThis.location.protocol === 'http:') {
-            return Promise.resolve({ origin: globalThis.location.origin });
+            return { origin: globalThis.location.origin };
         }
 
-        return this.fetch<PlayerOrigin>('/director-api/player-origin', { method: 'GET' });
+        const player = await this.fetch<PlayerOrigin>('/director-api/player-origin', {
+            method: 'GET',
+        });
+        const origin = new URL(player.origin);
+
+        if (origin.hostname === '0.0.0.0' || origin.hostname === '[::]') {
+            origin.hostname = globalThis.location.hostname;
+        }
+
+        return { origin: origin.origin };
     }
 
     private static waitForDirectorRuntime(sessionId: string): Promise<unknown> {

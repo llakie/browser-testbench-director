@@ -32,4 +32,30 @@ export class AudioEnvelope {
             );
         }
     }
+
+    static scheduleFrom(
+        parameter: AudioParam,
+        points: readonly AudioEnvelopePoint[],
+        volume: number,
+        startTime: number,
+        duration: number,
+        offset: number,
+    ): void {
+        parameter.cancelScheduledValues(startTime);
+        parameter.setValueAtTime(
+            volume * AudioEnvelope.gainAt(points, offset / duration),
+            startTime,
+        );
+
+        for (const point of points) {
+            const pointTime = point.time * duration;
+
+            if (pointTime > offset) {
+                parameter.linearRampToValueAtTime(
+                    volume * point.gain,
+                    startTime + pointTime - offset,
+                );
+            }
+        }
+    }
 }

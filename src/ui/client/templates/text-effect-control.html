@@ -1,0 +1,40 @@
+<template>
+    <div :class="['text-effect-control', `text-effect-control--${layout}`]">
+        <property-field :label="label">
+            <select :value="modelValue.name" :data-testid="effectTestId" @change="setName">
+                <option value="none">{{ t('textLayer.effect.none') }}</option>
+                <option value="fade">{{ t('textLayer.effect.fade') }}</option>
+                <option value="fly">{{ t('textLayer.effect.fly') }}</option>
+                <option value="pop">{{ t('textLayer.effect.pop') }}</option>
+            </select>
+        </property-field>
+        <div v-if="modelValue.name !== 'none'" class="text-effect-control__settings">
+            <number-control
+                :model-value="modelValue.durationMs"
+                :min="100"
+                :max="10000"
+                :step="50"
+                suffix="ms"
+                :test-id="durationTestId"
+                :aria-label="t('textLayer.duration')"
+                class="text-layer-editor__effect-control"
+                @update:model-value="setDuration"
+            ></number-control>
+            <property-field
+                v-if="modelValue.name === 'fly'"
+                :label="t('textLayer.direction')"
+                class="text-layer-editor__effect-control"
+            >
+                <select
+                    :value="modelValue.direction"
+                    :data-testid="directionTestId"
+                    :aria-label="t('textLayer.direction')"
+                    @change="setDirection"
+                >
+                    <option value="left">{{ t('placement.left') }}</option>
+                    <option value="right">{{ t('placement.right') }}</option>
+                </select>
+            </property-field>
+        </div>
+    </div>
+</template>

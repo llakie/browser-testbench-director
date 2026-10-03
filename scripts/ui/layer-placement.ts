@@ -69,6 +69,8 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         groupsAdjacent: boolean;
         label: string;
         maximizeRightGap: number;
+        offsetsInline: boolean;
+        offsetInputWidth: number;
     }>(`
         const field = document.querySelector('.layer-alignment-field');
         const controls = field.querySelector('.layer-alignment-controls');
@@ -85,6 +87,9 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
             const bounds = button.getBoundingClientRect();
             return { width: bounds.width, height: bounds.height };
         });
+        const offsetControls = controls.querySelector('.layer-offset-controls');
+        const offsetBounds = offsetControls.getBoundingClientRect();
+        const offsetInputWidth = offsetControls.querySelector('input').getBoundingClientRect().width;
         return {
             referenceOptions: [...placementControl.options].map((option) => option.value),
             buttonsSquare: buttons.every((button) => {
@@ -97,6 +102,10 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
                 verticalBounds.left - horizontalBounds.right <= 10,
             label: field.firstElementChild.textContent.trim(),
             maximizeRightGap: headerBounds.right - maximizeBounds.right,
+            offsetsInline:
+                offsetBounds.left > verticalBounds.right &&
+                Math.abs(offsetBounds.bottom - verticalBounds.bottom) < 2,
+            offsetInputWidth,
         };
     `);
     assert.deepEqual(
@@ -114,11 +123,40 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
         true,
         'placement: horizontal and vertical groups must sit next to each other.',
     );
+    assert.equal(
+        alignmentGeometry.offsetsInline,
+        true,
+        'placement: X/Y offsets must share the desktop alignment row.',
+    );
+    assert.ok(
+        alignmentGeometry.offsetInputWidth <= 55,
+        'placement: X/Y offset inputs should remain compact.',
+    );
     assert.match(
         alignmentGeometry.label,
-        /Ausrichtung|Alignment/u,
+        /Layer-Ausrichtung|Layer alignment/u,
         'placement: the positioning options need one shared group label.',
     );
+    const fieldLabels = await session.evaluate<{
+        reference: string;
+        axes: string[];
+        offsets: string[];
+        timing: string;
+    }>(`
+        return {
+            reference: document.querySelector('.layer-reference-field > span').textContent.trim(),
+            axes: [...document.querySelectorAll('.layer-axis-field > span')]
+                .map((label) => label.textContent.trim()),
+            offsets: [...document.querySelectorAll('.layer-offset-controls label > span:first-child')]
+                .map((label) => label.textContent.trim()),
+            timing: document.querySelector('.layer-playback-properties__title').textContent.trim(),
+        };
+    `);
+    assert.match(fieldLabels.reference, /Positionsquelle|Position source/u);
+    assert.match(fieldLabels.axes[0] ?? '', /Horizontal/u);
+    assert.match(fieldLabels.axes[1] ?? '', /Vertikal|Vertical/u);
+    assert.deepEqual(fieldLabels.offsets, ['X', 'Y']);
+    assert.equal(fieldLabels.timing, 'Timing');
     assert.ok(
         alignmentGeometry.maximizeRightGap >= 8 && alignmentGeometry.maximizeRightGap <= 12,
         `placement: maximize needs the standard right inset (${alignmentGeometry.maximizeRightGap}px).`,
@@ -190,6 +228,17 @@ export async function verifyPlacement(session: RemoteSession): Promise<void> {
     );
     await session.click('[data-testid="vertical-bottom"]');
     await session.screenshot(join(outputDirectory, 'alignment-controls.png'), true);
+    await session.setViewport(390, 844);
+    await session.click('[data-testid="mobile-editor-tab"]');
+    const mobileAlignmentFits = await session.evaluate<boolean>(`
+        const body = document.querySelector('[data-testid="editor-properties-scroll"]');
+        const controls = body.querySelector('.layer-alignment-controls');
+        return body.scrollWidth <= body.clientWidth &&
+            controls.getBoundingClientRect().right <= body.getBoundingClientRect().right;
+    `);
+    assert.equal(mobileAlignmentFits, true, 'placement: mobile controls must fit the panel.');
+    await session.screenshot(join(outputDirectory, 'alignment-controls-mobile.png'), true);
+    await session.setViewport(1440, 1000);
     await playGraphNode(session, 'anchored-child');
     await session.switchFrame('.preview-viewport iframe');
     await session.waitForElement(

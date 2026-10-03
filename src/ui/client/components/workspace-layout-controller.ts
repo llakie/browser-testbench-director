@@ -28,6 +28,18 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         });
     },
     selectNode(id: string | null): void {
+        const instantAudioRunActive = Boolean(this.instantAudioNodeId && this.executionRunning);
+
+        if (this.activeNodeId !== id && !instantAudioRunActive) {
+            this.audioPositionMs = 0;
+            this.audioDurationMs = 0;
+            this.audioDurationSource = '';
+            this.audioScrubbing = false;
+
+            this.audioPlaybackActive = false;
+            this.audioPaused = false;
+        }
+
         this.activeConnectionId = null;
         this.activeNodeId = id;
 
@@ -127,7 +139,7 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             this.graphLayoutRunning = false;
         }
     },
-    startStageGesture(stage: 'graph', event: PointerEvent): void {
+    startStageGesture(event: PointerEvent): void {
         const isTouch = event.pointerType === 'touch';
         const isRightMouseButton = event.pointerType === 'mouse' && event.button === 2;
 
@@ -161,7 +173,7 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             event.stopPropagation();
         }
     },
-    moveStageGesture(stage: 'graph', event: PointerEvent): void {
+    moveStageGesture(event: PointerEvent): void {
         const zoomUpdate = this.graphZoomGesture.move(
             event.pointerId,
             event.clientX,
@@ -184,10 +196,10 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         if (zoomUpdate !== null) {
             this.setGraphZoomAt(zoomUpdate.zoom, zoomUpdate.previousCenter, zoomUpdate.center);
         } else if (pan) {
-            this.panStage(stage, pan.x, pan.y);
+            this.panStage(pan.x, pan.y);
         }
     },
-    endStageGesture(stage: 'graph', event: PointerEvent): void {
+    endStageGesture(event: PointerEvent): void {
         this.graphZoomGesture.end(event.pointerId);
         this.graphPanGesture.end(event.pointerId);
 
@@ -195,14 +207,14 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
             event.stopPropagation();
         }
     },
-    panStage(stage: 'graph', x: number, y: number): void {
+    panStage(x: number, y: number): void {
         this.graph?.panBy(x, y);
     },
-    zoomFromWheel(stage: 'graph', event: WheelEvent): void {
+    zoomFromWheel(event: WheelEvent): void {
         event.preventDefault();
 
         if (!event.ctrlKey && !event.metaKey) {
-            this.panStage(stage, -event.deltaX, -event.deltaY);
+            this.panStage(-event.deltaX, -event.deltaY);
             return;
         }
 

@@ -1,0 +1,213 @@
+.text-layer-editor {
+    display: grid;
+    gap: 0;
+    color: var(--color-text);
+}
+
+.text-layer-editor .text-layer-editor__fields,
+.text-layer-editor .text-layer-editor__section {
+    border-bottom: 0;
+}
+
+.text-layer-editor__fields,
+.text-layer-editor__section {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--properties-inline-padding);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.text-layer-editor__fields {
+    grid-template-columns: 1.4fr 1.1fr 1fr 0.85fr 0.85fr 0.75fr 0.75fr;
+    align-content: start;
+    align-items: start;
+    column-gap: var(--space-3);
+    row-gap: var(--space-2);
+}
+
+.text-layer-editor__section--effect {
+    align-content: start;
+    gap: var(--space-2);
+    padding-block: 10px;
+}
+
+@container (max-width: 520px) {
+    .text-layer-editor__fields {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .text-layer-editor__fields > label:nth-child(-n + 2) {
+        grid-column: span 3;
+    }
+}
+
+.text-layer-editor label.text-layer-editor__offset {
+    display: grid;
+    justify-items: center;
+    justify-self: center;
+    gap: 2px;
+    min-width: 0;
+    width: fit-content;
+    color: var(--color-text-muted);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.text-layer-editor input[type='color'] {
+    width: var(--control-size);
+    height: var(--control-size);
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface-inset);
+}
+
+.text-layer-editor input[type='color']::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.text-layer-editor input[type='color']::-webkit-color-swatch {
+    border: 0;
+    border-radius: calc(var(--radius-small) - 1px);
+}
+
+.text-layer-editor input[type='color']::-moz-color-swatch {
+    border: 0;
+    border-radius: calc(var(--radius-small) - 1px);
+}
+
+.text-layer-editor__offset {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.text-effect-control--block {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.text-effect-control--line {
+    display: contents;
+}
+
+.text-effect-control__settings {
+    display: flex;
+    align-items: end;
+    gap: var(--space-2);
+}
+
+.text-effect-control__settings > * {
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.text-layer-editor .text-layer-editor__effect-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.text-layer-editor__effect-control > input,
+.text-layer-editor__effect-control > select {
+    flex: 1 1 0;
+}
+
+.text-layer-editor .text-layer-editor__offset input {
+    width: 5rem;
+}
+
+.text-layer-editor__offset > .bi {
+    color: var(--color-text-muted);
+    font-size: 12px;
+}
+
+.text-layer-editor__line {
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-surface-inset);
+}
+
+.text-layer-editor__line.is-drop-target {
+    border-color: var(--color-accent);
+}
+
+.text-layer-editor__line summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    overflow: hidden;
+    padding: 5px 12px;
+    cursor: pointer;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.text-layer-editor__line-title {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.text-layer-editor__drag-handle {
+    flex: 0 0 auto;
+    padding: 2px;
+    border: 0;
+    color: var(--color-text-muted);
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+}
+
+.text-layer-editor__drag-handle:active {
+    cursor: grabbing;
+}
+
+.text-layer-editor__line-fields {
+    display: grid;
+    gap: var(--space-3);
+    padding: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.text-layer-editor__line-content,
+.text-layer-editor__line-options {
+    display: grid;
+    min-width: 0;
+    align-items: end;
+    gap: var(--space-3);
+}
+
+.text-layer-editor__line-content {
+    grid-template-columns: minmax(0, 1fr) var(--control-size);
+}
+
+.text-layer-editor__line-options {
+    align-items: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.text-effect-control--line .text-effect-control__settings {
+    align-self: end;
+    grid-column: 1 / -1;
+}
+
+@container editor-properties (min-width: 760px) {
+    .text-layer-editor__line-options.has-effect {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .text-effect-control--line .text-effect-control__settings {
+        grid-column: auto;
+    }
+}
+
+.text-layer-editor__add-line {
+    justify-self: center;
+}

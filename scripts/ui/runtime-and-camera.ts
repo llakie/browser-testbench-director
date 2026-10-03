@@ -161,11 +161,21 @@ export async function verifyCameraSessionConfiguration(session: RemoteSession): 
     await session.upload('[data-testid="project-file-input"]', projectPath);
     await selectGraphNode(session, 'camera-image');
     await session.waitForElement('[data-testid="project-input-camera-image"]', 5_000);
+    await session.click('[data-testid="input-prepare-summary"]');
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="input-prepare-group"]').open &&
+                !document.querySelector('[data-testid="input-file-group"]').open;
+        `),
+        true,
+        'inputs: preparation opens without leaving file settings expanded.',
+    );
     await session.waitForValue(
         '[data-testid="project-input-camera-image-prepare-module-0"]',
         'projects/example/prepare-camera.mjs',
         5_000,
     );
+    await session.click('[data-testid="input-file-summary"]');
     const acceptInput = '[data-testid="project-input-camera-image-accept"]';
     await session.fill(acceptInput, 'webp');
     await session.waitForElement('.tag-suggestions button', 5_000);
@@ -191,6 +201,7 @@ export async function verifyCameraSessionConfiguration(session: RemoteSession): 
         'inputs: custom MIME types must be accepted as tags.',
     );
     await session.click('.tag-pill button[aria-label*="application/x-director-test"]');
+    await session.click('[data-testid="input-prepare-summary"]');
     await session.click('[data-testid="project-input-camera-image-add-prepare-module"]');
     await session.waitForElement(
         '[data-testid="project-input-camera-image-prepare-module-1"]',

@@ -1,0 +1,25 @@
+<template>
+    <span :class="['range-control', `range-control--${tone}`]">
+        <input
+            class="range-control__input"
+            type="range"
+            :min="min"
+            :max="max"
+            :step="step"
+            :value="modelValue"
+            :style="{ '--range-progress': progress }"
+            :disabled="disabled"
+            :aria-label="ariaLabel || undefined"
+            :data-testid="testId || undefined"
+            @pointerdown="$emit('pointerdown', $event)"
+            @pointercancel="$emit('pointercancel', $event)"
+            @input="handleInput"
+            @change="handleChange"
+        />
+        <output
+            v-if="valueText"
+            :class="['range-control__value', `range-control__value--${valueWidth}`]"
+            >{{ valueText }}</output
+        >
+    </span>
+</template>

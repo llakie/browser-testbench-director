@@ -87,6 +87,26 @@
 
         <mcp-setup-dialog :workspace="$root"></mcp-setup-dialog>
         <project-settings-dialog :workspace="$root"></project-settings-dialog>
+        <confirm-dialog
+            :open="Boolean(pendingSourceConversion)"
+            :title="
+                t(pendingSourceConversion?.kind === 'delay' ? 'delay.convert' : 'textLayer.convert')
+            "
+            :message="
+                t(
+                    pendingSourceConversion?.kind === 'delay'
+                        ? 'delay.convertConfirm'
+                        : 'textLayer.convertConfirm',
+                )
+            "
+            :confirm-label="t('dialog.convert')"
+            :cancel-label="t('dialog.cancel')"
+            :close-label="t('dialog.close')"
+            :show-close-button="true"
+            :close-on-backdrop="true"
+            @confirm="confirmSourceConversion"
+            @cancel="cancelSourceConversion"
+        ></confirm-dialog>
         <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     </div>
 </template>

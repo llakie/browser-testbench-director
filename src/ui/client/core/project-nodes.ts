@@ -11,8 +11,14 @@ import type {
     CapabilityNode,
     VideoOutputNode,
 } from './project-format.js';
+import { DelayNodeSource } from './delay-node-source.js';
+import { TextLayerSource } from './text-layer-source.js';
 
 export class ProjectNodes {
+    static canDuplicate(node: DirectorNode): boolean {
+        return node.type !== 'website' && node.type !== 'video-output';
+    }
+
     static createInput(project: DirectorProject, name: string): InputNode {
         return {
             id: ProjectNodes.uniqueId(project, 'input'),
@@ -54,6 +60,13 @@ export class ProjectNodes {
         };
     }
 
+    static createTextLayer(project: DirectorProject, name: string): LayerNode {
+        const layer = ProjectNodes.createLayer(project, name);
+        layer.text = TextLayerSource.create();
+        layer.source = TextLayerSource.render(layer.text, layer.id);
+        return layer;
+    }
+
     static createMerge(project: DirectorProject, name: string): MergeNode {
         return {
             id: ProjectNodes.uniqueId(project, 'merge'),
@@ -76,6 +89,10 @@ export class ProjectNodes {
                 { time: 1, gain: 1 },
             ],
             waitForEnd: true,
+            loop: false,
+            startOffsetMs: 0,
+            fadeInMs: 0,
+            fadeOutMs: 0,
         };
     }
 
@@ -98,6 +115,13 @@ export class ProjectNodes {
             position: null,
             source: '',
         };
+    }
+
+    static createDelay(project: DirectorProject, name: string): JavaScriptNode {
+        const node = ProjectNodes.createJavaScript(project, name);
+        node.delay = DelayNodeSource.create();
+        node.source = DelayNodeSource.render(node.delay);
+        return node;
     }
 
     static createBrowserAction(project: DirectorProject, name: string): BrowserActionNode {
@@ -128,7 +152,7 @@ export class ProjectNodes {
         node: DirectorNode,
         name: string,
     ): DirectorNode | null {
-        if (node.type === 'website') {
+        if (!ProjectNodes.canDuplicate(node)) {
             return null;
         }
 
@@ -136,7 +160,13 @@ export class ProjectNodes {
         const position = null;
 
         if (node.type === 'javascript') {
-            return { ...node, id, name, position };
+            return {
+                ...node,
+                id,
+                name,
+                position,
+                ...(node.delay ? { delay: { ...node.delay } } : {}),
+            };
         }
 
         if (node.type === 'capability') {
@@ -169,7 +199,7 @@ export class ProjectNodes {
         }
 
         if (node.type === 'layer') {
-            return {
+            const duplicate: LayerNode = {
                 ...node,
                 id,
                 name,
@@ -177,7 +207,14 @@ export class ProjectNodes {
                 placement: { ...node.placement, reference: { ...node.placement.reference } },
                 playback: { ...node.playback },
                 source: { ...node.source },
+                ...(node.text ? { text: structuredClone(node.text) } : {}),
             };
+
+            if (duplicate.text) {
+                duplicate.source = TextLayerSource.render(duplicate.text, duplicate.id);
+            }
+
+            return duplicate;
         }
 
         return { ...node, id, name, position };

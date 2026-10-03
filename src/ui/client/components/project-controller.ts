@@ -1,12 +1,9 @@
 import { markRaw } from 'vue';
 
-import {
-    BrowserTestbenchPreview,
-    type BrowserTestbenchTarget,
-} from '../core/browser-testbench-preview.js';
+import { BrowserTestbenchPreview } from '../core/browser-testbench-preview.js';
 import { ProjectAssets } from '../core/project-assets.js';
-import { ProjectFiles } from '../core/project-files.js';
-import { ProjectFormat, type DirectorNode, type DirectorProject } from '../core/project-format.js';
+import { ProjectFiles, type ProjectFileHandle } from '../core/project-files.js';
+import { ProjectFormat, type DirectorProject } from '../core/project-format.js';
 import type { WorkspaceMethodMap } from './workspace-model.js';
 
 export const projectMethods: WorkspaceMethodMap = {
@@ -30,10 +27,7 @@ export const projectMethods: WorkspaceMethodMap = {
                 return;
             }
 
-            this.setProject(await ProjectFiles.read(selected.file), selected.file.name, false);
-            this.projectFileHandle = markRaw(selected.handle);
-            await this.restoreProjectInputs();
-            this.showNotice(this.t('project.loaded', { name: selected.file.name }));
+            await this.loadProjectFile(selected.file, selected.handle);
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') {
                 return;
@@ -50,16 +44,18 @@ export const projectMethods: WorkspaceMethodMap = {
         }
 
         try {
-            const file = input.files[0];
-            this.setProject(await ProjectFiles.read(file), file.name, false);
-            this.projectFileHandle = null;
-            await this.restoreProjectInputs();
-            this.showNotice(this.t('project.loaded', { name: file.name }));
+            await this.loadProjectFile(input.files[0], null);
         } catch (error) {
             this.showNotice(`${this.t('project.loadError')} ${this.errorMessage(error)}`);
         } finally {
             input.value = '';
         }
+    },
+    async loadProjectFile(file: File, handle: ProjectFileHandle | null): Promise<void> {
+        this.setProject(await ProjectFiles.read(file), file.name, false);
+        this.projectFileHandle = handle ? markRaw(handle) : null;
+        await this.restoreProjectInputs();
+        this.showNotice(this.t('project.loaded', { name: file.name }));
     },
     async saveProject(): Promise<void> {
         if (this.savingProject) {
@@ -113,6 +109,7 @@ export const projectMethods: WorkspaceMethodMap = {
             void BrowserTestbenchPreview.close(previousRemoteSessionId).catch(() => undefined);
         }
 
+        this.graph?.resetAutomaticLayout();
         this.project = ProjectFormat.clone(project);
         this.activeConnectionId = null;
         this.filename = filename;
@@ -122,19 +119,8 @@ export const projectMethods: WorkspaceMethodMap = {
         this.inputFileSelectionRevisions = {};
         this.inputAcceptQueries = {};
         this.activeInputAcceptId = null;
-        const selectedRecordingTarget = this.compatibleRecordingTargets.find(
-            (target: BrowserTestbenchTarget) =>
-                target.id === this.selectedRecordingTargetId && target.ready && !target.busy,
-        );
-        this.selectedRecordingTargetId =
-            selectedRecordingTarget?.id ??
-            this.compatibleRecordingTargets.find(
-                (target: BrowserTestbenchTarget) => target.ready && !target.busy,
-            )?.id ??
-            '';
-        this.activeNodeId = (this.project.nodes.find(
-            (node: DirectorNode) => node.type === 'layer',
-        ) ?? this.project.nodes[0])!.id;
+        this.selectedRecordingTargetId = this.availableRecordingTargetId();
+        this.activeNodeId = null;
         this.activeSource = 'html';
         this.deviceMenuOpen = false;
         this.mobileMenuOpen = false;
@@ -142,7 +128,6 @@ export const projectMethods: WorkspaceMethodMap = {
         this.projectPermissionsOpen = false;
         this.mobileActivePanel = 'graph';
         this.dirty = dirty;
-        this.hasPlayed = false;
         this.staleNodeIds.clear();
         this.lastPreviewPlan = null;
         this.lastPreviewInputs = {};

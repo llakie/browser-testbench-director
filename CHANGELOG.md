@@ -4,6 +4,25 @@ All notable changes to Browser Testbench Director are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-03
+
+### Added
+
+- A shared, responsive property-editor system for audio, text-layer, delay, input, and source nodes.
+- Text-layer editing with readable generated HTML/CSS, per-line content, colors, offsets, and simple entrance effects.
+- Audio playback controls with pause, seek, start offsets, fades, and editable volume envelopes.
+
+### Changed
+
+- Refactored the editor into reusable Vue components, templates, SCSS modules, and shared design tokens.
+- Improved graph execution state presentation, compact node menus, responsive property layouts, and automatic routing.
+- Updated the Browser Testbench integration to require Browser Testbench 0.7.4.
+
+### Fixed
+
+- Planned branch cancellation at `wait-any` merges is now shown as a regular completion instead of a user-aborted stop.
+- Project scripts are included in TypeScript checking, and the save flow no longer adds a separate progress dialog on top of the browser's file permission UI.
+
 ## [0.2.1] - 2026-10-01
 
 ### Fixed

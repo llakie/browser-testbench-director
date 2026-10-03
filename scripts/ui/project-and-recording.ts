@@ -158,6 +158,13 @@ export async function verifyRecordingExport(session: RemoteSession): Promise<voi
     await writeFile(projectPath, ProjectFormat.stringify(project), 'utf8');
     await session.upload('[data-testid="project-file-input"]', projectPath);
     await selectGraphNode(session, 'video-output');
+    assert.equal(
+        await session.evaluate<boolean>(
+            `return document.querySelector('[data-testid="duplicate-node"]').disabled;`,
+        ),
+        true,
+        'recording: the unique video output cannot be duplicated.',
+    );
     await session.waitForElement(
         '[data-testid="video-output-target"] option:not([value=""])',
         10_000,

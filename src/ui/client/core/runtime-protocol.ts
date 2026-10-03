@@ -1,5 +1,7 @@
 import type { AudioEnvelopePoint, BrowserWaitNode, LayerNode } from './project-format.js';
 
+export const MERGE_RACE_ABORT_REASON = 'director:merge-race';
+
 export interface RuntimeStep {
     readonly id: string;
     readonly type: 'layer' | 'javascript' | 'browser-action' | 'browser-wait' | 'merge' | 'audio';
@@ -18,9 +20,14 @@ export interface RuntimeStep {
     readonly omitFromRecording?: boolean;
     readonly waitFor?: 'all' | 'any';
     readonly inputId?: string;
+    readonly fontInputId?: string;
     readonly volume?: number;
     readonly envelope?: readonly AudioEnvelopePoint[];
     readonly waitForEnd?: boolean;
+    readonly loop?: boolean;
+    readonly startOffsetMs?: number;
+    readonly fadeInMs?: number;
+    readonly fadeOutMs?: number;
 }
 
 export class DirectorRuntimeScript {
@@ -55,6 +62,13 @@ function createDirectorRuntime(
                     reject(new DOMException('The execution was stopped.', 'AbortError'));
                 }, { once: true });
             });
+        },
+        stopAudio(nodeId) {
+            if (typeof nodeId !== 'string' || !nodeId) {
+                throw new TypeError('An audio node ID is required.');
+            }
+
+            return stopAudio(nodeId);
         },
         async waitFor(selector, timeout = 5000) {
             const started = Date.now();

@@ -18,11 +18,16 @@ import { renderDirectorWebsiteBridge } from './director-website-bridge-renderer.
 
 const moduleLexerReady = init();
 
+interface WebsiteProxyTarget {
+    readonly url: URL;
+    readonly browserLanguage: string;
+}
+
 export class DirectorWebsiteProxy {
     static readonly apiPath = '/director-api/website-proxies';
     static readonly routePath = '/director-website/';
 
-    readonly #targets = new Map<string, URL>();
+    readonly #targets = new Map<string, WebsiteProxyTarget>();
 
     async register(request: IncomingMessage, response: ServerResponse): Promise<void> {
         if (request.method !== 'POST') {
@@ -30,11 +35,19 @@ export class DirectorWebsiteProxy {
             return;
         }
 
-        const registration = JSON.parse(await this.#body(request)) as { readonly url?: unknown };
+        const registration = JSON.parse(await this.#body(request)) as {
+            readonly url?: unknown;
+            readonly language?: unknown;
+            readonly locale?: unknown;
+        };
         const target = this.#targetUrl(registration.url);
-        const existing = [...this.#targets].find(([, value]) => value.href === target.href);
+        const browserLanguage = this.#browserLanguage(registration.language, registration.locale);
+        const existing = [...this.#targets].find(
+            ([, value]) =>
+                value.url.href === target.href && value.browserLanguage === browserLanguage,
+        );
         const id = existing?.[0] ?? randomUUID();
-        this.#targets.set(id, target);
+        this.#targets.set(id, { url: target, browserLanguage });
 
         while (this.#targets.size > 32) {
             this.#targets.delete(this.#targets.keys().next().value!);
@@ -52,7 +65,7 @@ export class DirectorWebsiteProxy {
             return;
         }
 
-        const { prefix, target } = route;
+        const { prefix, target, browserLanguage } = route;
         const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
         await new Promise<void>((resolveProxy, reject) => {
@@ -70,10 +83,14 @@ export class DirectorWebsiteProxy {
                     const contentType = String(proxyResponse.headers['content-type'] ?? '');
 
                     if (contentType.toLowerCase().includes('text/html')) {
-                        void this.#proxyText(proxyResponse, response, prefix, target, 'html').then(
-                            resolveProxy,
-                            reject,
-                        );
+                        void this.#proxyText(
+                            proxyResponse,
+                            response,
+                            prefix,
+                            target,
+                            browserLanguage,
+                            'html',
+                        ).then(resolveProxy, reject);
                         return;
                     }
 
@@ -83,16 +100,21 @@ export class DirectorWebsiteProxy {
                             response,
                             prefix,
                             target,
+                            browserLanguage,
                             'javascript',
                         ).then(resolveProxy, reject);
                         return;
                     }
 
                     if (contentType.toLowerCase().includes('text/css')) {
-                        void this.#proxyText(proxyResponse, response, prefix, target, 'css').then(
-                            resolveProxy,
-                            reject,
-                        );
+                        void this.#proxyText(
+                            proxyResponse,
+                            response,
+                            prefix,
+                            target,
+                            browserLanguage,
+                            'css',
+                        ).then(resolveProxy, reject);
                         return;
                     }
 
@@ -164,6 +186,7 @@ export class DirectorWebsiteProxy {
         response: ServerResponse,
         prefix: string,
         target: URL,
+        browserLanguage: string,
         kind: 'html' | 'javascript' | 'css',
     ): Promise<void> {
         const chunks: Buffer[] = [];
@@ -191,7 +214,11 @@ export class DirectorWebsiteProxy {
             html = html.replace(
                 /<head(\s[^>]*)?>/iu,
                 (head) =>
-                    `${head}${renderDirectorWebsiteBridge({ prefix, targetOrigin: target.origin })}`,
+                    `${head}${renderDirectorWebsiteBridge({
+                        prefix,
+                        targetOrigin: target.origin,
+                        browserLanguage,
+                    })}`,
             );
         } else if (kind === 'javascript') {
             html = await this.#rewriteModuleSpecifiers(html, prefix);
@@ -342,7 +369,11 @@ export class DirectorWebsiteProxy {
         return result;
     }
 
-    #route(source: URL): { readonly prefix: string; readonly target: URL } | null {
+    #route(source: URL): {
+        readonly prefix: string;
+        readonly target: URL;
+        readonly browserLanguage: string;
+    } | null {
         const match = /^\/director-website\/([^/]+)(\/.*)?$/u.exec(source.pathname);
         const id = match?.[1] ? decodeURIComponent(match[1]) : '';
         const registered = this.#targets.get(id);
@@ -353,12 +384,34 @@ export class DirectorWebsiteProxy {
 
         return {
             prefix: `${DirectorWebsiteProxy.routePath}${encodeURIComponent(id)}`,
-            target: new URL(`${match?.[2] || '/'}${source.search}`, registered.origin),
+            target: new URL(`${match?.[2] || '/'}${source.search}`, registered.url.origin),
+            browserLanguage: registered.browserLanguage,
         };
     }
 
     #proxyUrl(id: string, target: URL): string {
         return `${DirectorWebsiteProxy.routePath}${encodeURIComponent(id)}${target.pathname}${target.search}${target.hash}`;
+    }
+
+    #browserLanguage(language: unknown, locale: unknown): string {
+        const languageValue =
+            typeof language === 'string' ? language.trim().replaceAll('_', '-') : '';
+        const region = typeof locale === 'string' ? locale.trim().toUpperCase() : '';
+
+        if (!languageValue) {
+            return '';
+        }
+
+        try {
+            const parsed = new Intl.Locale(languageValue);
+            return new Intl.Locale(
+                !parsed.region && region ? `${languageValue}-${region}` : languageValue,
+            ).toString();
+        } catch {
+            return region && !languageValue.includes('-')
+                ? `${languageValue}-${region}`
+                : languageValue;
+        }
     }
 
     #targetUrl(value: unknown): URL {

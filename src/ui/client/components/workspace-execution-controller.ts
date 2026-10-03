@@ -78,6 +78,18 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.observePreviewStage();
     },
     playActiveNodeOnCurrentState(): void {
+        if (
+            this.executionRunning &&
+            this.activeAudio &&
+            this.instantAudioNodeId === this.activeAudio.id
+        ) {
+            if (this.audioPlaybackActive) {
+                void this.setActiveAudioPaused(!this.audioPaused);
+            }
+
+            return;
+        }
+
         this.audioPlayback.unlock();
 
         if (
@@ -94,7 +106,15 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const nodeId = this.activeNode.id;
         this.nodeMenuOpen = false;
         this.playbackTriggerNodeId = nodeId;
+        this.instantAudioNodeId = this.activeAudio ? nodeId : null;
         void this.runPlayback('current', nodeId).finally(() => {
+            if (this.instantAudioNodeId === nodeId) {
+                this.instantAudioNodeId = null;
+                this.audioPlaybackActive = false;
+                this.audioPaused = false;
+                this.audioPositionMs = 0;
+            }
+
             if (this.playbackTriggerNodeId === nodeId) {
                 this.playbackTriggerNodeId = null;
                 this.renderGraph();
@@ -102,15 +122,177 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         });
         this.renderGraph();
     },
-    playWorkflow(): void {
+    async playWorkflow(): Promise<void> {
         this.audioPlayback.unlock();
 
-        if (this.executionRunning || this.browserTargetOpening) {
+        if (
+            this.workflowStartPending ||
+            this.workflowPlaybackRunning ||
+            this.recordingWorkflow ||
+            this.browserTargetOpening
+        ) {
             return;
         }
 
-        this.playbackTriggerNodeId = null;
-        void this.runPlayback('workflow');
+        this.workflowStartPending = true;
+
+        try {
+            if (this.executionRunning) {
+                await this.stopPlayback();
+            }
+
+            await this.previewInitialization;
+            this.playbackTriggerNodeId = null;
+            void this.runPlayback('workflow');
+            await nextTick();
+        } finally {
+            this.workflowStartPending = false;
+        }
+    },
+    async recordWorkflow(): Promise<void> {
+        const target = this.selectedRecordingTarget;
+
+        if (
+            !target ||
+            this.executionRunning ||
+            this.browserTargetOpening ||
+            this.recordingWorkflow ||
+            !this.browserSessionInputsReady
+        ) {
+            return;
+        }
+
+        this.recordingWorkflow = true;
+        this.recordingStopRequested = false;
+        this.recordingMarks = [];
+        this.browserTargetOpening = true;
+        let sessionId: string | null = null;
+        let recordingStarted = false;
+        let recordingCompleted = false;
+        const previewSessionId = this.remotePreviewSessionId;
+        const previewTargetId = this.selectedBrowserTargetId;
+        const recordingOnPreviewTarget = previewTargetId === target.id;
+        const output = this.project.nodes.find(
+            (node: DirectorNode) => node.type === 'video-output',
+        );
+        const filename = output?.filename ?? 'video.mp4';
+
+        try {
+            await Promise.all(Object.values(this.inputFileStores));
+            const plan = WorkflowPlanner.plan(this.project, 'workflow');
+            this.assertPlanInputs(plan);
+            await this.stopPlaybackAudio();
+
+            if (recordingOnPreviewTarget && previewSessionId) {
+                await BrowserTestbenchPreview.close(previewSessionId).catch(() => undefined);
+            }
+
+            const openedSessionId = await this.openRemotePlan(target, 'workflow', plan, true);
+            sessionId = openedSessionId;
+            this.remotePreviewSessionId = openedSessionId;
+
+            if (plan.steps.some((step) => step.node.type === 'audio')) {
+                await BrowserTestbenchPreview.prepareAudio(openedSessionId);
+            }
+
+            await BrowserTestbenchPreview.startRecording(openedSessionId, filename);
+            recordingStarted = true;
+            this.startRecordingIndicator();
+            this.browserTargetOpening = false;
+            const completed = await this.runPlayback('workflow', undefined, true);
+
+            if (!completed) {
+                if (this.recordingStopRequested) {
+                    throw new Error(this.t('recording.cancelled'));
+                }
+
+                const nodes = this.executionController.snapshot().nodes as Record<
+                    string,
+                    { status: NodeExecutionStatus; error?: string }
+                >;
+                const failure = Object.values(nodes).find((node) => node.status === 'error');
+                throw new Error(failure?.error ?? this.t('recording.workflowFailed'));
+            }
+
+            this.stopRecordingIndicator();
+            recordingStarted = false;
+            const recording = await BrowserTestbenchPreview.stopRecording(
+                openedSessionId,
+                filename,
+                target.kind === 'desktop' ? this.previewOutputSize : undefined,
+                this.recordingMarks,
+            );
+            recordingCompleted = true;
+            BrowserTestbenchPreview.downloadRecording(recording);
+            this.showNotice(this.t('recording.completed', { name: filename }));
+        } catch (error) {
+            this.stopRecordingIndicator();
+
+            if (recordingStarted && sessionId) {
+                await BrowserTestbenchPreview.discardRecording(sessionId).catch(() => undefined);
+            }
+
+            this.showNotice(
+                this.recordingStopRequested
+                    ? this.t('recording.cancelled')
+                    : `${this.t('recording.failed')} ${this.errorMessage(error)}`,
+            );
+        } finally {
+            this.stopRecordingIndicator();
+            this.browserTargetOpening = false;
+            this.recordingWorkflow = false;
+            this.recordingStopRequested = false;
+            this.renderGraph();
+            const keepAsRemotePreview = recordingCompleted && recordingOnPreviewTarget;
+
+            if (sessionId && !keepAsRemotePreview) {
+                await BrowserTestbenchPreview.close(sessionId).catch(() => undefined);
+            }
+
+            if (keepAsRemotePreview) {
+                this.remotePreviewSessionId = sessionId;
+                this.selectedBrowserTargetId = target.id;
+            } else if (!recordingOnPreviewTarget) {
+                this.remotePreviewSessionId = previewSessionId;
+                this.selectedBrowserTargetId = previewTargetId;
+            } else {
+                this.remotePreviewSessionId = null;
+            }
+
+            if (this.browserTestbenchRunning && !keepAsRemotePreview) {
+                void this.loadBrowserTargets();
+            }
+        }
+    },
+    startRecordingIndicator(): void {
+        if (this.recordingTimer) {
+            clearInterval(this.recordingTimer);
+        }
+
+        this.recordingStartedAt = Date.now();
+        this.recordingElapsedMs = 0;
+        this.recordingActive = true;
+        this.renderGraph();
+        this.recordingTimer = setInterval(() => {
+            this.recordingElapsedMs = Date.now() - this.recordingStartedAt;
+        }, 250);
+    },
+    stopRecordingIndicator(): void {
+        if (this.recordingTimer) {
+            clearInterval(this.recordingTimer);
+        }
+
+        this.recordingTimer = undefined;
+        this.recordingActive = false;
+        this.renderGraph();
+    },
+    stopRecordingWorkflow(): void {
+        if (!this.recordingActive) {
+            return;
+        }
+
+        this.recordingStopRequested = true;
+        this.stopPlayback();
     },
     startPreviewInitialization(): void {
         const initialization = this.initializePreview();
@@ -149,6 +331,10 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 this.syncRemotePreview(nodeId, plan, runId, recording),
             ]);
 
+            if (this.executionController.snapshot().runId !== runId) {
+                return false;
+            }
+
             if (mode !== 'current') {
                 await this.stopPlaybackAudio();
             }
@@ -166,7 +352,9 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             this.showNotice(this.t('playback.completed'));
             return true;
         } catch (error) {
-            if (!this.executionState.running) {
+            const execution = this.executionController.snapshot();
+
+            if (!execution.running || execution.runId !== runId) {
                 return false;
             }
 
@@ -205,14 +393,13 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
             this.showNotice(`${this.t('playback.failed')} ${this.errorMessage(error)}`);
             return false;
-        }
-    },
-    async stopPlaybackAudio(): Promise<void> {
-        this.audioPlayback.cancel();
-        const sessionId = this.remotePreviewSessionId;
-
-        if (sessionId) {
-            await BrowserTestbenchPreview.stopAudio(sessionId);
+        } finally {
+            // Keep the reactive UI in sync even when post-run state capture fails.
+            // The controller is the source of truth; otherwise a completed run can
+            // leave the editor looking locked although no execution is active.
+            if (this.executionController.snapshot().runId === runId) {
+                this.publishExecutionState();
+            }
         }
     },
     async preparePlanInputs(
@@ -220,21 +407,11 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         runId: number,
     ): Promise<void> {
         const selectedFiles: Record<string, File> = {};
-        const audioInputIds = new Set(
-            plan.steps.map((step) => step.inputId).filter((id): id is string => Boolean(id)),
-        );
+        const requiredInputIds = this.requiredPlanInputIds(plan);
 
         for (const input of plan.inputs) {
             this.updateExecution(runId, input.id, 'running');
-            const file = this.inputFiles[input.id];
-
-            if (!file && (input.required || audioInputIds.has(input.id))) {
-                throw new Error(this.t('input.missing', { name: input.name }));
-            }
-
-            if (file && !this.inputAcceptsFile(input, file)) {
-                throw new Error(this.t('input.invalidType', { name: input.name }));
-            }
+            const file = this.validatePlanInput(input, requiredInputIds);
 
             if (file) {
                 selectedFiles[input.id] = file;
@@ -251,21 +428,51 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.inputData = plan.resetWebsite ? { ...prepared } : { ...this.inputData, ...prepared };
     },
     assertPlanInputs(plan: ReturnType<typeof WorkflowPlanner.plan>): void {
-        const audioInputIds = new Set(
-            plan.steps.map((step) => step.inputId).filter((id): id is string => Boolean(id)),
-        );
+        const requiredInputIds = this.requiredPlanInputIds(plan);
 
         for (const input of plan.inputs) {
-            const file = this.inputFiles[input.id];
+            this.validatePlanInput(input, requiredInputIds);
+        }
+    },
+    requiredPlanInputIds(plan: WorkflowPlan): ReadonlySet<string> {
+        const required = new Set(
+            plan.inputs.filter((input) => input.required).map((input) => input.id),
+        );
 
-            if (!file && (input.required || audioInputIds.has(input.id))) {
-                throw new Error(this.t('input.missing', { name: input.name }));
+        for (const step of plan.steps) {
+            if (step.inputId) {
+                required.add(step.inputId);
             }
 
-            if (file && !this.inputAcceptsFile(input, file)) {
-                throw new Error(this.t('input.invalidType', { name: input.name }));
+            if (step.node.type === 'layer') {
+                const fontInputId =
+                    step.node.fontInputId ??
+                    (step.node.text?.font === 'project' ? step.node.text.fontInputId : undefined);
+
+                if (fontInputId) {
+                    required.add(fontInputId);
+                }
             }
         }
+
+        for (const inputId of plan.globalStylesheetInputIds) {
+            required.add(inputId);
+        }
+
+        return required;
+    },
+    validatePlanInput(input: InputNode, requiredInputIds: ReadonlySet<string>): File | undefined {
+        const file = this.inputFiles[input.id];
+
+        if (!file && requiredInputIds.has(input.id)) {
+            throw new Error(this.t('input.missing', { name: input.name }));
+        }
+
+        if (file && !this.inputAcceptsFile(input, file)) {
+            throw new Error(this.t('input.invalidType', { name: input.name }));
+        }
+
+        return file;
     },
     inputAcceptsFile(input: InputNode, file: File): boolean {
         const accepted = this.inputAcceptValues(input);
@@ -312,7 +519,10 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                       ...plan,
                       website: {
                           ...plan.website,
-                          url: await BrowserTestbenchPreview.proxyWebsite(plan.website.url),
+                          url: await BrowserTestbenchPreview.proxyWebsite(
+                              plan.website.url,
+                              this.project.browserSession,
+                          ),
                       },
                   }
                 : plan;
@@ -326,10 +536,9 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             await runtime.ready;
         } else {
             runtime.setInputs(this.inputData);
+            runtime.setGlobalStylesheetInputIds(plan.globalStylesheetInputIds);
             await runtime.run(PreviewDocument.runtimeSteps(plan), runId);
         }
-
-        this.hasPlayed = true;
     },
     capturePreviewState(plan: WorkflowPlan): void {
         const cloned = cloneWorkflowPlan(plan);
@@ -346,8 +555,19 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             snapshot = {
                 ...snapshot,
                 website: previous.website,
-                inputs: previous.inputs,
+                inputs: [
+                    ...previous.inputs,
+                    ...snapshot.inputs.filter(
+                        (input) => !previous.inputs.some((existing) => existing.id === input.id),
+                    ),
+                ],
                 cameraInputId: previous.cameraInputId,
+                globalStylesheetInputIds: [
+                    ...new Set([
+                        ...previous.globalStylesheetInputIds,
+                        ...snapshot.globalStylesheetInputIds,
+                    ]),
+                ],
                 resetWebsite: true,
                 steps: [...previous.steps, ...snapshot.steps],
             };
@@ -375,7 +595,10 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const website = plan.website?.url.trim()
             ? {
                   ...plan.website,
-                  url: await BrowserTestbenchPreview.proxyWebsite(plan.website.url),
+                  url: await BrowserTestbenchPreview.proxyWebsite(
+                      plan.website.url,
+                      this.project.browserSession,
+                  ),
               }
             : plan.website;
         this.loadPreview(
@@ -480,6 +703,24 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             recording,
             undefined,
             (event) => this.updateExecution(runId, event.nodeId, event.status, event.error),
+            (positions) => {
+                const position = this.instantAudioNodeId && positions[this.instantAudioNodeId];
+
+                if (position) {
+                    this.audioPlaybackActive = true;
+                    this.audioPaused = position.paused;
+
+                    if (!this.audioScrubbing) {
+                        this.audioPositionMs = position.positionMs;
+                    }
+                } else {
+                    this.audioPlaybackActive = false;
+
+                    if (!this.instantAudioNodeId) {
+                        this.audioPaused = false;
+                    }
+                }
+            },
         );
 
         if (recording) {
@@ -494,6 +735,9 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.previewRuntime()?.cancel();
         this.publishExecutionState();
         const sessionId = this.remotePreviewSessionId;
+        this.audioPositionMs = 0;
+        this.audioPlaybackActive = false;
+        this.audioPaused = false;
         this.remotePreviewSessionId = null;
 
         if (sessionId) {
@@ -592,7 +836,10 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const website = plan.website?.url.trim()
             ? {
                   ...plan.website,
-                  url: await BrowserTestbenchPreview.proxyWebsite(plan.website.url),
+                  url: await BrowserTestbenchPreview.proxyWebsite(
+                      plan.website.url,
+                      this.project.browserSession,
+                  ),
               }
             : plan.website;
         return PreviewDocument.buildPlan({ ...plan, website, steps: [] }, null, inputs ?? {});

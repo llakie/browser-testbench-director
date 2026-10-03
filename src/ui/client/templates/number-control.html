@@ -1,0 +1,20 @@
+<template>
+    <span class="number-control">
+        <span v-if="prefix" class="number-control__affix">{{ prefix }}</span>
+        <input
+            class="number-control__input"
+            type="number"
+            :min="min"
+            :max="max"
+            :step="step"
+            :value="modelValue"
+            :disabled="disabled"
+            :aria-label="ariaLabel || undefined"
+            :aria-describedby="ariaDescribedby || undefined"
+            :data-testid="testId || undefined"
+            @input="handleInput"
+            @change="handleChange"
+        />
+        <span v-if="suffix" class="number-control__affix">{{ suffix }}</span>
+    </span>
+</template>

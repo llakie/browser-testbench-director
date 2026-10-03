@@ -20,6 +20,10 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
     const audio = ProjectNodes.createAudio(project, 'Play soundtrack');
     audio.volume = 0.4;
     audio.waitForEnd = true;
+    audio.loop = true;
+    audio.startOffsetMs = 1_000;
+    audio.fadeInMs = 200;
+    audio.fadeOutMs = 300;
     const visual = ProjectNodes.createLayer(project, 'Finish video');
     visual.playback = { durationMs: 100, removeAfter: true };
     const merge = ProjectNodes.createMerge(project, 'Stop remaining branches');
@@ -36,11 +40,12 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
     const audioPath = join(outputDirectory, 'silence.wav');
     await Promise.all([
         writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
-        writeFile(audioPath, silentWave(2_000)),
+        writeFile(audioPath, silentWave(8_000)),
     ]);
 
     await session.upload('[data-testid="project-file-input"]', projectPath);
     await session.waitForValue('.project-title input', 'Audio playback', 10_000);
+    await selectGraphNode(session, audio.id);
     await selectGraphNode(session, input.id);
     await session.upload(`[data-testid="project-input-${input.id}"]`, audioPath);
     await session.waitForScript(
@@ -83,10 +88,255 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         'audio: instant playback must receive the loaded audio input.',
     );
     assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector(
+                '[model-id="${audio.id}"] [joint-selector="statusRing"]'
+            )?.classList.contains('is-running') ?? false;
+        `),
+        false,
+        'audio: natural instant-play completion must clear the running indicator.',
+    );
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="node-name"]').disabled;
+        `),
+        false,
+        'audio: natural instant-play completion must unlock editing.',
+    );
+    await session.waitForValue('[data-testid="audio-position"]', '0', 5_000);
+    await assertAudioPlayheadLayout(session, 'desktop');
+    const idleTrack = await session.evaluate<{ actual: string; expected: string }>(`
+        const slider = document.querySelector('[data-testid="audio-position"]');
+        const probe = document.createElement('span');
+        probe.style.background = 'var(--color-border)';
+        document.body.append(probe);
+        const expected = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return {
+            actual: getComputedStyle(slider).backgroundImage,
+            expected,
+        };
+    `);
+    assert.ok(
+        idleTrack.actual.includes(idleTrack.expected),
+        'audio: the disabled progress track must use the light UI border color.',
+    );
+    await session.click('[data-testid="audio-envelope-summary"]');
+    await session.click('[data-testid="play-node-current"]');
+    await session.waitForScript(
+        `
+        return !document.querySelector('[data-testid="audio-position"]').disabled &&
+            document.querySelector('[data-testid="play-node-current"] .bi-pause-fill') !== null;
+    `,
+        [],
+        10_000,
+    );
+    await assertAudioSettingsLocked(session, true, 'running');
+    const playbackBeforeSelection = await session.evaluate<number>(`
+        return window.__directorAudioPlayback.position('${audio.id}')?.positionMs ?? -1;
+    `);
+    await selectGraphNode(session, visual.id);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const playbackAfterSelection = await session.evaluate<{
+        paused: boolean;
+        positionMs: number;
+    }>(`
+        const position = window.__directorAudioPlayback.position('${audio.id}');
+        return {
+            paused: position?.paused ?? true,
+            positionMs: position?.positionMs ?? -1,
+        };
+    `);
+    assert.equal(
+        playbackAfterSelection.paused,
+        false,
+        'audio: selecting another node must not pause instant playback.',
+    );
+    assert.ok(
+        playbackAfterSelection.positionMs > playbackBeforeSelection,
+        'audio: selecting another node must not stop instant playback.',
+    );
+    await selectGraphNode(session, audio.id);
+    await session.evaluate(`
+        const slider = document.querySelector('[data-testid="audio-position"]');
+        slider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        slider.value = '1200';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
+    await session.waitForScript(
+        `
+        return window.__directorAudioPlayback.position('${audio.id}')?.positionMs >= 1200;
+    `,
+        [],
+        5_000,
+    );
+    const sliderProgress = await session.evaluate<number>(`
+        const slider = document.querySelector('[data-testid="audio-position"]');
+        return parseFloat(slider.style.getPropertyValue('--range-progress'));
+    `);
+    assert.ok(
+        sliderProgress > 10 && sliderProgress < 100,
+        'audio: the progress track must fill up to the current playback position.',
+    );
+    const playheadPosition = await session.evaluate<number>(`
+        return Number(document.querySelector('[data-testid="audio-envelope-playhead"]').getAttribute('x1'));
+    `);
+    assert.ok(playheadPosition > 0, 'audio: the envelope must show the seeked playhead.');
+    await session.screenshot(join(outputDirectory, 'audio-playhead-running.png'), true);
+    await session.click('[data-testid="play-node-current"]');
+    await session.waitForScript(
+        `
+        return window.__directorAudioPlayback.position('${audio.id}')?.paused &&
+            document.querySelector('[data-testid="play-node-current"] .bi-play-fill') !== null;
+    `,
+        [],
+        5_000,
+    );
+    await session.waitForElement(
+        `[model-id="${audio.id}"] [joint-selector="statusRing"].is-paused`,
+        5_000,
+    );
+    await selectGraphNode(session, visual.id);
+    await session.waitForElement(
+        `[model-id="${audio.id}"] [joint-selector="statusRing"].is-paused`,
+        5_000,
+    );
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="node-name"]').disabled === false;
+        `),
+        true,
+        'audio: pausing instant playback must unlock the selected node properties.',
+    );
+    await selectGraphNode(session, audio.id);
+    await session.waitForCount('[data-testid="play-node-current"] .bi-play-fill', 1, 5_000);
+    assert.equal(
+        await session.evaluate<string>(`
+            return document.querySelector('[model-id="${audio.id}"] [joint-selector="statusIcon"]')
+                ?.getAttribute('d') ?? '';
+        `),
+        'M 192 14 V 20 M 196 14 V 20',
+        'audio: paused instant replay must show a pause icon in the graph.',
+    );
+    assert.equal(
+        await session.evaluate<string>(`
+            const ring = document.querySelector('[model-id="${audio.id}"] [joint-selector="statusRing"]');
+            return ring ? getComputedStyle(ring).animationName : 'missing';
+        `),
+        'none',
+        'audio: the paused node indicator must not spin.',
+    );
+    await session.screenshot(join(outputDirectory, 'audio-node-paused.png'), true);
+    await assertAudioSettingsLocked(session, false, 'paused');
+    const playbackSettingsOpen = await session.evaluate<boolean>(`
+        return document.querySelector('[data-testid="audio-playback-group"]').open;
+    `);
+
+    if (!playbackSettingsOpen) {
+        await session.click('[data-testid="audio-playback-summary"]');
+    }
+
+    await session.clear('[data-testid="audio-fade-in"]');
+    await session.fill('[data-testid="audio-fade-in"]', '400');
+    await session.clear('[data-testid="audio-fade-out"]');
+    await session.fill('[data-testid="audio-fade-out"]', '500');
+    assert.equal((await session.state('[data-testid="audio-fade-in"]')).value, '400');
+    assert.equal((await session.state('[data-testid="audio-fade-out"]')).value, '500');
+    await session.clear('[data-testid="audio-fade-in"]');
+    await session.fill('[data-testid="audio-fade-in"]', '200');
+    await session.clear('[data-testid="audio-fade-out"]');
+    await session.fill('[data-testid="audio-fade-out"]', '300');
+    await session.click('[data-testid="audio-envelope-summary"]');
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return !document.querySelector('[data-testid="audio-envelope-editor"]')
+                .classList.contains('is-readonly');
+        `),
+        true,
+        'audio: pausing instant playback must unlock the envelope editor.',
+    );
+    await session.click('[data-testid="audio-envelope-editor"] svg');
+    await session.waitForCount('[data-testid="audio-envelope-point"]', 3, 5_000);
+    const pausedPointX = await session.evaluate<number>(`
+        return Number(document.querySelector(
+            '[data-testid="audio-envelope-point"][data-point-index="1"]'
+        ).getAttribute('cx'));
+    `);
+    await session.drag(
+        '[data-testid="audio-envelope-point"][data-point-index="1"]',
+        '[data-testid="audio-envelope-point"][data-point-index="2"]',
+    );
+    assert.ok(
+        (await session.evaluate<number>(`
+            return Number(document.querySelector(
+                '[data-testid="audio-envelope-point"][data-point-index="1"]'
+            ).getAttribute('cx'));
+        `)) >
+            pausedPointX + 20,
+        'audio: envelope points must remain draggable while instant playback is paused.',
+    );
+    await session.click('[data-testid="delete-audio-envelope-point"]');
+    await session.waitForCount('[data-testid="audio-envelope-point"]', 2, 5_000);
+    const pausedAt = await session.evaluate<number>(`
+        return window.__directorAudioPlayback.position('${audio.id}').positionMs;
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const stillPausedAt = await session.evaluate<number>(`
+        return window.__directorAudioPlayback.position('${audio.id}').positionMs;
+    `);
+    assert.ok(Math.abs(stillPausedAt - pausedAt) < 20, 'audio: pause must freeze playback time.');
+    await session.evaluate(`
+        const slider = document.querySelector('[data-testid="audio-position"]');
+        slider.value = '2000';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
+    await session.waitForScript(
+        `
+        const position = window.__directorAudioPlayback.position('${audio.id}');
+        return position?.paused && position.positionMs === 2000;
+    `,
+        [],
+        5_000,
+    );
+    await session.click('[data-testid="play-node-current"]');
+    await session.waitForScript(
+        `
+        const position = window.__directorAudioPlayback.position('${audio.id}');
+        return position && !position.paused && position.positionMs > 2000;
+    `,
+        [],
+        5_000,
+    );
+    await session.waitForElement(
+        `[model-id="${audio.id}"] [joint-selector="statusRing"].is-running`,
+        5_000,
+    );
+    await assertAudioSettingsLocked(session, true, 'resumed');
+    await session.waitForScript(
+        `
+        return document.querySelector('[data-testid="audio-position"]').disabled &&
+            document.querySelector('[data-testid="audio-position"]').value === '0';
+    `,
+        [],
+        15_000,
+    );
+    await session.click('[data-testid="audio-playback-summary"]');
+    assert.equal(
         (await session.state('[data-testid="audio-volume"]')).value,
         '0.4',
         'audio: volume must be editable and persisted in the node.',
     );
+    assert.equal((await session.state('[data-testid="audio-start-offset"]')).value, '1000');
+    assert.equal((await session.state('[data-testid="audio-fade-in"]')).value, '200');
+    assert.equal((await session.state('[data-testid="audio-fade-out"]')).value, '300');
+    await session.fill('[data-testid="audio-fade-in"]', '250');
+    await session.fill('[data-testid="audio-fade-out"]', '350');
+    assert.equal((await session.state('[data-testid="audio-fade-in"]')).value, '250');
+    assert.equal((await session.state('[data-testid="audio-fade-out"]')).value, '350');
+    await assertAudioPropertiesLayout(session, 'desktop');
+    await session.screenshot(join(outputDirectory, 'audio-fades-desktop.png'), true);
     await session.press('\uE011', '[data-testid="audio-volume"]');
     assert.equal(
         (await session.state('[data-testid="audio-volume"]')).value,
@@ -99,13 +349,24 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         '1',
         'audio: the volume slider must reach its maximum.',
     );
+    await session.waitForCount('[data-testid="audio-file-name"]', 0, 5_000);
+    await session.click('[data-testid="audio-envelope-summary"]');
     assert.equal(
-        (await session.state('[data-testid="audio-file-name"]')).text,
-        'silence.wav',
-        'audio: properties must show the connected audio filename.',
+        await session.evaluate<boolean>(`
+            return document.querySelector('[data-testid="audio-envelope-group"]').open &&
+                !document.querySelector('[data-testid="audio-playback-group"]').open;
+        `),
+        true,
+        'audio: opening the envelope closes playback settings.',
     );
+    await assertEnvelopeSpacing(session, 'desktop');
     await session.click('[data-testid="audio-envelope-editor"] svg');
     await session.waitForCount('[data-testid="audio-envelope-point"]', 3, 5_000);
+    const middleBeforeDrag = await session.evaluate<number>(`
+        return Number(document.querySelector(
+            '[data-testid="audio-envelope-point"][data-point-index="1"]'
+        ).getAttribute('cx'));
+    `);
     await session.drag(
         '[data-testid="audio-envelope-point"][data-point-index="1"]',
         '[data-testid="audio-envelope-point"][data-point-index="2"]',
@@ -128,15 +389,76 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         envelope.end - envelope.middle >= 15,
         'audio: points must stop visibly before their right neighbor.',
     );
+    assert.ok(
+        envelope.middle > middleBeforeDrag + 20,
+        'audio: dragging an envelope point must change its position.',
+    );
     assert.match(envelope.selected, /%/u, 'audio: the selected point must expose its values.');
     await session.screenshot(join(outputDirectory, 'audio-envelope-editor.png'), true);
+    await session.click('[data-testid="play-node-current"]');
+    await session.waitForScript(
+        `
+        return !document.querySelector('[data-testid="audio-position"]').disabled &&
+            document.querySelector('[data-testid="play-node-current"] .bi-pause-fill') !== null;
+    `,
+        [],
+        10_000,
+    );
+    await session.click('[data-testid="play-node-current"]');
+    await session.waitForScript(
+        `
+        return window.__directorAudioPlayback.position('${audio.id}')?.paused &&
+            document.querySelector('[data-testid="play-node-current"] .bi-play-fill') !== null;
+    `,
+        [],
+        5_000,
+    );
+    await session.waitForCount('[data-testid="play-workflow"]', 1, 5_000);
+    await session.waitForElement(
+        `[model-id="${audio.id}"] [joint-selector="statusRing"].is-paused`,
+        5_000,
+    );
+    await session.click('[data-testid="audio-playback-summary"]');
+    await session.fill('[data-testid="audio-start-offset"]', '10000');
+    await session.press('\uE004', '[data-testid="audio-start-offset"]');
+    await session.waitForScript(
+        `
+        const position = window.__directorAudioPlayback.position('${audio.id}');
+        const offset = Number(
+            document.querySelector('[data-testid="audio-start-offset"]').value
+        );
+        return position?.paused && position.positionMs === 0 &&
+            position.durationMs > 0 && position.durationMs <= 2 &&
+            offset >= 7999 && offset < 10000;
+    `,
+        [],
+        5_000,
+    );
+    await session.fill('[data-testid="audio-start-offset"]', '6000');
+    await session.press('\uE004', '[data-testid="audio-start-offset"]');
+    await session.waitForScript(
+        `
+        const position = window.__directorAudioPlayback.position('${audio.id}');
+        return position?.paused && position.positionMs === 0 && position.durationMs === 2000 &&
+            document.querySelector('[data-testid="audio-position"]').value === '0';
+    `,
+        [],
+        5_000,
+    );
+    assert.equal(
+        await session.evaluate<boolean>(`
+            return document.querySelector('[model-id="${audio.id}"] [joint-selector="statusRing"]')
+                ?.classList.contains('is-paused') ?? false;
+        `),
+        true,
+        'audio: a paused instant replay must keep its pause indicator.',
+    );
+    await session.click('[data-testid="audio-envelope-summary"]');
     await session.click('[data-testid="play-workflow"]');
-    await session.waitForCount('[data-testid="stop-preview-execution"]', 1, 10_000);
-    await session.waitForCount('[data-testid="play-workflow"]', 1, 10_000);
     await session.waitForScript(
         `return document.querySelector(
             '[model-id="${audio.id}"] [joint-selector="statusText"]'
-        )?.textContent === '■' && document.querySelector(
+        )?.textContent === '✓' && document.querySelector(
             '[model-id="${merge.id}"] [joint-selector="statusText"]'
         )?.textContent === '✓' && document.querySelector(
             '[model-id="${visual.id}"] [joint-selector="statusText"]'
@@ -156,7 +478,7 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
                 '[model-id="${audio.id}"] [joint-selector="statusText"]'
             )?.textContent ?? '',
             error: document.querySelector('.node-execution-error')?.textContent?.trim() ?? '',
-            running: Boolean(document.querySelector('[data-testid="stop-preview-execution"]')),
+            running: Boolean(document.querySelector('[data-testid="stop-workflow"]')),
             mergeStatus: document.querySelector(
                 '[model-id="${merge.id}"] [joint-selector="statusText"]'
             )?.textContent ?? '',
@@ -168,16 +490,17 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
     assert.deepEqual(
         result,
         {
-            audioStatus: '■',
+            audioStatus: '✓',
             error: '',
             running: false,
             mergeStatus: '✓',
             visualStatus: '✓',
         },
-        'audio: wait-any must cancel the losing soundtrack branch and complete the merge.',
+        'audio: wait-any must end the losing soundtrack branch as a planned completion and complete the merge.',
     );
     await session.setViewport(390, 844);
     await session.click('[data-testid="mobile-editor-tab"]');
+    await assertAudioPlayheadLayout(session, 'mobile');
     const mobileEnvelopeInsideViewport = await session.evaluate<boolean>(`
         const editor = document.querySelector('[data-testid="audio-envelope-editor"]')
             .getBoundingClientRect();
@@ -188,10 +511,170 @@ export async function verifyAudioPlayback(session: RemoteSession): Promise<void>
         true,
         'audio: the envelope editor must fit the mobile properties view.',
     );
+    await assertEnvelopeSpacing(session, 'mobile');
     await session.screenshot(join(outputDirectory, 'audio-envelope-editor-mobile.png'), true);
+    await session.click('[data-testid="audio-playback-summary"]');
+    assert.equal((await session.state('[data-testid="audio-fade-in"]')).value, '250');
+    assert.equal((await session.state('[data-testid="audio-fade-out"]')).value, '350');
+    await assertAudioPropertiesLayout(session, 'mobile');
+    await session.screenshot(join(outputDirectory, 'audio-fades-mobile.png'), true);
+    await session.setViewport(320, 700);
+    await assertAudioPlayheadLayout(session, 'narrow mobile');
+    await assertAudioPropertiesLayout(session, 'narrow mobile');
+    const narrowLayoutFits = await session.evaluate<boolean>(`
+        const panel = document.querySelector('[data-testid="audio-playback-group"]').getBoundingClientRect();
+        const fields = ['audio-start-offset', 'audio-fade-in', 'audio-fade-out'].map((testId) =>
+            document.querySelector('[data-testid="' + testId + '"]').getBoundingClientRect()
+        );
+        return panel.left >= 0 && panel.right <= innerWidth &&
+            fields.every((field) => field.left >= panel.left && field.right <= panel.right);
+    `);
+    assert.equal(narrowLayoutFits, true, 'audio: timing fields must fit a narrow mobile viewport.');
 
     await session.refresh();
     await session.waitForCount('[data-testid="graph-canvas"] .joint-element', 2, 10_000);
+}
+
+async function assertAudioPropertiesLayout(
+    session: RemoteSession,
+    viewport: string,
+): Promise<void> {
+    const layout = await session.evaluate<{
+        optionOffset: number;
+        timingOffset: number;
+        timingWidthOffset: number;
+        caretOffset: number;
+        progressInsetOffset: number;
+        progressRightOffset: number;
+        rightOverflow: number;
+    }>(`
+        const bounds = (selector) => document.querySelector(selector).getBoundingClientRect();
+        const options = ['audio-wait-for-end', 'audio-loop'].map((testId) =>
+            document.querySelector('[data-testid="' + testId + '"]').closest('label').getBoundingClientRect()
+        );
+        const timings = ['audio-start-offset', 'audio-fade-in', 'audio-fade-out'].map((testId) =>
+            document.querySelector('[data-testid="' + testId + '"]').closest('label').getBoundingClientRect()
+        );
+        const panel = bounds('[data-testid="audio-playback-group"]');
+        return {
+            optionOffset: Math.abs(options[0].top - options[1].top),
+            timingOffset: Math.max(...timings.map((field) => Math.abs(field.top - timings[0].top))),
+            timingWidthOffset: Math.max(...timings.map((field) => Math.abs(field.width - timings[0].width))),
+            caretOffset: Math.abs(bounds('[data-testid="audio-playback-summary"] > .bi').right - bounds('[data-testid="audio-envelope-summary"] > .bi').right),
+            progressInsetOffset: Math.abs(bounds('[data-testid="audio-position"]').left - bounds('[data-testid="audio-volume"]').left),
+            progressRightOffset: Math.abs(bounds('[data-testid="audio-playhead"] output').right - bounds('[data-testid="audio-volume"] + output').right),
+            rightOverflow: Math.max(...timings.map((field) => field.right - panel.right)),
+        };
+    `);
+    assert.ok(layout.optionOffset <= 1, `audio: ${viewport} options must share a row.`);
+
+    if (viewport !== 'narrow mobile') {
+        assert.ok(layout.timingOffset <= 1, `audio: ${viewport} timing fields must share a row.`);
+    }
+
+    assert.ok(
+        layout.timingWidthOffset <= 1,
+        `audio: ${viewport} timing fields must use equal columns.`,
+    );
+    assert.ok(
+        layout.caretOffset <= 1,
+        `audio: ${viewport} accordion carets must share the right edge.`,
+    );
+    assert.ok(
+        layout.progressInsetOffset <= 1,
+        `audio: ${viewport} progress and volume sliders must share the left inset.`,
+    );
+    assert.ok(
+        layout.progressRightOffset <= 1,
+        `audio: ${viewport} progress time and volume value must share the right inset.`,
+    );
+    assert.ok(layout.rightOverflow <= 0, `audio: ${viewport} timing fields must fit the panel.`);
+}
+
+async function assertAudioSettingsLocked(
+    session: RemoteSession,
+    locked: boolean,
+    phase: string,
+): Promise<void> {
+    const state = await session.evaluate<Record<string, boolean>>(`
+        const fields = [
+            'node-name',
+            'audio-volume',
+            'audio-wait-for-end',
+            'audio-loop',
+            'audio-start-offset',
+            'audio-fade-in',
+            'audio-fade-out',
+        ];
+        return Object.fromEntries(fields.map((name) => [
+            name,
+            document.querySelector('[data-testid="' + name + '"]').disabled,
+        ]));
+    `);
+    assert.deepEqual(
+        state,
+        Object.fromEntries(Object.keys(state).map((name) => [name, locked])),
+        `audio: every setting must be ${locked ? 'locked' : 'editable'} while ${phase}.`,
+    );
+}
+
+async function assertAudioPlayheadLayout(session: RemoteSession, viewport: string): Promise<void> {
+    const layout = await session.evaluate<{
+        centerOffset: number;
+        outputInside: boolean;
+        outputRightOfSlider: boolean;
+        sliderWidth: number;
+    }>(`
+        const panel = document.querySelector('[data-testid="audio-playhead"]').getBoundingClientRect();
+        const slider = document.querySelector('[data-testid="audio-position"]').getBoundingClientRect();
+        const output = document.querySelector('[data-testid="audio-playhead"] output')
+            .getBoundingClientRect();
+        return {
+            centerOffset: Math.abs((slider.top + slider.bottom - output.top - output.bottom) / 2),
+            outputInside: output.right <= panel.right,
+            outputRightOfSlider: output.left > slider.right,
+            sliderWidth: slider.width,
+        };
+    `);
+    assert.ok(layout.centerOffset <= 1, `audio: ${viewport} time must align with the slider.`);
+    assert.ok(layout.outputInside, `audio: ${viewport} time must stay inside the panel.`);
+    assert.ok(layout.outputRightOfSlider, `audio: ${viewport} time must sit right of the slider.`);
+    assert.ok(layout.sliderWidth >= 100, `audio: ${viewport} slider must remain usable.`);
+}
+
+async function assertEnvelopeSpacing(session: RemoteSession, viewport: string): Promise<void> {
+    const spacing = await session.evaluate<{
+        outer: number;
+        inner: number;
+        top: number;
+        pointWidth: number;
+        pointHeight: number;
+    }>(`
+        const section = document.querySelector('.automation-properties').getBoundingClientRect();
+        const editor = document.querySelector('[data-testid="audio-envelope-editor"]')
+            .getBoundingClientRect();
+        const point = document.querySelector('[data-testid="audio-envelope-point"]');
+        const matrix = point.getScreenCTM();
+        const x = Number(point.getAttribute('cx'));
+        const y = Number(point.getAttribute('cy'));
+        const visiblePoint = document.querySelector('.audio-envelope-editor__point')
+            .getBoundingClientRect();
+        return {
+            outer: editor.left - section.left,
+            inner: matrix.a * x + matrix.c * y + matrix.e - editor.left,
+            top: matrix.b * x + matrix.d * y + matrix.f - editor.top,
+            pointWidth: visiblePoint.width,
+            pointHeight: visiblePoint.height,
+        };
+    `);
+    assert.ok(
+        Math.abs(spacing.inner - spacing.outer) <= 2 && Math.abs(spacing.top - spacing.outer) <= 2,
+        `audio: ${viewport} envelope inset must match the properties-panel inset.`,
+    );
+    assert.ok(
+        Math.abs(spacing.pointWidth - spacing.pointHeight) <= 0.5,
+        `audio: ${viewport} envelope points must stay round.`,
+    );
 }
 
 function silentWave(durationMs: number): Buffer {

@@ -1,0 +1,14 @@
+<template>
+    <label :class="['toggle-control', `toggle-control--${layout}`]">
+        <input
+            class="toggle-control__input"
+            type="checkbox"
+            :value="value || undefined"
+            :checked="modelValue"
+            :disabled="disabled"
+            :data-testid="testId || undefined"
+            @change="handleChange"
+        />
+        <span class="toggle-control__label">{{ label }}</span>
+    </label>
+</template>

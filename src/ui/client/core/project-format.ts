@@ -1,5 +1,7 @@
 import { WorkflowGraph } from './workflow-graph.js';
 import { PREVIEW_PRESET_IDS, type PreviewPresetId } from './media-presets.js';
+import { DelayNodeSource, type DelaySettings } from './delay-node-source.js';
+import { TextLayerSource, type TextLayerSettings } from './text-layer-source.js';
 
 export const DIRECTOR_PROJECT_FORMAT = 'browser-testbench-director' as const;
 export const DIRECTOR_PROJECT_VERSION = 15 as const;
@@ -25,6 +27,8 @@ export interface LayerPlacement {
     reference: LayerPlacementReference;
     horizontal: HorizontalAlignment;
     vertical: VerticalAlignment;
+    offsetXPercent?: number;
+    offsetYPercent?: number;
 }
 
 export interface LayerNode {
@@ -38,6 +42,8 @@ export interface LayerNode {
         removeAfter: boolean;
     };
     source: LayerSource;
+    text?: TextLayerSettings;
+    fontInputId?: string;
 }
 
 export interface WebsiteNode {
@@ -83,6 +89,10 @@ export interface AudioNode {
     volume: number;
     envelope: AudioEnvelopePoint[];
     waitForEnd: boolean;
+    loop?: boolean;
+    startOffsetMs?: number;
+    fadeInMs?: number;
+    fadeOutMs?: number;
 }
 
 export interface AudioEnvelopePoint {
@@ -112,6 +122,7 @@ export interface JavaScriptNode {
     name: string;
     position: Point | null;
     source: string;
+    delay?: DelaySettings;
 }
 
 export interface BrowserActionNode {
@@ -223,11 +234,22 @@ export class ProjectFormat {
         }
 
         ProjectFormat.assertProject(value);
+
+        for (const node of value.nodes) {
+            if (node.type === 'audio') {
+                node.startOffsetMs ??= 0;
+                node.fadeInMs ??= 0;
+                node.fadeOutMs ??= 0;
+            }
+        }
+
+        ProjectFormat.refreshGeneratedSources(value);
         return value;
     }
 
     static stringify(project: DirectorProject): string {
         ProjectFormat.assertProject(project);
+        ProjectFormat.refreshGeneratedSources(project);
         return `${JSON.stringify(project, null, 4)}\n`;
     }
 
@@ -361,6 +383,35 @@ export class ProjectFormat {
                 throw new TypeError(
                     `Layer node ${node.id} must reference a preceding parent layer.`,
                 );
+            }
+        }
+
+        for (const node of value['nodes']) {
+            if (node.type !== 'layer') {
+                continue;
+            }
+
+            const fontInputId =
+                node.fontInputId ?? (node.text?.font === 'project' ? node.text.fontInputId : '');
+
+            if (!fontInputId) {
+                continue;
+            }
+
+            const font = nodes.get(fontInputId);
+
+            if (font?.type !== 'input' || !font.accept.includes('font/')) {
+                throw new TypeError(`Text layer ${node.id} references an invalid font input.`);
+            }
+        }
+    }
+
+    private static refreshGeneratedSources(project: DirectorProject): void {
+        for (const node of project.nodes) {
+            if (node.type === 'layer' && node.text) {
+                node.source = TextLayerSource.render(node.text, node.id);
+            } else if (node.type === 'javascript' && node.delay) {
+                node.source = DelayNodeSource.render(node.delay);
             }
         }
     }
@@ -555,7 +606,15 @@ export class ProjectFormat {
         const validPlacement =
             validReference &&
             ['left', 'center', 'right'].includes(String(placement['horizontal'])) &&
-            ['top', 'center', 'bottom'].includes(String(placement['vertical']));
+            ['top', 'center', 'bottom'].includes(String(placement['vertical'])) &&
+            ['offsetXPercent', 'offsetYPercent'].every(
+                (key) =>
+                    placement[key] === undefined ||
+                    (typeof placement[key] === 'number' &&
+                        Number.isFinite(placement[key]) &&
+                        Number(placement[key]) >= -100 &&
+                        Number(placement[key]) <= 100),
+            );
 
         if (!validPlacement) {
             throw new TypeError(`Layer node ${value['id']} contains an invalid placement.`);
@@ -563,7 +622,7 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             placement,
-            ['reference', 'horizontal', 'vertical'],
+            ['reference', 'horizontal', 'vertical', 'offsetXPercent', 'offsetYPercent'],
             'Layer placement',
         );
         ProjectFormat.assertOnlyKeys(
@@ -576,9 +635,28 @@ export class ProjectFormat {
             'Layer placement reference',
         );
         ProjectFormat.assertLayerPlayback(value);
+
+        if (value['text'] !== undefined && !TextLayerSource.validate(value['text'])) {
+            throw new TypeError(`Layer node ${value['id']} contains invalid text settings.`);
+        }
+
+        if (value['fontInputId'] !== undefined && typeof value['fontInputId'] !== 'string') {
+            throw new TypeError(`Layer node ${value['id']} contains an invalid font input.`);
+        }
+
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'placement', 'playback', 'source'],
+            [
+                'id',
+                'type',
+                'name',
+                'position',
+                'placement',
+                'playback',
+                'source',
+                'text',
+                'fontInputId',
+            ],
             'Layer node',
         );
     }
@@ -628,10 +706,14 @@ export class ProjectFormat {
             throw new TypeError(`JavaScript node ${value['id']} must contain JavaScript source.`);
         }
 
+        if (value['delay'] !== undefined && !DelayNodeSource.validate(value['delay'])) {
+            throw new TypeError(`JavaScript node ${value['id']} contains invalid delay settings.`);
+        }
+
         ProjectFormat.assertPosition(value, 'JavaScript');
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'source'],
+            ['id', 'type', 'name', 'position', 'source', 'delay'],
             'JavaScript node',
         );
     }
@@ -667,6 +749,20 @@ export class ProjectFormat {
             throw new TypeError(`Audio node ${value['id']} contains invalid playback settings.`);
         }
 
+        if (value['loop'] !== undefined && typeof value['loop'] !== 'boolean') {
+            throw new TypeError(`Audio node ${value['id']} contains an invalid loop setting.`);
+        }
+
+        for (const key of ['startOffsetMs', 'fadeInMs', 'fadeOutMs']) {
+            const duration = value[key];
+
+            if (duration !== undefined && (!Number.isInteger(duration) || Number(duration) < 0)) {
+                throw new TypeError(
+                    `Audio node ${value['id']} contains an invalid ${key} duration.`,
+                );
+            }
+        }
+
         if (!Array.isArray(value['envelope']) || value['envelope'].length < 2) {
             throw new TypeError(`Audio node ${value['id']} must contain an envelope.`);
         }
@@ -696,7 +792,19 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd'],
+            [
+                'id',
+                'type',
+                'name',
+                'position',
+                'volume',
+                'envelope',
+                'waitForEnd',
+                'loop',
+                'startOffsetMs',
+                'fadeInMs',
+                'fadeOutMs',
+            ],
             'Audio node',
         );
     }

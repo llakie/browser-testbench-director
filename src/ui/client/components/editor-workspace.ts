@@ -1,6 +1,8 @@
 import { defineComponent, markRaw } from 'vue';
 
 import { DirectorTopbar } from './director-topbar.js';
+import { audioPlaybackMethods } from './audio-playback-controller.js';
+import { ConfirmDialog } from './confirm-dialog.js';
 import { browserSessionMethods } from './browser-session-controller.js';
 import { GraphPanel } from './graph-panel.js';
 import { McpSetupDialog } from './mcp-setup-dialog.js';
@@ -9,6 +11,7 @@ import { PreviewPanel } from './preview-panel.js';
 import { ProjectSettingsDialog } from './project-settings-dialog.js';
 import { projectMethods } from './project-controller.js';
 import { workspaceEditingMethods } from './workspace-editing-controller.js';
+import { workspaceDialogMethods } from './workspace-dialog-controller.js';
 import { workspaceExecutionMethods } from './workspace-execution-controller.js';
 import { workspaceLayoutMethods } from './workspace-layout-controller.js';
 import {
@@ -26,9 +29,11 @@ import type { BrowserTestbenchTarget, RecordingMark } from '../core/browser-test
 import { ExecutionController, type ExecutionSnapshot } from '../core/execution-controller.js';
 import { JointLayerGraph } from '../core/joint-layer-graph.js';
 import { previewOutputSize } from '../core/media-presets.js';
+import { ProjectNodes } from '../core/project-nodes.js';
 import { PreviewAudioPlayback } from '../core/preview-audio-playback.js';
 import { ProjectFiles, type ProjectFileHandle } from '../core/project-files.js';
 import { StagePanGesture, StageZoomGesture } from '../core/stage-zoom-gesture.js';
+import { TextLayerSource } from '../core/text-layer-source.js';
 import { WorkflowPlanner, type WorkflowPlan } from '../core/workflow-planner.js';
 import { WorkflowGraph } from '../core/workflow-graph.js';
 import {
@@ -52,6 +57,7 @@ import { Translator } from '../core/translator.js';
 
 export const EditorWorkspace = defineComponent({
     components: {
+        ConfirmDialog,
         DirectorTopbar,
         GraphPanel,
         McpSetupDialog,
@@ -64,8 +70,7 @@ export const EditorWorkspace = defineComponent({
         const executionController = markRaw(new ExecutionController());
         return {
             project,
-            activeNodeId: (project.nodes.find((node) => node.type === 'layer') ?? project.nodes[0])!
-                .id as string | null,
+            activeNodeId: null as string | null,
             activeConnectionId: null as string | null,
             activeSource: 'html' as SourceType,
             sourceTypes: ['html', 'css', 'javascript'] as SourceType[],
@@ -76,7 +81,6 @@ export const EditorWorkspace = defineComponent({
             lastPreviewPlan: null as WorkflowPlan | null,
             lastPreviewInputs: {} as Record<string, string>,
             staleNodeIds: new Set<string>(),
-            hasPlayed: false,
             dirty: false,
             savingProject: false,
             filename: ProjectFiles.filename(project.name),
@@ -96,6 +100,7 @@ export const EditorWorkspace = defineComponent({
             mobileActivePanel: 'graph' as WorkspacePanel,
             deviceMenuOpen: false,
             nodeMenuOpen: false,
+            nodeMenuCategory: '',
             viewportPresets,
             browserTargets: [] as BrowserTestbenchTarget[],
             inputFiles: {} as Record<string, File>,
@@ -121,10 +126,23 @@ export const EditorWorkspace = defineComponent({
             recordingStopRequested: false,
             recordingMarks: [] as RecordingMark[],
             playbackTriggerNodeId: null as string | null,
+            workflowStartPending: false,
+            instantAudioNodeId: null as string | null,
+            audioPositionMs: 0,
+            audioDurationMs: 0,
+            audioPlaybackActive: false,
+            audioPaused: false,
+            audioDurationSource: '',
+            audioScrubbing: false,
+            audioPositionTimer: undefined as ReturnType<typeof setInterval> | undefined,
             selectorPicking: false,
             mcpSetupOpen: false,
             mobileMenuOpen: false,
             projectSettingsOpen: false,
+            pendingSourceConversion: null as {
+                id: string;
+                kind: 'text-layer' | 'delay';
+            } | null,
             projectPermissionsOpen: false,
             browserPermissions: BROWSER_PERMISSIONS,
             mcpClients: [] as McpClientStatus[],
@@ -143,8 +161,14 @@ export const EditorWorkspace = defineComponent({
 
             return this.project.nodes.find((node) => node.id === this.activeNodeId) ?? null;
         },
+        canDuplicateActiveNode(): boolean {
+            return Boolean(this.activeNode && ProjectNodes.canDuplicate(this.activeNode));
+        },
         activeLayer(): LayerNode | null {
             return this.activeNode?.type === 'layer' ? this.activeNode : null;
+        },
+        activeTextLayerLatestEnd(): number {
+            return this.activeLayer?.text ? TextLayerSource.latestEnd(this.activeLayer.text) : 0;
         },
         activeWebsite(): WebsiteNode | null {
             return this.activeNode?.type === 'website' ? this.activeNode : null;
@@ -161,37 +185,51 @@ export const EditorWorkspace = defineComponent({
         activeAudio(): AudioNode | null {
             return this.activeNode?.type === 'audio' ? this.activeNode : null;
         },
+        activeAudioInputId(): string | null {
+            return (
+                this.project.connections.find(
+                    (connection) =>
+                        connection.target === this.activeAudio?.id &&
+                        this.project.nodes.some(
+                            (node) => node.id === connection.source && node.type === 'input',
+                        ),
+                )?.source ?? null
+            );
+        },
+        activeInstantAudio(): boolean {
+            return Boolean(
+                this.executionRunning &&
+                this.activeAudio &&
+                this.instantAudioNodeId === this.activeAudio.id &&
+                !this.recordingWorkflow,
+            );
+        },
+        audioSeekEnabled(): boolean {
+            return this.activeInstantAudio && this.audioPlaybackActive;
+        },
+        audioPlayableDurationMs(): number {
+            return Math.max(0, this.audioDurationMs - (this.activeAudio?.startOffsetMs ?? 0));
+        },
+        audioMaximumStartOffsetMs(): number | undefined {
+            return this.audioDurationMs > 0
+                ? Math.max(0, Math.ceil(this.audioDurationMs) - 1)
+                : undefined;
+        },
         activeVideoOutput(): VideoOutputNode | null {
             return this.activeNode?.type === 'video-output' ? this.activeNode : null;
-        },
-        activeAudioFileName(): string {
-            if (!this.activeAudio) {
-                return '';
-            }
-
-            const inputId = this.project.connections.find(
-                (connection) =>
-                    connection.target === this.activeAudio?.id &&
-                    this.project.nodes.some(
-                        (node) => node.id === connection.source && node.type === 'input',
-                    ),
-            )?.source;
-            const input = this.project.nodes.find(
-                (node): node is InputNode => node.id === inputId && node.type === 'input',
-            );
-            return (
-                (inputId ? this.inputFiles[inputId]?.name : undefined) ?? input?.file?.name ?? ''
-            );
         },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');
         },
+        fontInputNodes(): InputNode[] {
+            const connected = WorkflowGraph.connectedNodeIds(this.project);
+            return this.inputNodes.filter(
+                (input) => connected.has(input.id) && input.accept.includes('font/'),
+            );
+        },
         workflowInputNodes(): InputNode[] {
             const connectedNodeIds = WorkflowGraph.connectedNodeIds(this.project);
             return this.inputNodes.filter((input) => connectedNodeIds.has(input.id));
-        },
-        cameraInputId(): string | null {
-            return WorkflowPlanner.plan(this.project, 'workflow').cameraInputId;
         },
         audioInputIds(): ReadonlySet<string> {
             return new Set(
@@ -203,6 +241,9 @@ export const EditorWorkspace = defineComponent({
         activeJavaScript(): JavaScriptNode | null {
             return this.activeNode?.type === 'javascript' ? this.activeNode : null;
         },
+        activeDelay(): JavaScriptNode | null {
+            return this.activeJavaScript?.delay ? this.activeJavaScript : null;
+        },
         activeBrowserAction(): BrowserActionNode | null {
             return this.activeNode?.type === 'browser-action' ? this.activeNode : null;
         },
@@ -211,6 +252,9 @@ export const EditorWorkspace = defineComponent({
         },
         executionRunning(): boolean {
             return this.executionState.running;
+        },
+        workflowPlaybackRunning(): boolean {
+            return this.executionRunning && !this.playbackTriggerNodeId && !this.recordingWorkflow;
         },
         executionLockedNodeIds(): ReadonlySet<string> {
             const nodeIds = new Set(
@@ -228,6 +272,24 @@ export const EditorWorkspace = defineComponent({
         activeNodeLocked(): boolean {
             return Boolean(this.activeNodeId && this.executionLockedNodeIds.has(this.activeNodeId));
         },
+        instantAudioPaused(): boolean {
+            return Boolean(
+                this.executionRunning &&
+                this.instantAudioNodeId &&
+                this.audioPaused &&
+                !this.recordingWorkflow,
+            );
+        },
+        editorPanelLocked(): boolean {
+            return this.activeNodeLocked && !this.instantAudioPaused;
+        },
+        activeAudioEditLocked(): boolean {
+            if (this.activeInstantAudio) {
+                return !this.audioPaused || this.audioScrubbing;
+            }
+
+            return this.activeNodeLocked;
+        },
         recordingElapsedLabel(): string {
             const seconds = Math.floor(this.recordingElapsedMs / 1000);
             const minutes = Math.floor(seconds / 60);
@@ -240,9 +302,6 @@ export const EditorWorkspace = defineComponent({
 
             return this.executionState.nodes[this.activeNodeId]?.error ?? '';
         },
-        websiteNode(): WebsiteNode | null {
-            return this.project.nodes.find((node) => node.type === 'website') ?? null;
-        },
         browserSession() {
             return this.project.browserSession;
         },
@@ -251,15 +310,6 @@ export const EditorWorkspace = defineComponent({
             return permissions.length
                 ? permissions.map((permission) => this.t(`browserSession.${permission}`)).join(', ')
                 : this.t('browserSession.noPermissions');
-        },
-        sourceLineCount(): number {
-            const source =
-                this.activeLayer?.source[this.activeSource] ??
-                this.activeJavaScript?.source ??
-                (this.activeBrowserWait?.condition === 'script'
-                    ? this.activeBrowserWait.script
-                    : undefined);
-            return source?.split('\n').length ?? 0;
         },
         placementReferenceType(): 'viewport' | 'layer' | 'dom' {
             return this.activeLayer?.placement.reference.type ?? 'viewport';
@@ -281,11 +331,6 @@ export const EditorWorkspace = defineComponent({
         },
         verticalAlignment(): VerticalAlignment {
             return this.activeLayer?.placement.vertical ?? 'center';
-        },
-        lineNumbers(): string {
-            return Array.from({ length: this.sourceLineCount }, (_value, index) => index + 1).join(
-                '\n',
-            );
         },
         previewOrientation(): 'portrait' | 'landscape' {
             return this.previewViewport.height > this.previewViewport.width
@@ -375,13 +420,6 @@ export const EditorWorkspace = defineComponent({
         browserTestbenchLifecycleLabel(): string {
             return this.t(`preview.testbench.${this.browserTestbenchState}`);
         },
-        playActionLabel(): string {
-            if (this.activeWebsite) {
-                return this.t('preview.reloadWebsite');
-            }
-
-            return this.t(this.hasPlayed ? 'preview.playAgain' : 'preview.play');
-        },
         editorPanelTitle(): string {
             if (this.activeWebsite) {
                 return this.t('website.title');
@@ -403,6 +441,10 @@ export const EditorWorkspace = defineComponent({
                 return this.t('audio.title');
             }
 
+            if (this.activeDelay) {
+                return this.t('delay.title');
+            }
+
             if (this.activeJavaScript) {
                 return this.t('javascript.title');
             }
@@ -417,9 +459,6 @@ export const EditorWorkspace = defineComponent({
 
             return this.t('editor.title');
         },
-        previewScale(): number {
-            return this.previewFitScale;
-        },
         graphZoomPercent(): number {
             return Math.round(this.graphZoom * 100);
         },
@@ -429,9 +468,9 @@ export const EditorWorkspace = defineComponent({
             return {
                 '--preview-frame-width': `${width}px`,
                 '--preview-frame-height': `${height}px`,
-                '--preview-scale': String(this.previewScale),
-                '--preview-rendered-width': `${width * this.previewScale}px`,
-                '--preview-rendered-height': `${height * this.previewScale}px`,
+                '--preview-scale': String(this.previewFitScale),
+                '--preview-rendered-width': `${width * this.previewFitScale}px`,
+                '--preview-rendered-height': `${height * this.previewFitScale}px`,
             };
         },
         workspaceStyle(): Record<string, string> {
@@ -489,6 +528,7 @@ export const EditorWorkspace = defineComponent({
         document.addEventListener('pointerdown', this.closeRecordingMenu);
         window.addEventListener('message', this.handleRuntimeMessage);
         window.addEventListener('resize', this.positionOpenFlyouts);
+        this.audioPositionTimer = setInterval(() => this.refreshAudioPosition(), 50);
         Object.defineProperty(window, '__directorAudioPlayback', {
             configurable: true,
             value: this.audioPlayback,
@@ -509,6 +549,10 @@ export const EditorWorkspace = defineComponent({
             clearInterval(this.recordingTimer);
         }
 
+        if (this.audioPositionTimer) {
+            clearInterval(this.audioPositionTimer);
+        }
+
         this.previewResizeObserver?.disconnect();
         document.removeEventListener('pointerdown', this.closeDeviceMenu);
         document.removeEventListener('pointerdown', this.closeNodeMenu);
@@ -521,7 +565,9 @@ export const EditorWorkspace = defineComponent({
         this.stopResize();
     },
     methods: {
+        ...audioPlaybackMethods,
         ...workspaceEditingMethods,
+        ...workspaceDialogMethods,
         ...browserSessionMethods,
         ...workspaceLayoutMethods,
         ...workspaceExecutionMethods,

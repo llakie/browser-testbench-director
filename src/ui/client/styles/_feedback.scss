@@ -25,7 +25,7 @@
     backdrop-filter: blur(10px);
 }
 
-.setup-dialog {
+.modal-dialog {
     display: grid;
     gap: var(--space-7);
     width: min(680px, 100%);
@@ -38,14 +38,14 @@
     box-shadow: var(--shadow-overlay);
 }
 
-.setup-dialog > header,
+.modal-dialog > header,
 .mcp-client {
     display: flex;
     align-items: flex-start;
     gap: var(--space-5);
 }
 
-.setup-dialog > header > div,
+.modal-dialog > header > div,
 .mcp-client > div {
     display: grid;
     min-width: 0;
@@ -53,20 +53,44 @@
     gap: var(--space-1);
 }
 
-.setup-dialog h2,
-.setup-dialog p {
+.modal-dialog h2,
+.modal-dialog p {
     margin: 0;
 }
 
-.setup-dialog p,
+.modal-dialog p,
 .mcp-client small {
     color: var(--color-text-muted);
     font-size: 11px;
     line-height: 1.5;
 }
 
-.setup-dialog > header .icon-button {
+.modal-dialog > header .icon-button {
     margin-left: auto;
+}
+
+.modal-action-dialog {
+    width: min(440px, 100%);
+}
+
+.modal-dialog__close {
+    border-color: transparent;
+    background: transparent;
+}
+
+.modal-dialog__close:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--color-surface-soft);
+}
+
+.modal-dialog .modal-action-dialog__message {
+    font-size: 12px;
+}
+
+.modal-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
 }
 
 .project-settings-group {
@@ -82,25 +106,6 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-4);
-}
-
-.project-settings-fields label {
-    display: grid;
-    gap: var(--space-2);
-    color: var(--color-text-muted);
-    font-size: 10px;
-    font-weight: 700;
-}
-
-.project-settings-fields input {
-    width: 100%;
-    height: var(--control-size);
-    padding: 0 10px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-small);
-    color: var(--color-text);
-    background: var(--color-surface-inset);
-    font: inherit;
 }
 
 .project-settings-permissions {
@@ -121,7 +126,7 @@
     gap: var(--space-3);
     width: 100%;
     min-height: var(--control-size);
-    padding: 0 10px;
+    padding: 0 var(--control-inline-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-small);
     color: var(--color-text);

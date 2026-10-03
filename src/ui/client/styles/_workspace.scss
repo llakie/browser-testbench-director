@@ -100,6 +100,19 @@
     padding-inline: var(--properties-inline-padding);
 }
 
+.editor-node-header:has(.layer-duration-warning) {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+}
+
+.panel__header .layer-duration-warning {
+    flex: 0 0 100%;
+    color: var(--color-danger);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.35;
+}
+
 .panel__header > .panel-header-actions,
 .panel__header > .preview-toolbar {
     justify-content: flex-start;
@@ -151,7 +164,7 @@
 .editor-node-name input {
     width: 100%;
     height: var(--control-size);
-    padding-inline: 10px;
+    padding-inline: var(--control-inline-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-small);
     color: var(--color-text);
@@ -223,14 +236,23 @@
     grid-template-rows: auto minmax(0, 1fr);
 }
 
+.editor-panel--audio {
+    grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .editor-panel__body {
     display: grid;
+    container: editor-properties / inline-size;
     min-height: 0;
     grid-auto-rows: max-content;
     align-content: start;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-gutter: stable;
+    scrollbar-width: none;
+}
+
+.editor-panel__body::-webkit-scrollbar {
+    display: none;
 }
 
 .editor-panel__body--layer {
