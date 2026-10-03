@@ -125,6 +125,15 @@ export const EditorWorkspace = defineComponent({
             recordingStopRequested: false,
             recordingMarks: [] as RecordingMark[],
             playbackTriggerNodeId: null as string | null,
+            workflowStartPending: false,
+            instantAudioNodeId: null as string | null,
+            audioPositionMs: 0,
+            audioDurationMs: 0,
+            audioPlaybackActive: false,
+            audioPaused: false,
+            audioDurationSource: '',
+            audioScrubbing: false,
+            audioPositionTimer: undefined as ReturnType<typeof setInterval> | undefined,
             selectorPicking: false,
             mcpSetupOpen: false,
             mobileMenuOpen: false,
@@ -172,27 +181,36 @@ export const EditorWorkspace = defineComponent({
         activeAudio(): AudioNode | null {
             return this.activeNode?.type === 'audio' ? this.activeNode : null;
         },
-        activeVideoOutput(): VideoOutputNode | null {
-            return this.activeNode?.type === 'video-output' ? this.activeNode : null;
-        },
-        activeAudioFileName(): string {
-            if (!this.activeAudio) {
-                return '';
-            }
-
-            const inputId = this.project.connections.find(
+        activeAudioInputId(): string | null {
+            return this.project.connections.find(
                 (connection) =>
                     connection.target === this.activeAudio?.id &&
                     this.project.nodes.some(
                         (node) => node.id === connection.source && node.type === 'input',
                     ),
-            )?.source;
-            const input = this.project.nodes.find(
-                (node): node is InputNode => node.id === inputId && node.type === 'input',
+            )?.source ?? null;
+        },
+        activeInstantAudio(): boolean {
+            return Boolean(
+                this.executionRunning &&
+                this.activeAudio &&
+                this.instantAudioNodeId === this.activeAudio.id &&
+                !this.recordingWorkflow,
             );
-            return (
-                (inputId ? this.inputFiles[inputId]?.name : undefined) ?? input?.file?.name ?? ''
-            );
+        },
+        audioSeekEnabled(): boolean {
+            return this.activeInstantAudio && this.audioPlaybackActive;
+        },
+        audioProgressPercent(): string {
+            if (this.audioDurationMs <= 0) {
+                return '0%';
+            }
+
+            const progress = (this.audioPositionMs / this.audioDurationMs) * 100;
+            return `${Math.min(100, Math.max(0, progress))}%`;
+        },
+        activeVideoOutput(): VideoOutputNode | null {
+            return this.activeNode?.type === 'video-output' ? this.activeNode : null;
         },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');
@@ -229,6 +247,9 @@ export const EditorWorkspace = defineComponent({
         executionRunning(): boolean {
             return this.executionState.running;
         },
+        workflowPlaybackRunning(): boolean {
+            return this.executionRunning && !this.playbackTriggerNodeId && !this.recordingWorkflow;
+        },
         executionLockedNodeIds(): ReadonlySet<string> {
             const nodeIds = new Set(
                 this.executionRunning ? Object.keys(this.executionState.nodes) : [],
@@ -244,6 +265,13 @@ export const EditorWorkspace = defineComponent({
         },
         activeNodeLocked(): boolean {
             return Boolean(this.activeNodeId && this.executionLockedNodeIds.has(this.activeNodeId));
+        },
+        activeAudioEditLocked(): boolean {
+            if (this.activeInstantAudio) {
+                return !this.audioPaused;
+            }
+
+            return this.activeNodeLocked;
         },
         recordingElapsedLabel(): string {
             const seconds = Math.floor(this.recordingElapsedMs / 1000);
@@ -506,6 +534,7 @@ export const EditorWorkspace = defineComponent({
         document.addEventListener('pointerdown', this.closeRecordingMenu);
         window.addEventListener('message', this.handleRuntimeMessage);
         window.addEventListener('resize', this.positionOpenFlyouts);
+        this.audioPositionTimer = setInterval(() => this.refreshAudioPosition(), 50);
         Object.defineProperty(window, '__directorAudioPlayback', {
             configurable: true,
             value: this.audioPlayback,
@@ -524,6 +553,10 @@ export const EditorWorkspace = defineComponent({
 
         if (this.recordingTimer) {
             clearInterval(this.recordingTimer);
+        }
+
+        if (this.audioPositionTimer) {
+            clearInterval(this.audioPositionTimer);
         }
 
         this.previewResizeObserver?.disconnect();

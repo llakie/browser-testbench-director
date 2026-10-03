@@ -749,6 +749,7 @@ test('Synchronisierte Runtime-Marken bestimmen die Aufnahmeintervalle direkt', (
 test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Runtime', async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const positions: number[] = [];
     globalThis.fetch = async (input, init = {}) => {
         requests.push({
             url: String(input),
@@ -756,7 +757,12 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
         });
         const body = requests.at(-1)!.body;
         const payload = String(body['script']).includes('.status(')
-            ? { state: 'success', events: [], marks: [] }
+            ? {
+                state: 'success',
+                events: [],
+                marks: [],
+                audioPositions: { soundtrack: { positionMs: 1200, durationMs: 4000 } },
+            }
             : null;
         return new Response(JSON.stringify(payload), {
             headers: { 'Content-Type': 'application/json' },
@@ -782,6 +788,9 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
                 },
             ],
             true,
+            undefined,
+            () => undefined,
+            (audioPositions) => positions.push(audioPositions['soundtrack']?.positionMs ?? 0),
         );
     } finally {
         globalThis.fetch = originalFetch;
@@ -797,6 +806,7 @@ test('Preview-Shell übergibt den vollständigen Aufnahmeplan an die autonome Ru
         recording: true,
         clockUrl: '/browser-testbench-api/sessions/session-audio/recording/clock',
     });
+    assert.deepEqual(positions, [1200]);
 });
 
 test('Remote-Audio kann für einen einzelnen Branch gestoppt werden', async () => {
@@ -816,6 +826,49 @@ test('Remote-Audio kann für einen einzelnen Branch gestoppt werden', async () =
     assert.equal(request?.action, 'evaluate');
     assert.equal(request?.script, 'window.__director?.stopAudio?.(arguments[0]);');
     assert.deepEqual(request?.['arguments'], ['soundtrack']);
+});
+
+test('Remote instant audio seeks inside the selected file', async () => {
+    const originalFetch = globalThis.fetch;
+    let request: { action?: string; script?: string; arguments?: unknown[] } | undefined;
+    globalThis.fetch = async (_input, init = {}) => {
+        request = JSON.parse(String(init.body)) as typeof request;
+        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    try {
+        await BrowserTestbenchPreview.seekAudio('session-audio', 'soundtrack', 1.25);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(request?.action, 'evaluate');
+    assert.equal(request?.script, 'window.__director?.seekAudio?.(arguments[0], arguments[1]);');
+    assert.deepEqual(request?.arguments, ['soundtrack', 1.25]);
+});
+
+test('Remote instant audio pauses and resumes the same runtime node', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ script?: string; arguments?: unknown[] }> = [];
+    globalThis.fetch = async (_input, init = {}) => {
+        requests.push(JSON.parse(String(init.body)) as { script?: string; arguments?: unknown[] });
+        return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+    };
+
+    try {
+        await BrowserTestbenchPreview.setAudioPaused('session-audio', 'soundtrack', true);
+        await BrowserTestbenchPreview.setAudioPaused('session-audio', 'soundtrack', false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(requests.map((request) => request.arguments), [
+        ['soundtrack', true],
+        ['soundtrack', false],
+    ]);
+    assert.ok(requests.every(
+        (request) => request.script === 'window.__director?.setAudioPaused?.(arguments[0], arguments[1]);',
+    ));
 });
 
 for (const kind of ['desktop', 'mobile'] as const) {

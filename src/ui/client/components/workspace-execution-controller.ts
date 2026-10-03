@@ -78,6 +78,18 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.observePreviewStage();
     },
     playActiveNodeOnCurrentState(): void {
+        if (
+            this.executionRunning &&
+            this.activeAudio &&
+            this.instantAudioNodeId === this.activeAudio.id
+        ) {
+            if (this.audioPlaybackActive) {
+                void this.setActiveAudioPaused(!this.audioPaused);
+            }
+
+            return;
+        }
+
         this.audioPlayback.unlock();
 
         if (
@@ -94,7 +106,12 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const nodeId = this.activeNode.id;
         this.nodeMenuOpen = false;
         this.playbackTriggerNodeId = nodeId;
+        this.instantAudioNodeId = this.activeAudio ? nodeId : null;
         void this.runPlayback('current', nodeId).finally(() => {
+            if (this.instantAudioNodeId === nodeId) {
+                this.instantAudioNodeId = null;
+            }
+
             if (this.playbackTriggerNodeId === nodeId) {
                 this.playbackTriggerNodeId = null;
                 this.renderGraph();
@@ -102,15 +119,156 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         });
         this.renderGraph();
     },
-    playWorkflow(): void {
-        this.audioPlayback.unlock();
+    refreshAudioPosition(): void {
+        const audio = this.activeAudio;
 
-        if (this.executionRunning || this.browserTargetOpening) {
+        if (!audio) {
+            this.audioPositionMs = 0;
+            this.audioPlaybackActive = false;
+
+            if (!this.instantAudioNodeId) {
+                this.audioPaused = false;
+            }
+
+            this.audioScrubbing = false;
             return;
         }
 
-        this.playbackTriggerNodeId = null;
-        void this.runPlayback('workflow');
+        const inputId = this.activeAudioInputId;
+        const source = inputId ? this.inputData[inputId] : undefined;
+
+        if (source && source !== this.audioDurationSource) {
+            this.audioDurationSource = source;
+            this.audioDurationMs = 0;
+            void this.audioPlayback.duration(source, inputId!).then((duration: number) => {
+                if (this.audioDurationSource === source) {
+                    this.audioDurationMs = duration;
+                }
+            }).catch(() => undefined);
+        } else if (!source && this.audioDurationSource) {
+            this.audioDurationSource = '';
+            this.audioDurationMs = 0;
+        }
+
+        const localPosition = this.audioPlayback.position(audio.id);
+
+        if (localPosition) {
+            this.audioPlaybackActive = true;
+            this.audioPaused = localPosition.paused;
+
+            if (!this.audioScrubbing) {
+                this.audioPositionMs = localPosition.positionMs;
+            }
+
+            this.audioDurationMs = localPosition.durationMs;
+            return;
+        }
+
+        if (!this.executionRunning || !this.remotePreviewSessionId) {
+            this.audioPlaybackActive = false;
+
+            if (!this.instantAudioNodeId) {
+                this.audioPaused = false;
+            }
+
+            if (!this.audioScrubbing) {
+                this.audioPositionMs = 0;
+            }
+
+            return;
+        }
+    },
+    async setActiveAudioPaused(paused: boolean): Promise<void> {
+        const audio = this.activeAudio;
+
+        if (!this.audioSeekEnabled || !audio) {
+            return;
+        }
+
+        if (!paused) {
+            this.audioPlayback.unlock();
+        }
+
+        this.audioPaused = paused;
+
+        try {
+            if (this.remotePreviewSessionId) {
+                await BrowserTestbenchPreview.setAudioPaused(
+                    this.remotePreviewSessionId,
+                    audio.id,
+                    paused,
+                );
+            } else if (paused) {
+                this.audioPlayback.pause(audio.id);
+            } else {
+                this.audioPlayback.resume(audio.id);
+            }
+
+            this.audioPaused = paused;
+            this.renderGraph();
+        } catch (error) {
+            this.audioPaused = !paused;
+            this.renderGraph();
+            this.showNotice(`${this.t('playback.failed')} ${this.errorMessage(error)}`);
+        }
+    },
+    async seekActiveAudio(milliseconds: number): Promise<void> {
+        const audio = this.activeAudio;
+
+        if (!this.audioSeekEnabled || !audio || !Number.isFinite(milliseconds)) {
+            this.audioScrubbing = false;
+            return;
+        }
+
+        const positionMs = Math.min(this.audioDurationMs, Math.max(0, milliseconds));
+        this.audioPositionMs = positionMs;
+
+        try {
+            if (this.remotePreviewSessionId) {
+                await BrowserTestbenchPreview.seekAudio(
+                    this.remotePreviewSessionId,
+                    audio.id,
+                    positionMs / 1000,
+                );
+            } else {
+                this.audioPlayback.seek(audio.id, positionMs / 1000);
+            }
+        } catch (error) {
+            this.showNotice(`${this.t('playback.failed')} ${this.errorMessage(error)}`);
+        } finally {
+            this.audioScrubbing = false;
+        }
+    },
+    formatAudioTime(milliseconds: number): string {
+        const seconds = Math.floor(Math.max(0, milliseconds) / 1000);
+        return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    },
+    async playWorkflow(): Promise<void> {
+        this.audioPlayback.unlock();
+
+        if (
+            this.workflowStartPending ||
+            this.workflowPlaybackRunning ||
+            this.recordingWorkflow ||
+            this.browserTargetOpening
+        ) {
+            return;
+        }
+
+        this.workflowStartPending = true;
+
+        try {
+            if (this.executionRunning) {
+                await this.stopPlayback();
+            }
+
+            await this.previewInitialization;
+            this.playbackTriggerNodeId = null;
+            void this.runPlayback('workflow');
+            await nextTick();
+        } finally {
+            this.workflowStartPending = false;
+        }
     },
     startPreviewInitialization(): void {
         const initialization = this.initializePreview();
@@ -149,6 +307,10 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 this.syncRemotePreview(nodeId, plan, runId, recording),
             ]);
 
+            if (this.executionController.snapshot().runId !== runId) {
+                return false;
+            }
+
             if (mode !== 'current') {
                 await this.stopPlaybackAudio();
             }
@@ -166,7 +328,9 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             this.showNotice(this.t('playback.completed'));
             return true;
         } catch (error) {
-            if (!this.executionState.running) {
+            const execution = this.executionController.snapshot();
+
+            if (!execution.running || execution.runId !== runId) {
                 return false;
             }
 
@@ -528,6 +692,26 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             recording,
             undefined,
             (event) => this.updateExecution(runId, event.nodeId, event.status, event.error),
+            (positions) => {
+                const position = this.activeAudio && positions[this.activeAudio.id];
+
+                if (position) {
+                    this.audioPlaybackActive = true;
+                    this.audioPaused = position.paused;
+
+                    if (!this.audioScrubbing) {
+                        this.audioPositionMs = position.positionMs;
+                    }
+
+                    this.audioDurationMs = position.durationMs;
+                } else {
+                    this.audioPlaybackActive = false;
+
+                    if (!this.instantAudioNodeId) {
+                        this.audioPaused = false;
+                    }
+                }
+            },
         );
 
         if (recording) {
@@ -542,6 +726,9 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.previewRuntime()?.cancel();
         this.publishExecutionState();
         const sessionId = this.remotePreviewSessionId;
+        this.audioPositionMs = 0;
+        this.audioPlaybackActive = false;
+        this.audioPaused = false;
         this.remotePreviewSessionId = null;
 
         if (sessionId) {

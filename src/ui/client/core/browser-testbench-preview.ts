@@ -1,4 +1,5 @@
 import type { RuntimeStep } from './runtime-protocol.js';
+import type { AudioPlaybackPosition } from './preview-audio-playback.js';
 import type { BrowserSessionConfiguration, ProjectFileInput } from './project-format.js';
 
 interface MessageDescriptor {
@@ -107,6 +108,7 @@ interface RemoteRuntimeStatus {
     readonly error?: string;
     readonly events: readonly RemoteRuntimeEvent[];
     readonly marks?: readonly RecordingMark[];
+    readonly audioPositions?: Readonly<Record<string, AudioPlaybackPosition>>;
 }
 
 export class BrowserTestbenchPreview {
@@ -389,6 +391,9 @@ export class BrowserTestbenchPreview {
         markIntervals = false,
         executionSignal?: AbortSignal,
         onEvent: (event: RemoteRuntimeEvent) => void = () => undefined,
+        onAudioPositions: (
+            positions: Readonly<Record<string, AudioPlaybackPosition>>,
+        ) => void = () => undefined,
     ): Promise<readonly RecordingMark[]> {
         const executionId = crypto.randomUUID();
         await this.setRuntimePlan(sessionId, steps);
@@ -434,6 +439,8 @@ export class BrowserTestbenchPreview {
                 sequence = Math.max(sequence, event.sequence);
                 onEvent(event);
             }
+
+            onAudioPositions(status.audioPositions ?? {});
 
             if (status.state === 'success') {
                 return status.marks ?? [];
@@ -527,6 +534,26 @@ export class BrowserTestbenchPreview {
             action: 'evaluate',
             script: 'window.__director?.stopAudio?.(arguments[0]);',
             arguments: [nodeId],
+        });
+    }
+
+    static async seekAudio(sessionId: string, nodeId: string, seconds: number): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.seekAudio?.(arguments[0], arguments[1]);',
+            arguments: [nodeId, seconds],
+        });
+    }
+
+    static async setAudioPaused(
+        sessionId: string,
+        nodeId: string,
+        paused: boolean,
+    ): Promise<void> {
+        await this.browserAction(sessionId, {
+            action: 'evaluate',
+            script: 'window.__director?.setAudioPaused?.(arguments[0], arguments[1]);',
+            arguments: [nodeId, paused],
         });
     }
 

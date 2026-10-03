@@ -1,5 +1,5 @@
 <template>
-    <div class="audio-envelope-editor" data-testid="audio-envelope-editor">
+    <div :class="['audio-envelope-editor', { 'is-readonly': !editable }]" data-testid="audio-envelope-editor">
         <div class="audio-envelope-editor__plot">
             <svg
                 ref="canvas"
@@ -12,17 +12,26 @@
             >
                 <polygon class="audio-envelope-editor__fill" :points="fillPoints"></polygon>
                 <polyline class="audio-envelope-editor__line" :points="linePoints"></polyline>
+                <line
+                    class="audio-envelope-editor__playhead"
+                    :x1="playheadX"
+                    :x2="playheadX"
+                    y1="0"
+                    :y2="112"
+                    data-testid="audio-envelope-playhead"
+                ></line>
                 <g v-for="(point, index) in renderedPoints" :key="index">
                     <circle
                         class="audio-envelope-editor__point-hit-area"
                         :cx="point.x"
                         :cy="point.y"
                         r="16"
-                        tabindex="0"
+                        :tabindex="editable ? 0 : -1"
                         role="slider"
                         aria-valuemin="0"
                         aria-valuemax="100"
                         :aria-valuenow="Math.round(point.gain * 100)"
+                        :aria-disabled="!editable"
                         :aria-label="pointLabel(point)"
                         :data-point-index="index"
                         data-testid="audio-envelope-point"
@@ -49,7 +58,7 @@
             <button
                 class="icon-button icon-button--danger"
                 type="button"
-                :disabled="!canDeleteSelected"
+                :disabled="!editable || !canDeleteSelected"
                 :aria-label="deleteLabel"
                 :title="deleteLabel"
                 data-testid="delete-audio-envelope-point"

@@ -227,17 +227,17 @@
                     v-if="!recordingActive"
                     :class="[
                                 'icon-button',
-                                executionRunning ? 'execution-stop' : 'workflow-play',
+                                workflowPlaybackRunning ? 'execution-stop' : 'workflow-play',
                             ]"
                     type="button"
-                    :data-testid="executionRunning ? 'stop-workflow' : 'play-workflow'"
-                    :disabled="browserTargetOpening && !executionRunning"
-                    :aria-label="t(executionRunning ? 'playback.stop' : 'playback.workflow')"
-                    :title="t(executionRunning ? 'playback.stop' : 'playback.workflow')"
-                    @click="executionRunning ? stopPlayback() : playWorkflow()"
+                    :data-testid="workflowPlaybackRunning ? 'stop-workflow' : 'play-workflow'"
+                    :disabled="workflowStartPending || (browserTargetOpening && !executionRunning)"
+                    :aria-label="t(workflowPlaybackRunning ? 'playback.stop' : 'playback.workflow')"
+                    :title="t(workflowPlaybackRunning ? 'playback.stop' : 'playback.workflow')"
+                    @click="workflowPlaybackRunning ? stopPlayback() : playWorkflow()"
                 >
                     <span
-                        :class="['bi', executionRunning ? 'bi-stop-fill' : 'bi-play-fill']"
+                        :class="['bi', workflowPlaybackRunning ? 'bi-stop-fill' : 'bi-play-fill']"
                         aria-hidden="true"
                     ></span>
                 </button>

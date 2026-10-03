@@ -28,6 +28,7 @@ let stepControllers = new Map();
 const results = {};
 const referenceRects = new Map();
 const activeAudio = new Map();
+const pendingFades = new Set();
 const audioBuffers = new Map();
 const globalStylesheets = new Map();
 let audioContext = null;
@@ -291,6 +292,27 @@ function scheduleAudioEnvelope(parameter, step, startTime, duration) {
     });
 }
 
+function scheduleAudioEnvelopeFrom(parameter, step, startTime, duration, offset) {
+    const points = step.envelope;
+    const nextIndex = points.findIndex((point) => point.time * duration >= offset);
+    const left = points[Math.max(0, nextIndex - 1)] || points[0];
+    const right = points[nextIndex] || points[points.length - 1];
+    const distance = (right.time - left.time) * duration;
+    const progress = distance > 0 ? (offset - left.time * duration) / distance : 0;
+    const level = left.gain + (right.gain - left.gain) * Math.max(0, Math.min(1, progress));
+    parameter.cancelScheduledValues(startTime);
+    parameter.setValueAtTime(step.volume * level, startTime);
+    points.forEach((point) => {
+        const pointTime = point.time * duration;
+        if (pointTime > offset) {
+            parameter.linearRampToValueAtTime(
+                step.volume * point.gain,
+                startTime + pointTime - offset,
+            );
+        }
+    });
+}
+
 function getAudioContext() {
     const Context = window.parent !== window
         ? window.parent.AudioContext || window.parent.webkitAudioContext
@@ -392,56 +414,174 @@ async function playAudio(step, signal) {
     const context = getAudioContext();
     const buffer = await loadAudioBuffer(step);
     if (signal.aborted) throw new DOMException('The execution was stopped.', 'AbortError');
-    const playback = context.createBufferSource();
-    const gain = context.createGain();
-    gain.gain.value = step.volume * step.envelope[0].gain;
-    playback.buffer = buffer;
-    playback.loop = Boolean(step.loop);
-    playback.connect(gain).connect(context.destination);
-    scheduleAudioEnvelope(
-        gain.gain,
-        step,
-        context.currentTime,
-        buffer.duration,
-    );
-    activeAudio.set(step.id, playback);
+    const requestedFadeIn = (step.fadeInMs || 0) / 1000;
+    const fadeOutSeconds = (step.fadeOutMs || 0) / 1000;
+    const fileFadeScale = !step.loop && requestedFadeIn + fadeOutSeconds > buffer.duration
+        ? buffer.duration / (requestedFadeIn + fadeOutSeconds)
+        : 1;
+    const fadeInSeconds = requestedFadeIn * fileFadeScale;
+    const naturalFadeOutSeconds = fadeOutSeconds * fileFadeScale;
+    const naturalFadeStart = step.loop || naturalFadeOutSeconds === 0
+        ? null
+        : buffer.duration - naturalFadeOutSeconds;
     await context.resume();
-    playback.start();
-    if (!step.waitForEnd) {
-        const complete = () => {
-            signal.removeEventListener('abort', aborted);
-            activeAudio.delete(step.id);
-        };
-        const aborted = () => {
-            try {
-                playback.stop();
-            } catch {}
-            complete();
-        };
-        playback.addEventListener('ended', complete, { once: true });
-        signal.addEventListener('abort', aborted, { once: true });
-        return;
-    }
     await new Promise((resolve, reject) => {
-        const complete = () => {
-            playback.removeEventListener('ended', ended);
+        let settled = false;
+        let stopRequested = false;
+        let playback;
+        let fade;
+        let startedAt = context.currentTime;
+        let startOffset = 0;
+        let pausedAt = 0;
+        let paused = false;
+        let resolveStopped = () => undefined;
+        const stopped = new Promise((complete) => {
+            resolveStopped = complete;
+        });
+        const cleanup = () => {
             signal.removeEventListener('abort', aborted);
+            if (activeAudio.get(step.id)?.cancel === cancel) {
+                activeAudio.delete(step.id);
+            }
+            resolveStopped();
         };
         const ended = () => {
-            complete();
-            activeAudio.delete(step.id);
-            resolve();
+            cleanup();
+            if (step.waitForEnd && !settled) {
+                settled = true;
+                resolve();
+            }
         };
-        const aborted = () => {
-            complete();
+        const cancel = () => {
+            cleanup();
             try {
-                playback.stop();
+                playback?.stop();
             } catch {}
-            activeAudio.delete(step.id);
-            reject(new DOMException('The execution was stopped.', 'AbortError'));
+            if (step.waitForEnd && !settled) {
+                settled = true;
+                reject(new DOMException('The execution was stopped.', 'AbortError'));
+            }
         };
-        playback.addEventListener('ended', ended, { once: true });
+        const stop = () => {
+            if (stopRequested) return stopped;
+            stopRequested = true;
+            if (paused || !playback) {
+                ended();
+                return stopped;
+            }
+            const now = context.currentTime;
+            const elapsed = Math.max(0, now - startedAt + startOffset);
+            const fadeInLevel = fadeInSeconds > 0
+                ? Math.min(1, elapsed / fadeInSeconds)
+                : 1;
+            const level = naturalFadeStart !== null && elapsed > naturalFadeStart
+                ? Math.max(0, (buffer.duration - elapsed) / naturalFadeOutSeconds)
+                : fadeInLevel;
+            fade.gain.cancelScheduledValues(now);
+            fade.gain.setValueAtTime(level, now);
+            if (fadeOutSeconds > 0) {
+                fade.gain.linearRampToValueAtTime(0, now + fadeOutSeconds);
+            }
+            try {
+                playback.stop(now + fadeOutSeconds);
+            } catch {
+                ended();
+            }
+            return stopped;
+        };
+        const currentSeconds = () => paused
+            ? pausedAt
+            : Math.min(
+                buffer.duration,
+                step.loop
+                    ? (context.currentTime - startedAt + startOffset) % buffer.duration
+                    : context.currentTime - startedAt + startOffset,
+            );
+        const position = () => ({
+            positionMs: currentSeconds() * 1000,
+            durationMs: buffer.duration * 1000,
+            paused,
+        });
+        const startAt = (offset) => {
+            const previous = playback;
+            const now = context.currentTime;
+            const gain = context.createGain();
+            const nextFade = context.createGain();
+            const next = context.createBufferSource();
+            startedAt = now;
+            startOffset = offset;
+            paused = false;
+            fade = nextFade;
+            playback = next;
+            next.buffer = buffer;
+            next.loop = Boolean(step.loop);
+            next.connect(gain).connect(nextFade).connect(context.destination);
+            if (offset === 0) {
+                scheduleAudioEnvelope(gain.gain, step, now, buffer.duration);
+            } else {
+                scheduleAudioEnvelopeFrom(gain.gain, step, now, buffer.duration, offset);
+            }
+            const fadeInLevel = fadeInSeconds > 0 ? Math.min(1, offset / fadeInSeconds) : 1;
+            const fadeLevel = naturalFadeStart !== null && offset > naturalFadeStart
+                ? Math.max(0, (buffer.duration - offset) / naturalFadeOutSeconds)
+                : fadeInLevel;
+            nextFade.gain.setValueAtTime(fadeLevel, now);
+            if (offset < fadeInSeconds) {
+                nextFade.gain.linearRampToValueAtTime(1, now + fadeInSeconds - offset);
+            }
+            if (naturalFadeStart !== null) {
+                const remaining = naturalFadeStart - offset;
+                if (remaining > 0) {
+                    nextFade.gain.cancelScheduledValues(now + remaining);
+                    nextFade.gain.setValueAtTime(1, now + remaining);
+                }
+                nextFade.gain.linearRampToValueAtTime(0, now + buffer.duration - offset);
+            }
+            next.addEventListener('ended', () => {
+                if (playback === next) {
+                    ended();
+                }
+            }, { once: true });
+            next.start(0, offset);
+            if (previous) {
+                previous.stop();
+                previous.disconnect();
+            }
+        };
+        const seek = (seconds) => {
+            if (!stopRequested && Number.isFinite(seconds) && !step.loop) {
+                const offset = Math.min(buffer.duration, Math.max(0, seconds));
+                if (paused) {
+                    pausedAt = offset;
+                } else {
+                    startAt(offset);
+                }
+            }
+        };
+        const pause = () => {
+            if (paused || stopRequested || !playback) {
+                return;
+            }
+            pausedAt = currentSeconds();
+            paused = true;
+            const current = playback;
+            playback = null;
+            current.stop();
+            current.disconnect();
+        };
+        const resume = () => {
+            if (paused && !stopRequested) {
+                startAt(pausedAt);
+            }
+        };
+        const aborted = () => cancel();
+        activeAudio.set(step.id, { cancel, stop, position, seek, pause, resume });
         signal.addEventListener('abort', aborted, { once: true });
+        startAt(0);
+        if (!step.waitForEnd) {
+            settled = true;
+            resolve();
+        }
     });
 }
 
@@ -510,20 +650,35 @@ function begin() {
 }
 
 function stopAudio(nodeId) {
-    window.parent.__directorAudioPlayback?.cancel(nodeId);
     if (nodeId) {
-        try {
-            activeAudio.get(nodeId)?.stop();
-        } catch {}
-        activeAudio.delete(nodeId);
-        return;
+        const completion = window.parent.__directorAudioPlayback?.stop(nodeId)
+            || activeAudio.get(nodeId)?.stop()
+            || Promise.resolve();
+        pendingFades.add(completion);
+        void completion.finally(() => pendingFades.delete(completion));
+        return completion;
     }
+    window.parent.__directorAudioPlayback?.cancel();
     activeAudio.forEach((audio) => {
-        try {
-            audio.stop();
-        } catch {}
+        audio.cancel();
     });
     activeAudio.clear();
+    pendingFades.clear();
+    return Promise.resolve();
+}
+
+function seekAudio(nodeId, seconds) {
+    if (window.parent.__directorAudioPlayback) {
+        window.parent.__directorAudioPlayback.seek(nodeId, seconds);
+        return;
+    }
+
+    activeAudio.get(nodeId)?.seek(seconds);
+}
+
+function setAudioPaused(nodeId, paused) {
+    const playback = window.parent.__directorAudioPlayback || activeAudio.get(nodeId);
+    playback?.[paused ? 'pause' : 'resume'](nodeId);
 }
 
 function cancel() {
@@ -785,6 +940,7 @@ async function run(nextSteps, executionId = null, options = {}) {
     }
     try {
         await Promise.all(executions.values());
+        await Promise.all(pendingFades);
         runState.state = runState.cancelRequested ? 'cancelled' : 'success';
     } catch (error) {
         runState.state = runState.cancelRequested ? 'cancelled' : 'error';
@@ -809,6 +965,9 @@ function status(executionId, afterSequence = 0) {
         state: activeRun.state,
         error: activeRun.error,
         events: activeRun.events.filter((event) => event.sequence > afterSequence),
+        audioPositions: Object.fromEntries(
+            [...activeAudio].map(([nodeId, audio]) => [nodeId, audio.position()]),
+        ),
         marks: activeRun.state === 'running' ? [] : activeRun.recordingMarks,
     };
 }
@@ -825,6 +984,8 @@ window.__director = Object.freeze({
     cancel,
     cancelStep,
     stopAudio,
+    seekAudio,
+    setAudioPaused,
     remove,
     setInputs,
     setGlobalStylesheetInputIds,

@@ -23,6 +23,8 @@ export interface RuntimeStep {
     readonly envelope?: readonly AudioEnvelopePoint[];
     readonly waitForEnd?: boolean;
     readonly loop?: boolean;
+    readonly fadeInMs?: number;
+    readonly fadeOutMs?: number;
 }
 
 export class DirectorRuntimeScript {
@@ -63,7 +65,7 @@ function createDirectorRuntime(
                 throw new TypeError('An audio node ID is required.');
             }
 
-            stopAudio(nodeId);
+            return stopAudio(nodeId);
         },
         async waitFor(selector, timeout = 5000) {
             const started = Date.now();

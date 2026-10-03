@@ -1,5 +1,5 @@
 <template>
-    <section class="panel editor-panel" :aria-label="editorPanelTitle">
+    <section :class="['panel', 'editor-panel', { 'editor-panel--audio': activeAudio }]" :aria-label="editorPanelTitle">
         <header class="panel__header panel__header--editor">
             <div class="editor-node-header">
                 <label v-if="activeNode" class="editor-node-name">
@@ -8,7 +8,7 @@
                         v-model="activeNode.name"
                         type="text"
                         data-testid="node-name"
-                        :disabled="activeNodeLocked"
+                        :disabled="activeAudio ? activeAudioEditLocked : activeNodeLocked"
                         :aria-label="t('node.name')"
                         @input="markDirty(); renderGraph()"
                     />
@@ -44,12 +44,18 @@
                     class="icon-button direct-run-control"
                     type="button"
                     data-testid="play-node-current"
-                    :disabled="executionRunning || browserTargetOpening"
-                    :aria-label="t('playback.currentNode')"
-                    :title="t('playback.currentNode')"
+                    :disabled="(executionRunning && !audioSeekEnabled) || browserTargetOpening"
+                    :aria-label="t(activeInstantAudio ? (audioPaused ? 'audio.resume' : 'audio.pause') : 'playback.currentNode')"
+                    :title="t(activeInstantAudio ? (audioPaused ? 'audio.resume' : 'audio.pause') : 'playback.currentNode')"
                     @click="playActiveNodeOnCurrentState"
                 >
+                    <span
+                        v-if="activeInstantAudio"
+                        :class="['bi', audioPaused ? 'bi-play-fill' : 'bi-pause-fill']"
+                        aria-hidden="true"
+                    ></span>
                     <svg
+                        v-else
                         class="direct-run-icon"
                         viewBox="0 0 20 20"
                         aria-hidden="true"
@@ -111,19 +117,39 @@
             </div>
         </header>
 
+        <div v-if="activeAudio" class="audio-playhead" data-testid="audio-playhead">
+            <input
+                class="audio-playhead__slider"
+                type="range"
+                min="0"
+                :max="Math.max(1, audioDurationMs)"
+                step="10"
+                :value="audioPositionMs"
+                :style="{ '--audio-progress': audioProgressPercent }"
+                :disabled="!audioSeekEnabled || audioDurationMs <= 0"
+                :aria-label="t('audio.position')"
+                data-testid="audio-position"
+                @pointerdown="audioScrubbing = true"
+                @pointercancel="audioScrubbing = false"
+                @input="audioPositionMs = Number($event.target.value)"
+                @change="seekActiveAudio(Number($event.target.value))"
+            />
+            <output>{{ formatAudioTime(audioPositionMs) }} / {{ formatAudioTime(audioDurationMs) }}</output>
+        </div>
+
         <div
             :class="[
                         'editor-panel__body',
                         {
                             'editor-panel__body--layer': activeLayer,
                             'editor-panel__body--javascript': activeJavaScript,
-                            'editor-panel__body--locked': activeNodeLocked,
+                            'editor-panel__body--locked': activeNodeLocked && !activeAudio,
                             'editor-panel__body--wait-script':
                                 activeBrowserWait?.condition === 'script',
                         },
                     ]"
-            :aria-disabled="activeNodeLocked"
-            :inert="activeNodeLocked"
+            :aria-disabled="activeNodeLocked && !activeAudio"
+            :inert="activeNodeLocked && !activeAudio"
             data-testid="editor-properties-scroll"
             tabindex="0"
         >
@@ -883,7 +909,7 @@
                         >
                         <span class="bi bi-chevron-down" aria-hidden="true"></span>
                     </summary>
-                    <div class="automation-properties">
+                    <div class="automation-properties automation-properties--audio">
                         <label>
                             <span>{{ t('audio.volume') }}</span>
                             <span class="audio-volume-field">
@@ -894,37 +920,60 @@
                                     max="1"
                                     step="0.01"
                                     data-testid="audio-volume"
+                                    :disabled="activeAudioEditLocked"
                                     @input="markActiveNodeStale"
                                 />
                                 <output>{{ Math.round(activeAudio.volume * 100) }} %</output>
                             </span>
                         </label>
-                        <label class="automation-properties__toggle">
-                            <input
-                                v-model="activeAudio.waitForEnd"
-                                type="checkbox"
-                                data-testid="audio-wait-for-end"
-                                @change="markActiveNodeStale"
-                            />
-                            <span>{{ t('audio.waitForEnd') }}</span>
-                        </label>
-                        <label class="automation-properties__toggle">
-                            <input
-                                v-model="activeAudio.loop"
-                                type="checkbox"
-                                data-testid="audio-loop"
-                                @change="markActiveNodeStale"
-                            />
-                            <span>{{ t('audio.loop') }}</span>
-                        </label>
-                        <p
-                            v-if="activeAudioFileName"
-                            class="property-hint audio-file-name"
-                            :title="activeAudioFileName"
-                            data-testid="audio-file-name"
-                        >
-                            {{ activeAudioFileName }}
-                        </p>
+                        <div class="automation-properties__options">
+                            <label class="automation-properties__toggle">
+                                <input
+                                    v-model="activeAudio.waitForEnd"
+                                    type="checkbox"
+                                    data-testid="audio-wait-for-end"
+                                    :disabled="activeAudioEditLocked"
+                                    @change="markActiveNodeStale"
+                                />
+                                <span>{{ t('audio.waitForEnd') }}</span>
+                            </label>
+                            <label class="automation-properties__toggle">
+                                <input
+                                    v-model="activeAudio.loop"
+                                    type="checkbox"
+                                    data-testid="audio-loop"
+                                    :disabled="activeAudioEditLocked"
+                                    @change="markActiveNodeStale"
+                                />
+                                <span>{{ t('audio.loop') }}</span>
+                            </label>
+                        </div>
+                        <div class="automation-properties__fades">
+                            <label>
+                                <span>{{ t('audio.fadeIn') }}</span>
+                                <input
+                                    v-model.number="activeAudio.fadeInMs"
+                                    type="number"
+                                    min="0"
+                                    step="100"
+                                    data-testid="audio-fade-in"
+                                    :disabled="activeAudioEditLocked"
+                                    @input="markActiveNodeStale"
+                                />
+                            </label>
+                            <label>
+                                <span>{{ t('audio.fadeOut') }}</span>
+                                <input
+                                    v-model.number="activeAudio.fadeOutMs"
+                                    type="number"
+                                    min="0"
+                                    step="100"
+                                    data-testid="audio-fade-out"
+                                    :disabled="activeAudioEditLocked"
+                                    @input="markActiveNodeStale"
+                                />
+                            </label>
+                        </div>
                     </div>
                 </details>
                 <details
@@ -945,6 +994,9 @@
                                 v-model="activeAudio.envelope"
                                 :label="t('audio.envelope')"
                                 :delete-label="t('audio.deleteEnvelopePoint')"
+                                :position-ms="audioPositionMs"
+                                :duration-ms="audioDurationMs"
+                                :editable="!activeAudioEditLocked"
                                 @change="markActiveNodeStale"
                             ></audio-envelope-editor>
                         </div>

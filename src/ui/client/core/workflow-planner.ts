@@ -99,7 +99,9 @@ export class WorkflowPlanner {
 
         if (mode === 'current') {
             const currentNode =
-                selected.type === 'audio' ? { ...selected, waitForEnd: true } : selected;
+                selected.type === 'audio'
+                    ? { ...selected, waitForEnd: true, loop: false }
+                    : selected;
             const step = WorkflowPlanner.step(project, currentNode, 'live', new Set());
             const selectedInputIds = new Set(
                 [

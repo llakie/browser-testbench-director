@@ -24,6 +24,8 @@ export const GraphPanel = defineWorkspaceSection({
         'duplicateActiveNode',
         'endStageGesture',
         'executionRunning',
+        'workflowPlaybackRunning',
+        'workflowStartPending',
         'graphLayoutRunning',
         'graphZoomPercent',
         'maximizedPanel',

@@ -316,6 +316,7 @@ export class JointLayerGraph {
         playbackTriggerNodeId: string | null = null,
         executionRunning = false,
         recordingReady = true,
+        pausedAudioNodeId: string | null = null,
     ): void {
         const fitAutomaticLayout = !this.#preserveViewportOnNextRender;
         this.#preserveViewportOnNextRender = false;
@@ -338,6 +339,7 @@ export class JointLayerGraph {
         for (const [index, node] of nodes.entries()) {
             const headerColor = JointLayerGraph.color(node);
             const execution = states[node.id];
+            const pausedAudio = node.id === pausedAudioNodeId && node.type === 'audio';
             const locked = lockedNodeIds.has(node.id);
             const stoppingPlayback = playbackTriggerNodeId === node.id;
             const stoppingRecording = recordingActive && node.type === 'video-output';
@@ -505,8 +507,8 @@ export class JointLayerGraph {
                 clearText: {
                     display: inputFileName ? 'block' : 'none',
                 },
-                statusRing: JointLayerGraph.statusRing(execution, executionRunning),
-                statusIcon: JointLayerGraph.statusIcon(execution, executionRunning),
+                statusRing: JointLayerGraph.statusRing(execution, executionRunning, pausedAudio),
+                statusIcon: JointLayerGraph.statusIcon(execution, executionRunning, pausedAudio),
                 statusText: JointLayerGraph.statusText(execution),
             });
             const title = [connected ? '' : disconnectedLabel, JointLayerGraph.nodeDetail(node)]
@@ -939,16 +941,21 @@ export class JointLayerGraph {
             return 'var(--color-status-error)';
         }
 
+        if (selected) {
+            return 'var(--color-accent)';
+        }
+
         if (state?.status === 'running') {
             return 'var(--color-status-running)';
         }
 
-        return selected ? 'var(--color-accent)' : 'var(--color-border)';
+        return 'var(--color-border)';
     }
 
     private static statusRing(
         state: NodeExecutionState | undefined,
         executionRunning: boolean,
+        pausedAudio = false,
     ): Record<string, unknown> {
         if (!state || (state.status === 'idle' && !executionRunning)) {
             return { display: 'none' };
@@ -961,24 +968,33 @@ export class JointLayerGraph {
             error: 'var(--color-status-error)',
             cancelled: 'var(--color-status-cancelled)',
         } as const;
+        const status = pausedAudio ? 'paused' : state.status === 'idle' ? 'pending' : state.status;
+        const outlined = pausedAudio || ['idle', 'running'].includes(state.status);
         return {
             display: 'block',
-            class: `graph-node-status is-${state.status === 'idle' ? 'pending' : state.status}`,
-            fill: ['idle', 'running'].includes(state.status) ? 'none' : colors[state.status],
-            stroke: colors[state.status],
-            strokeWidth: ['idle', 'running'].includes(state.status) ? 2 : 0,
-            strokeDasharray: state.status === 'running' ? '8 5' : 'none',
+            class: `graph-node-status is-${status}`,
+            fill: pausedAudio
+                ? 'var(--color-node-surface)'
+                : outlined
+                  ? 'none'
+                  : colors[state.status],
+            stroke: pausedAudio ? 'var(--color-node-audio)' : colors[state.status],
+            strokeWidth: outlined ? 2 : 0,
+            strokeDasharray: state.status === 'running' && !pausedAudio ? '8 5' : 'none',
         };
     }
 
     private static statusIcon(
         state: NodeExecutionState | undefined,
         executionRunning: boolean,
+        pausedAudio = false,
     ): Record<string, unknown> {
         const pending = executionRunning && state?.status === 'idle';
         return {
-            display: pending ? 'block' : 'none',
-            class: 'graph-node-pending-icon',
+            display: pending || pausedAudio ? 'block' : 'none',
+            class: pausedAudio ? 'graph-node-paused-icon' : 'graph-node-pending-icon',
+            d: pausedAudio ? 'M 192 14 V 20 M 196 14 V 20' : 'M 194 12.5 V 17 L 197 18.5',
+            stroke: pausedAudio ? 'var(--color-node-audio)' : 'var(--color-status-pending)',
         };
     }
 

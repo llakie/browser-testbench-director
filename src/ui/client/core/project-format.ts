@@ -89,6 +89,8 @@ export interface AudioNode {
     envelope: AudioEnvelopePoint[];
     waitForEnd: boolean;
     loop?: boolean;
+    fadeInMs?: number;
+    fadeOutMs?: number;
 }
 
 export interface AudioEnvelopePoint {
@@ -229,6 +231,14 @@ export class ProjectFormat {
         }
 
         ProjectFormat.assertProject(value);
+
+        for (const node of value.nodes) {
+            if (node.type === 'audio') {
+                node.fadeInMs ??= 0;
+                node.fadeOutMs ??= 0;
+            }
+        }
+
         ProjectFormat.refreshTextSources(value);
         return value;
     }
@@ -733,6 +743,14 @@ export class ProjectFormat {
             throw new TypeError(`Audio node ${value['id']} contains an invalid loop setting.`);
         }
 
+        for (const key of ['fadeInMs', 'fadeOutMs']) {
+            const duration = value[key];
+
+            if (duration !== undefined && (!Number.isInteger(duration) || Number(duration) < 0)) {
+                throw new TypeError(`Audio node ${value['id']} contains an invalid ${key} duration.`);
+            }
+        }
+
         if (!Array.isArray(value['envelope']) || value['envelope'].length < 2) {
             throw new TypeError(`Audio node ${value['id']} must contain an envelope.`);
         }
@@ -762,7 +780,7 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd', 'loop'],
+            ['id', 'type', 'name', 'position', 'volume', 'envelope', 'waitForEnd', 'loop', 'fadeInMs', 'fadeOutMs'],
             'Audio node',
         );
     }

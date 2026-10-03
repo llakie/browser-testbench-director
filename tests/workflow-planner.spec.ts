@@ -285,6 +285,7 @@ test('Audio-Einzelwiedergabe wartet unabhängig von der Workflow-Einstellung auf
                 { time: 1, gain: 1 },
             ],
             waitForEnd: false,
+            loop: true,
         },
     );
     project.connections.push({
@@ -300,6 +301,7 @@ test('Audio-Einzelwiedergabe wartet unabhängig von der Workflow-Einstellung auf
 
     if (audio?.type === 'audio') {
         assert.equal(audio.waitForEnd, true);
+        assert.equal(audio.loop, false);
     }
 });
 

@@ -28,6 +28,15 @@ export const workspaceLayoutMethods: WorkspaceMethodMap = {
         });
     },
     selectNode(id: string | null): void {
+        if (this.activeNodeId !== id) {
+            this.audioPositionMs = 0;
+            this.audioDurationMs = 0;
+            this.audioDurationSource = '';
+            this.audioPlaybackActive = false;
+            this.audioPaused = false;
+            this.audioScrubbing = false;
+        }
+
         this.activeConnectionId = null;
         this.activeNodeId = id;
 

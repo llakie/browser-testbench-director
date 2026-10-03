@@ -89,6 +89,8 @@ export class ProjectNodes {
             ],
             waitForEnd: true,
             loop: false,
+            fadeInMs: 0,
+            fadeOutMs: 0,
         };
     }
 

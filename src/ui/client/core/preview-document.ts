@@ -66,6 +66,8 @@ export class PreviewDocument {
                 envelope: step.node.envelope,
                 waitForEnd: step.node.waitForEnd,
                 loop: step.node.loop ?? false,
+                fadeInMs: step.node.fadeInMs ?? 0,
+                fadeOutMs: step.node.fadeOutMs ?? 0,
             };
         }
 

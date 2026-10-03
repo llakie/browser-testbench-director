@@ -84,17 +84,6 @@
                     </div>
                 </div>
                 <button
-                    v-if="executionRunning"
-                    class="icon-button execution-stop"
-                    type="button"
-                    data-testid="stop-preview-execution"
-                    :aria-label="t('playback.stop')"
-                    :title="t('playback.stop')"
-                    @click="stopPlayback"
-                >
-                    <span class="bi bi-stop-fill" aria-hidden="true"></span>
-                </button>
-                <button
                     class="icon-button preview-expand"
                     type="button"
                     data-testid="maximize-preview"

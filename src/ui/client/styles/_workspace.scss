@@ -236,6 +236,10 @@
     grid-template-rows: auto minmax(0, 1fr);
 }
 
+.editor-panel--audio {
+    grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .editor-panel__body {
     display: grid;
     container: editor-properties / inline-size;

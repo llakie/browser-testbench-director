@@ -57,6 +57,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             this.playbackTriggerNodeId,
             this.executionRunning,
             this.browserSessionInputsReady,
+            this.executionRunning && this.audioPaused ? this.instantAudioNodeId : null,
         );
     },
     connectNodes(source: string, target: string): boolean {

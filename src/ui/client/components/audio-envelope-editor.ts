@@ -21,6 +21,18 @@ export const AudioEnvelopeEditor = defineComponent({
             type: String,
             required: true,
         },
+        positionMs: {
+            type: Number,
+            default: 0,
+        },
+        durationMs: {
+            type: Number,
+            default: 0,
+        },
+        editable: {
+            type: Boolean,
+            default: true,
+        },
     },
     emits: {
         'update:modelValue': (_points: AudioEnvelopePoint[]) => true,
@@ -35,6 +47,11 @@ export const AudioEnvelopeEditor = defineComponent({
     computed: {
         viewBox(): string {
             return `0 0 ${this.canvasWidth} ${drawingHeight}`;
+        },
+        playheadX(): number {
+            return this.durationMs > 0
+                ? Math.min(1, Math.max(0, this.positionMs / this.durationMs)) * this.canvasWidth
+                : 0;
         },
         renderedPoints(): Array<AudioEnvelopePoint & { x: number; y: number }> {
             return this.modelValue.map((point) => ({
@@ -85,6 +102,10 @@ export const AudioEnvelopeEditor = defineComponent({
             }
         },
         addPoint(event: MouseEvent): void {
+            if (!this.editable) {
+                return;
+            }
+
             const point = this.pointerPoint(event);
 
             if (!point || point.time <= 0 || point.time >= 1) {
@@ -104,6 +125,10 @@ export const AudioEnvelopeEditor = defineComponent({
             this.update(next, true);
         },
         startDragging(index: number, event: PointerEvent): void {
+            if (!this.editable) {
+                return;
+            }
+
             event.stopPropagation();
             this.selectedIndex = index;
             this.draggingPointerId = event.pointerId;
@@ -131,6 +156,10 @@ export const AudioEnvelopeEditor = defineComponent({
             this.$emit('change');
         },
         moveWithKeyboard(index: number, event: KeyboardEvent): void {
+            if (!this.editable) {
+                return;
+            }
+
             const point = this.modelValue[index];
 
             if (!point) {
@@ -150,7 +179,7 @@ export const AudioEnvelopeEditor = defineComponent({
             this.movePoint(index, point.time + horizontal, point.gain + vertical, true);
         },
         deleteSelected(): void {
-            if (!this.canDeleteSelected || this.selectedIndex === null) {
+            if (!this.editable || !this.canDeleteSelected || this.selectedIndex === null) {
                 return;
             }
 

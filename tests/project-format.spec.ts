@@ -124,7 +124,18 @@ test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen',
     ];
     audio.waitForEnd = false;
     audio.loop = true;
+    audio.fadeInMs = 500;
+    audio.fadeOutMs = 700;
     project.nodes.push(audio);
+
+    delete audio.fadeInMs;
+    delete audio.fadeOutMs;
+    const loadedWithoutFades = ProjectFormat.parse(JSON.stringify(project));
+    const restoredAudio = loadedWithoutFades.nodes.find((node) => node.id === audio.id);
+    assert.equal(restoredAudio?.type === 'audio' && restoredAudio.fadeInMs, 0);
+    assert.equal(restoredAudio?.type === 'audio' && restoredAudio.fadeOutMs, 0);
+    audio.fadeInMs = 500;
+    audio.fadeOutMs = 700;
 
     const loaded = ProjectFormat.parse(ProjectFormat.stringify(project));
     assert.deepEqual(loaded.nodes.at(-1), audio);
@@ -132,6 +143,10 @@ test('Director-Projektformat speichert Audio-Nodes mit Wiedergabeeinstellungen',
     audio.loop = 'yes' as unknown as boolean;
     assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /loop setting/u);
     audio.loop = true;
+
+    audio.fadeOutMs = -1;
+    assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /fadeOutMs duration/u);
+    audio.fadeOutMs = 700;
 
     audio.volume = 1.1;
     assert.throws(() => ProjectFormat.parse(JSON.stringify(project)), /playback settings/u);
