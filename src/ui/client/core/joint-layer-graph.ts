@@ -4,6 +4,7 @@ import type { NodeExecutionState } from './execution-controller.js';
 import { GraphNodePresentation } from './graph-node-presentation.js';
 import {
     GraphAutoLayout,
+    rebaseRouteToAnchors,
     type GraphEdgePoint,
     type GraphLayout,
     type GraphNodePosition,
@@ -682,20 +683,10 @@ export class JointLayerGraph {
                     { x: targetAnchor.x, y: targetAnchor.y },
                 ]);
             const preferredRoute = preferredRoutes?.get(connection.id);
-
-            if (preferredRoute?.length) {
-                const vertices = preferredRoute.slice(1, -1);
-                routes.set(connection.id, vertices);
-
-                for (let index = 1; index < preferredRoute.length; index += 1) {
-                    reservedSegments.push([preferredRoute[index - 1]!, preferredRoute[index]!]);
-                }
-
-                JointLayerGraph.applyRoute(link, vertices);
-                continue;
-            }
-
-            let points = withAnchors(calculateRoute(true));
+            let points =
+                preferredRoute && preferredRoute.length > 2
+                    ? rebaseRouteToAnchors(preferredRoute, sourceAnchor, targetAnchor)
+                    : withAnchors(calculateRoute(true));
 
             if (JointLayerGraph.routeCrossesNode(points, connection, nodeBounds)) {
                 points = withAnchors(calculateRoute(false));

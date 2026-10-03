@@ -4,6 +4,17 @@ All notable changes to Browser Testbench Director are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-03
+
+### Fixed
+
+- Automatic graph routes remain orthogonal when they connect to offset editor ports.
+- Website previews retain the Director bridge helper after the proxy injects it into a page.
+
+### Documentation
+
+- Documented how a globally installed CLI resolves project-local preparation modules.
+
 ## [0.3.0] - 2026-10-03
 
 ### Added

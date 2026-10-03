@@ -4,7 +4,7 @@ Browser Testbench Director is a JSON-based editor and player for website automat
 the controlled website. Production projects live locally under `projects/`, remain untracked, and provide their own
 project-specific assets, preparation modules, and verification scripts.
 
-Release documentation: [Browser Testbench Director 0.2.0](docs/releases/0.2.0.md).
+Release documentation: [Browser Testbench Director 0.3.1](docs/releases/0.3.1.md).
 
 ## Installation
 
@@ -13,12 +13,37 @@ exports. Browser Testbench is installed as a package dependency and does not req
 
 ```bash
 npm install --global browser-testbench-director
-browser-testbench-director start
 ```
 
-The UI is available at `http://127.0.0.1:5173` by default. `browser-testbench-director start --https` creates a local
-certificate in the current working directory. Project files and their associated assets also remain in the selected
-working directory.
+### Global CLI and project workspace
+
+The global installation provides only the `browser-testbench-director` command. The directory in which you run that
+command is the project workspace: it owns `projects/`, project-specific assets, preparation modules, and the local
+HTTPS certificate. Start Director from that workspace, not from an individual project subdirectory or from an
+arbitrary terminal directory:
+
+```text
+browser-testbench-director/
+└── projects/
+    └── youtube/shorts/binderium/guess-the-price/
+        └── prepare/card-camera-frame.mjs
+```
+
+```bash
+cd /path/to/browser-testbench-director
+browser-testbench-director start --https
+```
+
+The UI is available at `http://127.0.0.1:5173` by default. The `--https` option creates a local certificate in the
+workspace and serves the editor via HTTPS. Preparation-module paths stored in a project must be relative to that
+workspace, start with `projects/`, and end in `.mjs`; for the example above, enter:
+
+```text
+projects/youtube/shorts/binderium/guess-the-price/prepare/card-camera-frame.mjs
+```
+
+Absolute paths and paths outside `projects/` are rejected so a project remains portable and cannot execute arbitrary
+local files.
 
 ## Director UI
 
