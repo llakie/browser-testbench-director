@@ -17,8 +17,59 @@ export interface GraphLayout {
     readonly routes: ReadonlyMap<string, readonly GraphEdgePoint[]>;
 }
 
+export function rebaseRouteToAnchors(
+    route: readonly GraphEdgePoint[],
+    sourceAnchor: GraphEdgePoint,
+    targetAnchor: GraphEdgePoint,
+): GraphEdgePoint[] {
+    const interior = route.slice(1, -1);
+
+    if (interior.length === 0) {
+        return [sourceAnchor, targetAnchor];
+    }
+
+    const first = interior[0]!;
+    const last = interior.at(-1)!;
+
+    return simplifyRoute([
+        sourceAnchor,
+        { x: first.x, y: sourceAnchor.y },
+        ...interior,
+        { x: last.x, y: targetAnchor.y },
+        targetAnchor,
+    ]);
+}
+
 const nodeWidth = 216;
 const nodeHeight = 112;
+
+function simplifyRoute(route: readonly GraphEdgePoint[]): GraphEdgePoint[] {
+    const simplified: GraphEdgePoint[] = [];
+
+    for (const point of route) {
+        const previous = simplified.at(-1);
+
+        if (previous?.x === point.x && previous.y === point.y) {
+            continue;
+        }
+
+        const beforePrevious = simplified.at(-2);
+
+        if (
+            beforePrevious &&
+            previous &&
+            ((beforePrevious.x === previous.x && previous.x === point.x) ||
+                (beforePrevious.y === previous.y && previous.y === point.y))
+        ) {
+            simplified[simplified.length - 1] = point;
+            continue;
+        }
+
+        simplified.push(point);
+    }
+
+    return simplified;
+}
 
 export class GraphAutoLayout {
     static async layout(

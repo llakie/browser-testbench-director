@@ -7,7 +7,10 @@ export interface DirectorWebsiteBridgeConfiguration {
 }
 
 const configurationSlot = '/* director:configuration */';
-const bridgeSource = readFileSync(new URL('./director-website-bridge.js', import.meta.url), 'utf8');
+const bridgeSource = readFileSync(
+    new URL('./director-website-bridge.js', import.meta.url),
+    'utf8',
+).replace(/\nexport \{\};?\n(?:\/\/# sourceMappingURL=.*)?\s*$/u, '');
 
 export function renderDirectorWebsiteBridge(
     configuration: DirectorWebsiteBridgeConfiguration,

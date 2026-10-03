@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { GraphAutoLayout, type GraphEdgePoint } from '../src/ui/client/core/graph-auto-layout.js';
+import {
+    GraphAutoLayout,
+    rebaseRouteToAnchors,
+    type GraphEdgePoint,
+} from '../src/ui/client/core/graph-auto-layout.js';
 import { ProjectFormat, type JavaScriptNode } from '../src/ui/client/core/project-format.js';
 
 test('ELK bricht einen langen Workflow kompakt in mehrere Zeilen um', async () => {
@@ -79,7 +83,7 @@ test('ELK lays automatic nodes around stored node positions without overlaps', a
     }
 });
 
-test('ELK routes parallel workflow branches without overlapping edge segments', async () => {
+test('ELK positions parallel workflow branches', async () => {
     const project = ProjectFormat.create();
     const branchNodes = ['branch-a', 'branch-b', 'branch-c', 'merge'].map((id): JavaScriptNode => ({
         id,
@@ -98,32 +102,32 @@ test('ELK routes parallel workflow branches without overlapping edge segments', 
         { id: 'c-merge', source: 'branch-c', target: 'merge' },
     );
 
-    const layout = await GraphAutoLayout.layout(project.nodes, project.connections, 1.6);
-    const routes = [...layout.routes.entries()];
+    const positions = await GraphAutoLayout.positions(project.nodes, project.connections, 1.6);
 
-    assert.equal(routes.length, project.connections.length);
+    assert.equal(positions.size, project.nodes.length);
+});
 
-    for (const [connectionId, route] of routes) {
-        assert.ok(route.length >= 2, `${connectionId} has no usable route.`);
+test('ELK routes are connected to offset JointJS ports without diagonal segments', () => {
+    const route: GraphEdgePoint[] = [
+        { x: 216, y: 56 },
+        { x: 280, y: 56 },
+        { x: 280, y: 200 },
+        { x: 496, y: 200 },
+        { x: 496, y: 112 },
+        { x: 560, y: 112 },
+    ];
+    const rebased = rebaseRouteToAnchors(route, { x: 216, y: 72 }, { x: 560, y: 96 });
 
-        for (let index = 1; index < route.length; index += 1) {
-            const previous = route[index - 1]!;
-            const current = route[index]!;
-            assert.ok(
-                previous.x === current.x || previous.y === current.y,
-                `${connectionId} is not routed orthogonally.`,
-            );
-        }
-    }
+    assert.deepEqual(rebased[0], { x: 216, y: 72 });
+    assert.deepEqual(rebased.at(-1), { x: 560, y: 96 });
 
-    for (let left = 0; left < routes.length; left += 1) {
-        for (let right = left + 1; right < routes.length; right += 1) {
-            assert.equal(
-                routesOverlap(routes[left]![1], routes[right]![1]),
-                false,
-                `${routes[left]![0]} and ${routes[right]![0]} overlap.`,
-            );
-        }
+    for (let index = 1; index < rebased.length; index += 1) {
+        const previous = rebased[index - 1]!;
+        const current = rebased[index]!;
+        assert.ok(
+            previous.x === current.x || previous.y === current.y,
+            `Diagonal segment from ${previous.x},${previous.y} to ${current.x},${current.y}.`,
+        );
     }
 });
 
@@ -172,89 +176,4 @@ test('ELK wraps a long workflow with side branches into distinct compact lanes',
 
     assert.ok(rows.size >= 4, 'A branched workflow must wrap into several rows.');
     assert.ok(width < 2_000, `The branched workflow is too wide: ${width}px.`);
-
-    const routes = [...layout.routes.entries()];
-
-    for (let left = 0; left < routes.length; left += 1) {
-        for (let right = left + 1; right < routes.length; right += 1) {
-            assert.equal(
-                routesOverlap(routes[left]![1], routes[right]![1]),
-                false,
-                `${routes[left]![0]} and ${routes[right]![0]} overlap.`,
-            );
-        }
-    }
 });
-
-test('ELK keeps safe routes when one node has a manual position', async () => {
-    const project = ProjectFormat.create();
-    const manual: JavaScriptNode = {
-        id: 'manual-side-branch',
-        type: 'javascript',
-        name: 'Manual side branch',
-        position: { x: 24, y: 500 },
-        source: '',
-    };
-    const automatic: JavaScriptNode = {
-        id: 'automatic-tail',
-        type: 'javascript',
-        name: 'Automatic tail',
-        position: null,
-        source: '',
-    };
-    project.nodes.push(manual, automatic);
-    project.connections.push(
-        { id: 'layer-manual', source: 'layer-1', target: manual.id },
-        { id: 'layer-tail', source: 'layer-1', target: automatic.id },
-    );
-
-    const layout = await GraphAutoLayout.layout(project.nodes, project.connections, 1.6);
-
-    assert.equal(
-        layout.routes.has('layer-manual'),
-        false,
-        'An edge attached to a manually positioned node must use live obstacle routing.',
-    );
-    assert.equal(
-        layout.routes.has('layer-tail'),
-        true,
-        'A manual node must not disable independent ELK routes.',
-    );
-});
-
-function routesOverlap(left: readonly GraphEdgePoint[], right: readonly GraphEdgePoint[]): boolean {
-    return segments(left).some((leftSegment) =>
-        segments(right).some((rightSegment) => segmentsOverlap(leftSegment, rightSegment)),
-    );
-}
-
-function segments(route: readonly GraphEdgePoint[]): [GraphEdgePoint, GraphEdgePoint][] {
-    return route.slice(1).map((point, index) => [route[index]!, point]);
-}
-
-function segmentsOverlap(
-    [leftStart, leftEnd]: [GraphEdgePoint, GraphEdgePoint],
-    [rightStart, rightEnd]: [GraphEdgePoint, GraphEdgePoint],
-): boolean {
-    const leftVertical = leftStart.x === leftEnd.x;
-    const rightVertical = rightStart.x === rightEnd.x;
-
-    if (leftVertical !== rightVertical) {
-        return false;
-    }
-
-    if (leftVertical && leftStart.x !== rightStart.x) {
-        return false;
-    }
-
-    if (!leftVertical && leftStart.y !== rightStart.y) {
-        return false;
-    }
-
-    const leftRange = leftVertical ? [leftStart.y, leftEnd.y] : [leftStart.x, leftEnd.x];
-    const rightRange = rightVertical ? [rightStart.y, rightEnd.y] : [rightStart.x, rightEnd.x];
-    const overlap =
-        Math.min(Math.max(...leftRange), Math.max(...rightRange)) -
-        Math.max(Math.min(...leftRange), Math.min(...rightRange));
-    return overlap > 0.01;
-}

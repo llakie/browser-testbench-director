@@ -168,6 +168,11 @@ test('Director-Server proxyt eine Website samt HTML-Basis und Assets', async () 
         assert.match(html, /<base href="\/director-website\/[^/]+\/">/u);
         assert.match(html, /Element\.prototype\.setAttribute/u);
         assert.match(html, /new MutationObserver/u);
+        assert.doesNotMatch(
+            html,
+            /export \{\};/u,
+            'The inline website bridge must not contain TypeScript’s module marker.',
+        );
         assert.match(html, /defineNavigatorValue\('language'/u);
         assert.match(html, /"browserLanguage":"de-DE"/u);
         assert.match(html, /history\.pushState/u);
