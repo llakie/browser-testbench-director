@@ -1,6 +1,6 @@
 {
     "name": "browser-testbench-director",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "description": "Visual workflow editor and video renderer for Browser Testbench",
     "author": "Lars-Erich Kiefer",
     "license": "MIT",
