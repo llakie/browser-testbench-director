@@ -91,6 +91,13 @@ export interface RecordingExport {
     readonly durationMs: number;
 }
 
+export interface ScreenshotExport {
+    readonly blob: Blob;
+    readonly filename: string;
+    readonly width: number;
+    readonly height: number;
+}
+
 interface ExportViewport {
     readonly width: number;
     readonly height: number;
@@ -353,12 +360,79 @@ export class BrowserTestbenchPreview {
     }
 
     static downloadRecording(recording: RecordingExport): void {
-        const url = URL.createObjectURL(recording.blob);
+        this.downloadBlob(recording.blob, recording.filename);
+    }
+
+    static async captureScreenshot(
+        sessionId: string,
+        filename: string,
+        format: 'jpeg' | 'png',
+        quality: number,
+    ): Promise<ScreenshotExport> {
+        const screenshot = await this.request<{
+            base64: string;
+            width: number;
+            height: number;
+        }>(`/sessions/${encodeURIComponent(sessionId)}/screenshots`, {
+            method: 'POST',
+            body: JSON.stringify({ scope: 'viewport' }),
+        });
+        const blob = await this.screenshotBlob(screenshot.base64, format, quality);
+
+        return { blob, filename, width: screenshot.width, height: screenshot.height };
+    }
+
+    static downloadScreenshot(screenshot: ScreenshotExport): void {
+        this.downloadBlob(screenshot.blob, screenshot.filename);
+    }
+
+    private static downloadBlob(blob: Blob, filename: string): void {
+        const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = recording.filename;
+        anchor.download = filename;
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    private static async screenshotBlob(
+        base64: string,
+        format: 'jpeg' | 'png',
+        quality: number,
+    ): Promise<Blob> {
+        const source = new Blob([this.base64Bytes(base64)], { type: 'image/png' });
+
+        if (format === 'png') {
+            return source;
+        }
+
+        const bitmap = await createImageBitmap(source);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext('2d');
+
+        if (!context) {
+            throw new Error('Screenshot image conversion is unavailable.');
+        }
+
+        context.drawImage(bitmap, 0, 0);
+        bitmap.close();
+        const jpeg = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob(resolve, 'image/jpeg', quality);
+        });
+
+        if (!jpeg) {
+            throw new Error('Screenshot image conversion failed.');
+        }
+
+        return jpeg;
+    }
+
+    private static base64Bytes(base64: string): ArrayBuffer {
+        const decoded = atob(base64);
+        const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+        return bytes.buffer.slice(0) as ArrayBuffer;
     }
 
     private static async normalizeRecording(

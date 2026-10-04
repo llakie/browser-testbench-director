@@ -17,17 +17,17 @@
                 <span>{{ activeNodeError }}</span>
             </p>
             <button
-                v-if="activeVideoOutput"
+                v-if="activeOutput"
                 :class="['icon-button', 'recording-control', { 'is-recording': recordingActive }]"
                 type="button"
-                data-testid="record-video-output"
+                :data-testid="activeVideoOutput ? 'record-video-output' : 'record-screenshot-output'"
                 :disabled="
                     !recordingActive &&
                     (!browserSessionInputsReady || browserTargetOpening || executionRunning)
                 "
                 :aria-label="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
                 :title="t(recordingActive ? 'recording.stop' : 'recording.workflow')"
-                @click="playNode(activeVideoOutput.id)"
+                @click="playNode(activeOutput.id)"
             >
                 <span
                     :class="['bi', recordingActive ? 'bi-stop-fill' : 'bi-circle-fill']"

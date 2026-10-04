@@ -7,6 +7,7 @@
                     :category="nodeMenuCategory"
                     :disabled="executionRunning"
                     :video-output-available="!project.nodes.some(node => node.type === 'video-output')"
+                    :screenshot-output-available="!project.nodes.some(node => node.type === 'screenshot-output')"
                     @toggle="toggleNodeMenu"
                     @close="nodeMenuOpen = false"
                     @update:category="nodeMenuCategory = $event"

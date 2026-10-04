@@ -6,8 +6,14 @@ import {
 } from '../core/browser-testbench-preview.js';
 import type { NodeExecutionStatus } from '../core/execution-controller.js';
 import { PreviewDocument } from '../core/preview-document.js';
-import type { DirectorNode, InputNode } from '../core/project-format.js';
+import type {
+    DirectorNode,
+    InputNode,
+    ScreenshotOutputNode,
+    VideoOutputNode,
+} from '../core/project-format.js';
 import { WorkflowPlanner, type PlaybackMode, type WorkflowPlan } from '../core/workflow-planner.js';
+import { WorkflowGraph } from '../core/workflow-graph.js';
 import {
     cloneWorkflowPlan,
     type PreviewRuntime,
@@ -33,7 +39,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             return;
         }
 
-        if (node.type === 'video-output') {
+        if (node.type === 'video-output' || node.type === 'screenshot-output') {
             if (this.recordingWorkflow) {
                 void this.stopRecordingWorkflow();
                 return;
@@ -52,7 +58,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 return;
             }
 
-            void this.recordWorkflow();
+            void this.recordWorkflow(node);
             this.renderGraph();
             return;
         }
@@ -149,7 +155,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             this.workflowStartPending = false;
         }
     },
-    async recordWorkflow(): Promise<void> {
+    async recordWorkflow(output: VideoOutputNode | ScreenshotOutputNode): Promise<void> {
         const target = this.selectedRecordingTarget;
 
         if (
@@ -159,6 +165,17 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             this.recordingWorkflow ||
             !this.browserSessionInputsReady
         ) {
+            return;
+        }
+
+        const filename = output.filename;
+        const videoOutput = output.type === 'video-output';
+        const screenshotPredecessorId = videoOutput
+            ? undefined
+            : WorkflowGraph.predecessorIds(this.project, output.id)[0];
+
+        if (!videoOutput && !screenshotPredecessorId) {
+            this.showNotice(this.t('recording.workflowFailed'));
             return;
         }
 
@@ -172,14 +189,14 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         const previewSessionId = this.remotePreviewSessionId;
         const previewTargetId = this.selectedBrowserTargetId;
         const recordingOnPreviewTarget = previewTargetId === target.id;
-        const output = this.project.nodes.find(
-            (node: DirectorNode) => node.type === 'video-output',
-        );
-        const filename = output?.filename ?? 'video.mp4';
 
         try {
             await Promise.all(Object.values(this.inputFileStores));
-            const plan = WorkflowPlanner.plan(this.project, 'workflow');
+            const plan = WorkflowPlanner.plan(
+                this.project,
+                videoOutput ? 'workflow' : 'node',
+                screenshotPredecessorId,
+            );
             this.assertPlanInputs(plan);
             await this.stopPlaybackAudio();
 
@@ -187,7 +204,12 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 await BrowserTestbenchPreview.close(previewSessionId).catch(() => undefined);
             }
 
-            const openedSessionId = await this.openRemotePlan(target, 'workflow', plan, true);
+            const openedSessionId = await this.openRemotePlan(
+                target,
+                videoOutput ? 'workflow' : screenshotPredecessorId!,
+                plan,
+                videoOutput,
+            );
             sessionId = openedSessionId;
             this.remotePreviewSessionId = openedSessionId;
 
@@ -195,11 +217,19 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 await BrowserTestbenchPreview.prepareAudio(openedSessionId);
             }
 
-            await BrowserTestbenchPreview.startRecording(openedSessionId, filename);
-            recordingStarted = true;
             this.startRecordingIndicator();
+
+            if (videoOutput) {
+                await BrowserTestbenchPreview.startRecording(openedSessionId, filename);
+                recordingStarted = true;
+            }
+
             this.browserTargetOpening = false;
-            const completed = await this.runPlayback('workflow', undefined, true);
+            const completed = await this.runPlayback(
+                videoOutput ? 'workflow' : 'node',
+                screenshotPredecessorId,
+                videoOutput,
+            );
 
             if (!completed) {
                 if (this.recordingStopRequested) {
@@ -214,17 +244,32 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                 throw new Error(failure?.error ?? this.t('recording.workflowFailed'));
             }
 
-            this.stopRecordingIndicator();
-            recordingStarted = false;
-            const recording = await BrowserTestbenchPreview.stopRecording(
-                openedSessionId,
-                filename,
-                target.kind === 'desktop' ? this.previewOutputSize : undefined,
-                this.recordingMarks,
-            );
+            if (videoOutput) {
+                this.stopRecordingIndicator();
+                recordingStarted = false;
+                const recording = await BrowserTestbenchPreview.stopRecording(
+                    openedSessionId,
+                    filename,
+                    target.kind === 'desktop' ? this.previewOutputSize : undefined,
+                    this.recordingMarks,
+                );
+                BrowserTestbenchPreview.downloadRecording(recording);
+            } else {
+                const screenshot = await BrowserTestbenchPreview.captureScreenshot(
+                    openedSessionId,
+                    filename,
+                    output.format,
+                    output.quality,
+                );
+                BrowserTestbenchPreview.downloadScreenshot(screenshot);
+            }
+
             recordingCompleted = true;
-            BrowserTestbenchPreview.downloadRecording(recording);
-            this.showNotice(this.t('recording.completed', { name: filename }));
+            this.showNotice(
+                videoOutput
+                    ? this.t('recording.completed', { name: filename })
+                    : this.t('screenshotOutput.completed', { name: filename }),
+            );
         } catch (error) {
             this.stopRecordingIndicator();
 

@@ -4,6 +4,21 @@ All notable changes to Browser Testbench Director are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-04
+
+### Added
+
+- Terminal screenshot-output nodes export a selected Browser Testbench target as PNG or JPEG with a configurable filename and JPEG quality.
+- Screenshot outputs use the established video-output target selector and record control, including a direct Testbench-start action when no Testbench is running.
+
+### Changed
+
+- Updated the Browser Testbench runtime dependency to 0.7.5.
+
+### Fixed
+
+- Safari screenshot exports no longer include rounded native browser-window corners, and Firefox no longer retains a transparent phantom row at the bottom.
+
 ## [0.3.1] - 2026-10-03
 
 ### Fixed

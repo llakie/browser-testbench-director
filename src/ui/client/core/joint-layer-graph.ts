@@ -349,7 +349,11 @@ export class JointLayerGraph {
         this.#lockedNodeIds = lockedNodeIds;
         this.#playbackTriggerNodeId = playbackTriggerNodeId;
         this.#recordingNodeId = recordingActive
-            ? (nodes.find((node) => node.type === 'video-output')?.id ?? null)
+            ? (nodes.find(
+                  (node) =>
+                      node.id === selectedNodeId &&
+                      (node.type === 'video-output' || node.type === 'screenshot-output'),
+              )?.id ?? null)
             : null;
         this.#selectedConnectionId = selectedConnectionId;
         this.#paper.freeze();
@@ -367,7 +371,9 @@ export class JointLayerGraph {
             const pausedAudio = node.id === pausedAudioNodeId && node.type === 'audio';
             const locked = lockedNodeIds.has(node.id);
             const stoppingPlayback = playbackTriggerNodeId === node.id;
-            const stoppingRecording = recordingActive && node.type === 'video-output';
+            const stoppingRecording =
+                recordingActive &&
+                (node.type === 'video-output' || node.type === 'screenshot-output');
             const connected = connectedNodeIds.has(node.id);
             const inputFileName = node.type === 'input' ? inputFileNames[node.id] : undefined;
             const incoming = incomingConnections.get(node.id) ?? [];
@@ -394,7 +400,7 @@ export class JointLayerGraph {
             }
 
             const outputPorts =
-                node.type === 'video-output'
+                node.type === 'video-output' || node.type === 'screenshot-output'
                     ? []
                     : outgoing.length
                       ? outgoing.map((connection, connectionIndex) => {

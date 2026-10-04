@@ -105,6 +105,13 @@ const items: readonly NodeMenuItem[] = [
         testId: 'add-video-output-node',
         labelKey: 'node.addVideoOutput',
     },
+    {
+        category: 'flow',
+        type: 'screenshot-output',
+        icon: 'bi-image',
+        testId: 'add-screenshot-output-node',
+        labelKey: 'node.addScreenshotOutput',
+    },
 ];
 
 export const NodeAddMenu = defineComponent({
@@ -117,6 +124,7 @@ export const NodeAddMenu = defineComponent({
         },
         disabled: { type: Boolean, default: false },
         videoOutputAvailable: { type: Boolean, required: true },
+        screenshotOutputAvailable: { type: Boolean, required: true },
     },
     emits: ['toggle', 'close', 'update:category', 'add'],
     computed: {
@@ -127,7 +135,8 @@ export const NodeAddMenu = defineComponent({
             return items.filter(
                 (item) =>
                     item.category === this.category &&
-                    (item.type !== 'video-output' || this.videoOutputAvailable),
+                    (item.type !== 'video-output' || this.videoOutputAvailable) &&
+                    (item.type !== 'screenshot-output' || this.screenshotOutputAvailable),
             );
         },
     },

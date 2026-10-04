@@ -10,13 +10,14 @@ import type {
     MergeNode,
     CapabilityNode,
     VideoOutputNode,
+    ScreenshotOutputNode,
 } from './project-format.js';
 import { DelayNodeSource } from './delay-node-source.js';
 import { TextLayerSource } from './text-layer-source.js';
 
 export class ProjectNodes {
     static canDuplicate(node: DirectorNode): boolean {
-        return node.type !== 'website' && node.type !== 'video-output';
+        return !['website', 'video-output', 'screenshot-output'].includes(node.type);
     }
 
     static createInput(project: DirectorProject, name: string): InputNode {
@@ -104,6 +105,19 @@ export class ProjectNodes {
             position: null,
             targetId: '',
             filename: 'video.mp4',
+        };
+    }
+
+    static createScreenshotOutput(project: DirectorProject, name: string): ScreenshotOutputNode {
+        return {
+            id: ProjectNodes.uniqueId(project, 'screenshot-output'),
+            type: 'screenshot-output',
+            name,
+            position: null,
+            targetId: '',
+            filename: 'screenshot.jpg',
+            format: 'jpeg',
+            quality: 0.9,
         };
     }
 

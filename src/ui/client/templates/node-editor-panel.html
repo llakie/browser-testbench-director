@@ -288,16 +288,17 @@
                 :workspace="workspace"
             ></audio-node-properties>
             <property-accordion
-                v-else-if="activeVideoOutput"
-                :title="t('videoOutput.settings')"
-                :preview="activeVideoOutput.filename"
+                v-else-if="activeOutput"
+                :title="t(activeVideoOutput ? 'videoOutput.settings' : 'screenshotOutput.settings')"
+                :preview="activeOutput.filename"
                 open
             >
                 <div class="automation-properties">
                     <property-field :label="t('videoOutput.target')">
                         <select
-                            v-model="activeVideoOutput.targetId"
-                            data-testid="video-output-target"
+                            v-if="browserTestbenchRunning && availableRecordingTargets.length"
+                            v-model="activeOutput.targetId"
+                            :data-testid="activeVideoOutput ? 'video-output-target' : 'screenshot-output-target'"
                             @change="markDirty(); renderGraph()"
                         >
                             <option value="">{{ t('videoOutput.selectTarget') }}</option>
@@ -310,17 +311,61 @@
                                 }}
                             </option>
                         </select>
+                        <select
+                            v-else-if="browserTestbenchRunning"
+                            disabled
+                            :data-testid="activeVideoOutput ? 'video-output-target' : 'screenshot-output-target'"
+                        >
+                            <option>{{ t('preview.browserTargetsUnavailable') }}</option>
+                        </select>
+                        <button
+                            v-else
+                            class="button button--quiet"
+                            type="button"
+                            :disabled="browserTestbenchTransitioning"
+                            data-testid="start-browser-testbench-from-output"
+                            @click="toggleBrowserTestbench"
+                        >
+                            <i class="bi bi-flask-fill" aria-hidden="true"></i>
+                            <span>{{ t('output.startTestbench') }}</span>
+                        </button>
                     </property-field>
                     <property-field :label="t('videoOutput.filename')">
                         <input
-                            v-model.trim="activeVideoOutput.filename"
+                            v-model.trim="activeOutput.filename"
                             type="text"
-                            data-testid="video-output-filename"
-                            placeholder="video.mp4"
+                            :data-testid="activeVideoOutput ? 'video-output-filename' : 'screenshot-output-filename'"
+                            :placeholder="activeVideoOutput ? 'video.mp4' : 'screenshot.jpg'"
                             @input="markDirty"
                             @change="renderGraph"
                         />
                     </property-field>
+                    <template v-if="activeScreenshotOutput">
+                        <property-field :label="t('screenshotOutput.format')">
+                            <select
+                                v-model="activeScreenshotOutput.format"
+                                data-testid="screenshot-output-format"
+                                @change="updateScreenshotOutputFormat"
+                            >
+                                <option value="jpeg">JPEG</option>
+                                <option value="png">PNG</option>
+                            </select>
+                        </property-field>
+                        <property-field
+                            v-if="activeScreenshotOutput.format === 'jpeg'"
+                            :label="t('screenshotOutput.quality')"
+                        >
+                            <number-control
+                                :model-value="activeScreenshotOutput.quality * 100"
+                                :min="0"
+                                :max="100"
+                                :step="1"
+                                suffix="%"
+                                test-id="screenshot-output-quality"
+                                @update:model-value="updateScreenshotOutputQuality"
+                            ></number-control>
+                        </property-field>
+                    </template>
                 </div>
             </property-accordion>
         </div>

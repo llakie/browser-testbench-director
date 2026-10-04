@@ -165,7 +165,36 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             );
         }
 
+        if (type === 'screenshot-output') {
+            return ProjectNodes.createScreenshotOutput(
+                this.project,
+                this.t('node.defaultScreenshotOutputName'),
+            );
+        }
+
         return ProjectNodes.createBrowserWait(this.project, this.t('node.defaultBrowserWaitName'));
+    },
+    updateScreenshotOutputFormat(): void {
+        const output = this.activeScreenshotOutput;
+
+        if (!output) {
+            return;
+        }
+
+        output.filename = output.filename.replace(/\.(?:jpe?g|png)$/iu, '');
+        output.filename += output.format === 'jpeg' ? '.jpg' : '.png';
+        this.markDirty();
+        this.renderGraph();
+    },
+    updateScreenshotOutputQuality(value: number): void {
+        const output = this.activeScreenshotOutput;
+
+        if (!output) {
+            return;
+        }
+
+        output.quality = Math.min(1, Math.max(0, Number(value) / 100));
+        this.markDirty();
     },
     duplicateActiveNode(): void {
         if (

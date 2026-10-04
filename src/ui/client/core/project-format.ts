@@ -109,6 +109,17 @@ export interface VideoOutputNode {
     filename: string;
 }
 
+export interface ScreenshotOutputNode {
+    readonly id: string;
+    readonly type: 'screenshot-output';
+    name: string;
+    position: Point | null;
+    targetId: string;
+    filename: string;
+    format: 'jpeg' | 'png';
+    quality: number;
+}
+
 export interface InputFileReference {
     readonly asset: string;
     readonly name: string;
@@ -150,7 +161,12 @@ export type BrowserWaitNode =
 export type ExecutableNode =
     LayerNode | JavaScriptNode | BrowserActionNode | BrowserWaitNode | MergeNode | AudioNode;
 export type DirectorNode =
-    InputNode | CapabilityNode | WebsiteNode | VideoOutputNode | ExecutableNode;
+    | InputNode
+    | CapabilityNode
+    | WebsiteNode
+    | VideoOutputNode
+    | ScreenshotOutputNode
+    | ExecutableNode;
 
 export interface WorkflowConnection {
     readonly id: string;
@@ -451,6 +467,11 @@ export class ProjectFormat {
             return;
         }
 
+        if (value['type'] === 'screenshot-output') {
+            ProjectFormat.assertScreenshotOutputNode(value);
+            return;
+        }
+
         if (value['type'] === 'javascript') {
             ProjectFormat.assertJavaScriptNode(value);
             return;
@@ -486,6 +507,32 @@ export class ProjectFormat {
             value,
             ['id', 'type', 'name', 'position', 'targetId', 'filename'],
             'Video output node',
+        );
+    }
+
+    private static assertScreenshotOutputNode(
+        value: Record<string, unknown>,
+    ): asserts value is Record<string, unknown> & ScreenshotOutputNode {
+        ProjectFormat.assertCommonExecutable(value, 'Screenshot output');
+        const format = value['format'];
+        const extension = format === 'jpeg' ? 'jpe?g' : 'png';
+
+        if (
+            typeof value['targetId'] !== 'string' ||
+            typeof value['filename'] !== 'string' ||
+            !new RegExp(`^[^\\\\/]+\\.${extension}$`, 'iu').test(value['filename']) ||
+            (format !== 'jpeg' && format !== 'png') ||
+            typeof value['quality'] !== 'number' ||
+            value['quality'] < 0 ||
+            value['quality'] > 1
+        ) {
+            throw new TypeError(`Screenshot output node ${value['id']} contains invalid settings.`);
+        }
+
+        ProjectFormat.assertOnlyKeys(
+            value,
+            ['id', 'type', 'name', 'position', 'targetId', 'filename', 'format', 'quality'],
+            'Screenshot output node',
         );
     }
 

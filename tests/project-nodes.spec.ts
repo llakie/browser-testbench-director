@@ -22,6 +22,7 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     const merge = ProjectNodes.createMerge(project, 'Zusammenführen');
     const audio = ProjectNodes.createAudio(project, 'Ton');
     const output = ProjectNodes.createVideoOutput(project, 'Video');
+    const screenshot = ProjectNodes.createScreenshotOutput(project, 'Screenshot');
 
     assert.equal(layer.id, 'layer-2');
     assert.equal(input.id, 'input-1');
@@ -54,6 +55,11 @@ test('Projekt-Nodes erzeugt alle editierbaren Node-Typen mit eindeutigen IDs', (
     assert.equal(output.type, 'video-output');
     assert.equal(output.targetId, '');
     assert.equal(output.filename, 'video.mp4');
+    assert.equal(screenshot.type, 'screenshot-output');
+    assert.equal(screenshot.targetId, '');
+    assert.equal(screenshot.filename, 'screenshot.jpg');
+    assert.equal(screenshot.format, 'jpeg');
+    assert.equal(screenshot.quality, 0.9);
 });
 
 test('Projekt-Nodes dupliziert Quellen ohne gemeinsame Referenzen', () => {
@@ -89,12 +95,13 @@ test('Projekt-Nodes dupliziert Delay-Einstellungen ohne gemeinsame Referenz', ()
     assert.equal(original.delay.durationMs, 1_000);
 });
 
-test('Website und Video-Ausgabe sind nicht duplizierbar', () => {
+test('Website und Ausgaben sind nicht duplizierbar', () => {
     const project = ProjectFormat.create();
     const website = project.nodes.find((node) => node.type === 'website')!;
     const output = ProjectNodes.createVideoOutput(project, 'Video');
+    const screenshot = ProjectNodes.createScreenshotOutput(project, 'Screenshot');
 
-    for (const node of [website, output]) {
+    for (const node of [website, output, screenshot]) {
         assert.equal(ProjectNodes.canDuplicate(node), false);
         assert.equal(ProjectNodes.duplicate(project, node, 'Kopie'), null);
     }

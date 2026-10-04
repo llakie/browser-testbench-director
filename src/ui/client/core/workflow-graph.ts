@@ -7,6 +7,7 @@ export type ConnectionIssue =
     | 'capability-target'
     | 'audio-target'
     | 'video-output-source'
+    | 'screenshot-output-source'
     | 'target-occupied'
     | 'cycle';
 
@@ -87,6 +88,10 @@ export class WorkflowGraph {
 
         if (sourceNode?.type === 'video-output') {
             throw new WorkflowConnectionError('video-output-source');
+        }
+
+        if (sourceNode?.type === 'screenshot-output') {
+            throw new WorkflowConnectionError('screenshot-output-source');
         }
 
         if (
@@ -210,6 +215,10 @@ export class WorkflowGraph {
                 throw new TypeError('Video output nodes cannot have outgoing connections.');
             }
 
+            if (sourceNode?.type === 'screenshot-output') {
+                throw new TypeError('Screenshot output nodes cannot have outgoing connections.');
+            }
+
             if (
                 targetNode?.type !== 'website' &&
                 targetNode?.type !== 'merge' &&
@@ -298,6 +307,21 @@ export class WorkflowGraph {
                 if (incoming.length > 1 || outgoing.length !== 0) {
                     throw new TypeError(
                         'A video output node may have one input and must have no output.',
+                    );
+                }
+            }
+
+            if (node.type === 'screenshot-output') {
+                const incoming = project.connections.filter(
+                    (connection) => connection.target === node.id,
+                );
+                const outgoing = project.connections.filter(
+                    (connection) => connection.source === node.id,
+                );
+
+                if (incoming.length > 1 || outgoing.length !== 0) {
+                    throw new TypeError(
+                        'A screenshot output node may have one input and must have no output.',
                     );
                 }
             }
