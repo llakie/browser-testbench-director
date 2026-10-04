@@ -170,11 +170,9 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
         const filename = output.filename;
         const videoOutput = output.type === 'video-output';
-        const screenshotPredecessorId = videoOutput
-            ? undefined
-            : WorkflowGraph.predecessorIds(this.project, output.id)[0];
+        const outputPredecessorId = WorkflowGraph.predecessorIds(this.project, output.id)[0];
 
-        if (!videoOutput && !screenshotPredecessorId) {
+        if (!outputPredecessorId) {
             this.showNotice(this.t('recording.workflowFailed'));
             return;
         }
@@ -192,11 +190,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
         try {
             await Promise.all(Object.values(this.inputFileStores));
-            const plan = WorkflowPlanner.plan(
-                this.project,
-                videoOutput ? 'workflow' : 'node',
-                screenshotPredecessorId,
-            );
+            const plan = WorkflowPlanner.plan(this.project, 'node', outputPredecessorId);
             this.assertPlanInputs(plan);
             await this.stopPlaybackAudio();
 
@@ -206,7 +200,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
             const openedSessionId = await this.openRemotePlan(
                 target,
-                videoOutput ? 'workflow' : screenshotPredecessorId!,
+                outputPredecessorId,
                 plan,
                 videoOutput,
             );
@@ -225,11 +219,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             }
 
             this.browserTargetOpening = false;
-            const completed = await this.runPlayback(
-                videoOutput ? 'workflow' : 'node',
-                screenshotPredecessorId,
-                videoOutput,
-            );
+            const completed = await this.runPlayback('node', outputPredecessorId, videoOutput);
 
             if (!completed) {
                 if (this.recordingStopRequested) {

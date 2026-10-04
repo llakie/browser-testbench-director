@@ -4,6 +4,12 @@ All notable changes to Browser Testbench Director are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-10-04
+
+### Fixed
+
+- Video-output recording now runs only the graph path that leads to the selected output. Parallel screenshot-export branches no longer render inside MP4 recordings.
+
 ## [0.3.2] - 2026-10-04
 
 ### Added

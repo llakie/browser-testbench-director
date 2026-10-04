@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { RemoteTestbench } from 'browser-testbench/client';
@@ -17,11 +17,8 @@ const recordingTarget = process.env['DIRECTOR_RECORDING_TARGET'] ?? 'chrome';
 const outputDirectory = await mkdtemp(join(tmpdir(), 'browser-testbench-director-recording-'));
 const projectPath = join(outputDirectory, 'recording-verification.btd.json');
 const audioPath = join(outputDirectory, 'recording-tone.wav');
+const cameraImagePath = join(outputDirectory, 'recording-camera.png');
 const filename = 'director-recording-verification.mp4';
-const cameraImagePath = resolve(
-    process.env['GTP_CARD_IMAGE'] ??
-        'projects/youtube/shorts/binderium/guess-the-price/assets/int/de/20260925_142636.jpg',
-);
 const testbench = new RemoteTestbench({ server, requestTimeoutMs: 180_000 });
 
 const project = ProjectFormat.create('Recording verification');
@@ -113,6 +110,13 @@ project.browserSession = {
 const execFileAsync = promisify(execFile);
 await Promise.all([
     writeFile(projectPath, ProjectFormat.stringify(project), 'utf8'),
+    writeFile(
+        cameraImagePath,
+        Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL04wAAAABJRU5ErkJggg==',
+            'base64',
+        ),
+    ),
     execFileAsync('ffmpeg', [
         '-hide_banner',
         '-loglevel',

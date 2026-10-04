@@ -178,6 +178,35 @@ test('Node-Wiedergabe spielt die Timeline bis zur gewählten Node vollständig l
     );
 });
 
+test('Output-Plan schließt parallele Export-Branches aus', () => {
+    const project = projectWithScript();
+    project.nodes.push({
+        id: 'thumbnail-layer',
+        type: 'layer',
+        name: 'Thumbnail',
+        position: null,
+        placement: {
+            reference: { type: 'viewport' },
+            horizontal: 'center',
+            vertical: 'center',
+        },
+        playback: { durationMs: 10, removeAfter: false },
+        source: { html: '', css: '', javascript: '' },
+    });
+    project.connections.push({
+        id: 'layer-1--thumbnail-layer',
+        source: 'layer-1',
+        target: 'thumbnail-layer',
+    });
+
+    const plan = WorkflowPlanner.plan(project, 'node', 'reveal-price');
+
+    assert.deepEqual(
+        plan.steps.map((step) => step.node.id),
+        ['layer-1', 'reveal-price'],
+    );
+});
+
 test('Node-Wiedergabe nimmt gestartete Audio-Seitenzweige bis zum Ziel mit', () => {
     const project = projectWithScript();
     project.nodes.push(

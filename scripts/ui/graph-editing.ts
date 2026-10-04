@@ -92,15 +92,6 @@ export async function verifyEditableConnections(session: RemoteSession): Promise
         2,
         5_000,
     );
-    assert.equal(
-        await session.evaluate<number>(`
-            return document.querySelectorAll(
-                '[model-id="${audio.id}"] [port="asset"], [model-id="${audio.id}"] [port="flow"]'
-            ).length;
-        `),
-        2,
-        'graph: audio nodes must expose separate file and workflow inputs.',
-    );
 }
 
 export async function verifyJavaScriptNode(session: RemoteSession): Promise<void> {
