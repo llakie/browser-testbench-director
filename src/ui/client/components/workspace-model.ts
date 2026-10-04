@@ -19,7 +19,8 @@ export type CreatableNodeType =
     | 'browser-wait'
     | 'audio'
     | 'merge'
-    | 'video-output';
+    | 'video-output'
+    | 'screenshot-output';
 
 export interface ViewportPreset {
     readonly id: PreviewPresetId;

@@ -121,6 +121,23 @@ test('Graph node presentation exposes stop controls only for active playback and
     const unavailable = attributes(videoOutput, state(undefined, { recordingReady: false }));
     assert.equal(unavailable.playButton?.pointerEvents, 'none');
 
+    const screenshotOutput: DirectorNode = {
+        id: 'screenshot',
+        type: 'screenshot-output',
+        name: 'Screenshot',
+        position: null,
+        targetId: '',
+        filename: 'screenshot.jpg',
+        format: 'jpeg',
+        quality: 0.9,
+    };
+    const screenshotUnavailable = attributes(
+        screenshotOutput,
+        state(undefined, { recordingReady: false }),
+    );
+    assert.equal(screenshotUnavailable.playButton?.pointerEvents, 'none');
+    assert.equal(screenshotUnavailable.headerText?.text, 'SCREENSHOT');
+
     const stoppingRecording = attributes(
         videoOutput,
         state(undefined, { recordingReady: false, stoppingRecording: true, locked: true }),

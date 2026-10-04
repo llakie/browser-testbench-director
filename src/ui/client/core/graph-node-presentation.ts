@@ -32,6 +32,7 @@ const nodeColors: Record<DirectorNode['type'], string> = {
     layer: 'var(--color-node-layer)',
     merge: 'var(--color-node-merge)',
     'video-output': 'var(--color-recording-strong)',
+    'screenshot-output': 'var(--color-recording-strong)',
     website: 'var(--color-node-website)',
 };
 
@@ -64,10 +65,10 @@ export class GraphNodePresentation {
     ): Record<string, Record<string, unknown>> {
         const input = node.type === 'input';
         const audio = node.type === 'audio';
-        const videoOutput = node.type === 'video-output';
+        const output = node.type === 'video-output' || node.type === 'screenshot-output';
         const hidesPlayControl = input || node.type === 'capability' || audio;
         const playingCanStop = state.stoppingPlayback || state.stoppingRecording;
-        const playUnavailable = videoOutput && !state.recordingReady && !state.stoppingRecording;
+        const playUnavailable = output && !state.recordingReady && !state.stoppingRecording;
         const playLocked = state.locked && !playingCanStop;
         const playDisabled = playUnavailable || playLocked;
         const hasInputFile = Boolean(state.inputFileName);
@@ -104,14 +105,14 @@ export class GraphNodePresentation {
                 cursor: playDisabled ? 'not-allowed' : 'pointer',
                 pointerEvents: playDisabled ? 'none' : 'auto',
                 opacity: playDisabled ? 0.35 : 1,
-                fill: videoOutput ? colors.dangerSoft : colors.nodeControl,
-                stroke: videoOutput ? colors.recording : colors.play,
+                fill: output ? colors.dangerSoft : colors.nodeControl,
+                stroke: output ? colors.recording : colors.play,
                 strokeWidth: state.stale ? 2.5 : 1,
             },
             playIcon: {
                 display: hidesPlayControl ? 'none' : 'block',
-                d: playingCanStop ? stopIcon : videoOutput ? recordIcon : playIcon,
-                fill: videoOutput ? colors.recording : colors.play,
+                d: playingCanStop ? stopIcon : output ? recordIcon : playIcon,
+                fill: output ? colors.recording : colors.play,
                 opacity: playLocked ? 0.35 : 1,
             },
             fileButton: { display: input && !hasInputFile ? 'block' : 'none' },
@@ -184,6 +185,7 @@ export class GraphNodePresentation {
             merge: 'MERGE',
             audio: 'AUDIO',
             'video-output': 'VIDEO',
+            'screenshot-output': 'SCREENSHOT',
             javascript: 'JS',
             'browser-action': 'ACTION',
             'browser-wait': 'WAIT',
@@ -218,6 +220,8 @@ export class GraphNodePresentation {
         } else if (node.type === 'audio') {
             detail = `${Math.round(node.volume * 100)} % · ${node.waitForEnd ? 'Wait' : 'Continue'}`;
         } else if (node.type === 'video-output') {
+            detail = `${node.filename} · ${node.targetId || 'Select target'}`;
+        } else if (node.type === 'screenshot-output') {
             detail = `${node.filename} · ${node.targetId || 'Select target'}`;
         } else if (node.type === 'javascript') {
             detail = node.delay ? `${node.delay.durationMs} ms` : 'JavaScript';

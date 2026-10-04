@@ -81,6 +81,30 @@ test('Workflow-Graph behandelt den Video-Output als terminale Node', () => {
     assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
 });
 
+test('Workflow-Graph behandelt den Screenshot-Output als terminale Node', () => {
+    const project = ProjectFormat.create();
+    project.nodes.push({
+        id: 'screenshot-output',
+        type: 'screenshot-output',
+        name: 'Screenshot export',
+        position: null,
+        targetId: '',
+        filename: 'screenshot.jpg',
+        format: 'jpeg',
+        quality: 0.9,
+    });
+    project.connections.push(
+        WorkflowGraph.createConnection(project, 'layer-1', 'screenshot-output'),
+    );
+
+    assert.throws(
+        () => WorkflowGraph.createConnection(project, 'screenshot-output', 'layer-1'),
+        (error) =>
+            error instanceof WorkflowConnectionError && error.issue === 'screenshot-output-source',
+    );
+    assert.doesNotThrow(() => ProjectFormat.parse(ProjectFormat.stringify(project)));
+});
+
 test('Workflow-Graph erlaubt mehrere Input-Nodes vor der Website-Root', () => {
     const project = ProjectFormat.create();
     project.nodes.unshift(

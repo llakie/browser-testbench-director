@@ -51,6 +51,7 @@ import {
     type MergeNode,
     type VerticalAlignment,
     type VideoOutputNode,
+    type ScreenshotOutputNode,
     type WebsiteNode,
 } from '../core/project-format.js';
 import { Translator } from '../core/translator.js';
@@ -217,6 +218,12 @@ export const EditorWorkspace = defineComponent({
         },
         activeVideoOutput(): VideoOutputNode | null {
             return this.activeNode?.type === 'video-output' ? this.activeNode : null;
+        },
+        activeScreenshotOutput(): ScreenshotOutputNode | null {
+            return this.activeNode?.type === 'screenshot-output' ? this.activeNode : null;
+        },
+        activeOutput(): VideoOutputNode | ScreenshotOutputNode | null {
+            return this.activeVideoOutput ?? this.activeScreenshotOutput;
         },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');

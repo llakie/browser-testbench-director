@@ -18,6 +18,8 @@ export const NodeEditorHeader = defineWorkspaceSection({
         'editorPanelLocked',
         'activeTextLayerLatestEnd',
         'activeVideoOutput',
+        'activeScreenshotOutput',
+        'activeOutput',
         'activeWebsite',
         'audioPaused',
         'audioScrubbing',
