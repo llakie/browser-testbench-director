@@ -654,10 +654,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
         this.lastPreviewInputs = { ...this.inputData };
     },
     workflowVariables(plan: WorkflowPlan): Readonly<Record<string, string>> {
-        return Object.assign(
-            {},
-            ...plan.inputs.map((input: InputNode) => input.variables ?? {}),
-        );
+        return Object.assign({}, ...plan.inputs.map((input: InputNode) => input.variables ?? {}));
     },
     async initializePreview(): Promise<void> {
         const plan = WorkflowPlanner.plan(this.project, 'root');

@@ -11,14 +11,22 @@
         @cancel="closeWorkflowOutputSelection"
     >
         <property-field :label="t('workflowOutput.select')">
-            <select v-model="workflowOutputSelectedId" data-dialog-autofocus data-testid="workflow-output-select">
+            <select
+                v-model="workflowOutputSelectedId"
+                data-dialog-autofocus
+                data-testid="workflow-output-select"
+            >
                 <option v-for="output in workflowOutputs" :key="output.id" :value="output.id">
                     {{ output.name }} — {{ output.filename }}
                 </option>
             </select>
         </property-field>
         <template #actions>
-            <button class="button button--quiet" type="button" @click="closeWorkflowOutputSelection">
+            <button
+                class="button button--quiet"
+                type="button"
+                @click="closeWorkflowOutputSelection"
+            >
                 {{ t('dialog.cancel') }}
             </button>
             <button

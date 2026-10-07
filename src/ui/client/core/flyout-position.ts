@@ -37,10 +37,10 @@ export function positionFlyout(element: HTMLElement): void {
     const trigger = element.dataset.flyoutAnchorSelector
         ? document.querySelector<HTMLElement>(element.dataset.flyoutAnchorSelector)
         : element.dataset.flyoutAnchorId
-        ? document.querySelector<HTMLElement>(
-              `[data-testid="project-input-${CSS.escape(element.dataset.flyoutAnchorId)}-accept"]`,
-          )
-        : element.parentElement?.querySelector<HTMLElement>('[data-flyout-trigger]');
+          ? document.querySelector<HTMLElement>(
+                `[data-testid="project-input-${CSS.escape(element.dataset.flyoutAnchorId)}-accept"]`,
+            )
+          : element.parentElement?.querySelector<HTMLElement>('[data-flyout-trigger]');
     const host = element.parentElement;
     const anchor = trigger?.getBoundingClientRect() ?? host?.getBoundingClientRect();
     const viewport = {
@@ -54,7 +54,8 @@ export function positionFlyout(element: HTMLElement): void {
             return;
         }
 
-        const preferredPlacement = element.dataset.flyoutPreferredPlacement === 'above' ? 'above' : 'below';
+        const preferredPlacement =
+            element.dataset.flyoutPreferredPlacement === 'above' ? 'above' : 'below';
         element.dataset.flyoutPlacement =
             element.dataset.flyoutCanFlip === 'false'
                 ? preferredPlacement
@@ -112,16 +113,25 @@ function positionGlobalFlyout(
     const gap = Number.parseFloat(getComputedStyle(element).getPropertyValue('--flyout-gap')) || 4;
     const belowTop = anchor.bottom + gap;
     const aboveTop = anchor.top - gap - bounds.height;
-    const placeAbove = belowTop + bounds.height > viewport.height - viewportMargin && aboveTop >= viewportMargin;
+    const placeAbove =
+        belowTop + bounds.height > viewport.height - viewportMargin && aboveTop >= viewportMargin;
     const top = placeAbove ? aboveTop : belowTop;
-    const left = Math.max(viewportMargin, Math.min(anchor.left, viewport.width - bounds.width - viewportMargin));
-    const availableHeight = placeAbove ? anchor.top - gap - viewportMargin : viewport.height - belowTop - viewportMargin;
+    const left = Math.max(
+        viewportMargin,
+        Math.min(anchor.left, viewport.width - bounds.width - viewportMargin),
+    );
+    const availableHeight = placeAbove
+        ? anchor.top - gap - viewportMargin
+        : viewport.height - belowTop - viewportMargin;
 
     element.dataset.flyoutPlacement = placeAbove ? 'above' : 'below';
     element.style.left = `${left}px`;
     element.style.top = `${Math.max(viewportMargin, top)}px`;
     element.style.maxHeight = `${Math.max(80, availableHeight)}px`;
-    element.style.setProperty('--flyout-arrow-x', `${anchor.left + (anchor.right - anchor.left) / 2 - left}px`);
+    element.style.setProperty(
+        '--flyout-arrow-x',
+        `${anchor.left + (anchor.right - anchor.left) / 2 - left}px`,
+    );
 }
 
 export function flyoutPlacement(

@@ -594,7 +594,17 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'accept', 'required', 'file', 'prepare', 'variables'],
+            [
+                'id',
+                'type',
+                'name',
+                'position',
+                'accept',
+                'required',
+                'file',
+                'prepare',
+                'variables',
+            ],
             'Input node',
         );
     }

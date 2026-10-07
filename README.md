@@ -4,7 +4,7 @@ Browser Testbench Director is a JSON-based editor and player for website automat
 the controlled website. Production projects live locally under `projects/`, remain untracked, and provide their own
 project-specific assets, preparation modules, and verification scripts.
 
-Release documentation: [Browser Testbench Director 0.3.2](docs/releases/0.3.2.md).
+Release documentation: [Browser Testbench Director 0.3.4](docs/releases/0.3.4.md).
 
 ## Installation
 

@@ -61,7 +61,11 @@
                 <p>{{ t('browserSession.languageHint') }}</p>
                 <div class="project-settings-permissions">
                     <span>{{ t('browserSession.permissions') }}</span>
-                    <div data-workspace-ref="projectPermissions" class="permission-select flyout-host" @pointerdown.stop>
+                    <div
+                        data-workspace-ref="projectPermissions"
+                        class="permission-select flyout-host"
+                        @pointerdown.stop
+                    >
                         <button
                             class="permission-select__trigger"
                             type="button"
@@ -91,15 +95,15 @@
                                     aria-multiselectable="true"
                                     @keydown.esc.stop.prevent="closeProjectPermissions"
                                 >
-                            <toggle-control
-                                v-for="permission in browserPermissions"
-                                :key="permission"
-                                :model-value="browserSession.permissions.includes(permission)"
-                                :label="t(`browserSession.${permission}`)"
-                                :value="permission"
-                                :test-id="`browser-session-permission-${permission}`"
-                                @change="setBrowserPermission(permission, $event)"
-                            ></toggle-control>
+                                    <toggle-control
+                                        v-for="permission in browserPermissions"
+                                        :key="permission"
+                                        :model-value="browserSession.permissions.includes(permission)"
+                                        :label="t(`browserSession.${permission}`)"
+                                        :value="permission"
+                                        :test-id="`browser-session-permission-${permission}`"
+                                        @change="setBrowserPermission(permission, $event)"
+                                    ></toggle-control>
                                 </div>
                             </div>
                         </teleport>

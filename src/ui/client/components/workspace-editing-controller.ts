@@ -68,12 +68,10 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
             .split('.')
             .map((segment: string) => segment.replace(/^_+|_+$/gu, ''))
             .filter(Boolean)
-            .map((segment: string) =>
-                /^[a-z]/u.test(segment) ? segment : `variable_${segment}`,
-            )
+            .map((segment: string) => (/^[a-z]/u.test(segment) ? segment : `variable_${segment}`))
             .join('.');
 
-        if (!key || key in variables && key !== previousKey) {
+        if (!key || (key in variables && key !== previousKey)) {
             target.value = previousKey;
             return;
         }
@@ -910,9 +908,10 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     },
     positionFlyout(refName: string): void {
         void nextTick(() => {
-            const flyout = document.querySelector<HTMLElement>(
-                `[data-flyout-owner="${CSS.escape(refName)}"]`,
-            ) ?? (this.workspaceElement(refName) as HTMLElement | null);
+            const flyout =
+                document.querySelector<HTMLElement>(
+                    `[data-flyout-owner="${CSS.escape(refName)}"]`,
+                ) ?? (this.workspaceElement(refName) as HTMLElement | null);
 
             if (!flyout) {
                 return;
@@ -922,7 +921,9 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
         });
     },
     positionOpenFlyouts(): void {
-        document.querySelectorAll<HTMLElement>('[data-flyout-global], .flyout-menu').forEach(positionFlyout);
+        document
+            .querySelectorAll<HTMLElement>('[data-flyout-global], .flyout-menu')
+            .forEach(positionFlyout);
     },
     closeNodeMenu(event: PointerEvent): void {
         const flyout = this.workspaceElement('nodeFlyout');
@@ -942,9 +943,13 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     closeVariableReferenceMenus(event: PointerEvent): void {
         const target = event.target;
         const activeMenu =
-            target instanceof Element ? target.closest<HTMLDetailsElement>('.variable-reference-menu') : null;
+            target instanceof Element
+                ? target.closest<HTMLDetailsElement>('.variable-reference-menu')
+                : null;
         const portalOwner =
-            target instanceof Element ? target.closest<HTMLElement>('[data-flyout-owner]')?.dataset.flyoutOwner : '';
+            target instanceof Element
+                ? target.closest<HTMLElement>('[data-flyout-owner]')?.dataset.flyoutOwner
+                : '';
         const activePortalMenu = portalOwner?.startsWith('variable-reference-')
             ? document.querySelector<HTMLDetailsElement>(
                   `[data-variable-reference-owner="${CSS.escape(portalOwner)}"]`,

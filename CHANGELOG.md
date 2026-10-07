@@ -4,6 +4,22 @@ All notable changes to Browser Testbench Director are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-10-07
+
+### Added
+
+- Input nodes can now provide a key/value variable map to preview and runtime code. Variables are available in JavaScript, HTML placeholders, and generated CSS custom properties.
+- Starting a workflow with multiple output nodes now opens an output-selection dialog, preventing unrelated output branches from being mixed into one run.
+
+### Changed
+
+- All editor flyouts, including the mobile project menu, render in a shared viewport-level portal with consistent placement, arrows, scrolling, and menu typography.
+- The graph summarizes variable input nodes with a localized variable count and offers copy actions for JavaScript, HTML, and CSS references.
+
+### Fixed
+
+- MIME-type suggestions remain scrollable, interactive, and unobscured by editor panels.
+
 ## [0.3.3] - 2026-10-04
 
 ### Fixed

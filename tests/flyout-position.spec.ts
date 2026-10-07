@@ -57,11 +57,7 @@ test('Flyouts klappen bei mangelndem Platz auf die Gegenseite', () => {
         'above',
     );
     assert.equal(
-        flyoutAlignment(
-            { left: 300, top: 80, right: 440, bottom: 180 },
-            viewport,
-            'left',
-        ),
+        flyoutAlignment({ left: 300, top: 80, right: 440, bottom: 180 }, viewport, 'left'),
         'right',
     );
 });

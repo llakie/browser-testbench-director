@@ -8,9 +8,25 @@
             summary-test-id="variables-summary"
         >
             <div class="project-preparations">
-                <div v-for="([key, value], index) in variableEntries(activeInput)" :key="key" class="project-preparation">
-                    <input :value="key" type="text" spellcheck="false" :data-testid="`variable-key-${index}`" @change="updateVariableKey(activeInput, key, $event)" />
-                    <input :value="value" type="text" spellcheck="false" :data-testid="`variable-value-${index}`" @input="updateVariableValue(activeInput, key, $event)" />
+                <div
+                    v-for="([key, value], index) in variableEntries(activeInput)"
+                    :key="key"
+                    class="project-preparation"
+                >
+                    <input
+                        :value="key"
+                        type="text"
+                        spellcheck="false"
+                        :data-testid="`variable-key-${index}`"
+                        @change="updateVariableKey(activeInput, key, $event)"
+                    />
+                    <input
+                        :value="value"
+                        type="text"
+                        spellcheck="false"
+                        :data-testid="`variable-value-${index}`"
+                        @input="updateVariableValue(activeInput, key, $event)"
+                    />
                     <details
                         class="variable-reference-menu"
                         :data-variable-reference-owner="`variable-reference-${key}`"
@@ -23,28 +39,60 @@
                             :title="t('variables.copyReference')"
                             :data-testid="`variable-copy-${index}`"
                             data-flyout-trigger
-                        ><i class="bi bi-copy" aria-hidden="true"></i></summary>
+                        >
+                            <i class="bi bi-copy" aria-hidden="true"></i>
+                        </summary>
                         <teleport to="body">
                             <div
                                 v-if="activeVariableReferenceKey === key"
                                 class="flyout-portal flyout-host"
                                 data-flyout-global
                                 :data-flyout-owner="`variable-reference-${key}`"
-                                :data-flyout-anchor-selector="`[data-testid=&quot;variable-copy-${index}&quot;]`"
+                                :data-flyout-anchor-selector='`[data-testid="variable-copy-${index}"]`'
                                 data-flyout-preferred-placement="below"
                                 data-flyout-placement="below"
                             >
                                 <div class="flyout-menu variable-reference-menu__options">
-                                    <button type="button" @click="copyVariableReference('javascript', key)">{{ t('variables.javascript') }}</button>
-                                    <button type="button" @click="copyVariableReference('html', key)">{{ t('variables.html') }}</button>
-                                    <button type="button" @click="copyVariableReference('css', key)">{{ t('variables.css') }}</button>
+                                    <button
+                                        type="button"
+                                        @click="copyVariableReference('javascript', key)"
+                                    >
+                                        {{ t('variables.javascript') }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="copyVariableReference('html', key)"
+                                    >
+                                        {{ t('variables.html') }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="copyVariableReference('css', key)"
+                                    >
+                                        {{ t('variables.css') }}
+                                    </button>
                                 </div>
                             </div>
                         </teleport>
                     </details>
-                    <button class="icon-button icon-button--small" type="button" :aria-label="t('variables.remove')" :title="t('variables.remove')" @click="removeVariable(activeInput, key)"><i class="bi bi-trash3" aria-hidden="true"></i></button>
+                    <button
+                        class="icon-button icon-button--small"
+                        type="button"
+                        :aria-label="t('variables.remove')"
+                        :title="t('variables.remove')"
+                        @click="removeVariable(activeInput, key)"
+                    >
+                        <i class="bi bi-trash3" aria-hidden="true"></i>
+                    </button>
                 </div>
-                <button class="text-action" type="button" data-testid="add-variable" @click="addVariable(activeInput)"><i class="bi bi-plus-lg" aria-hidden="true"></i>{{ t('variables.add') }}</button>
+                <button
+                    class="text-action"
+                    type="button"
+                    data-testid="add-variable"
+                    @click="addVariable(activeInput)"
+                >
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i>{{ t('variables.add') }}
+                </button>
             </div>
         </property-accordion>
     </div>
@@ -65,7 +113,10 @@
                     class="property-field property-field--flyout flyout-host"
                     :data-testid="`project-input-${activeInput.id}-accept-field`"
                 >
-                    <span class="property-field__label" :id="`project-input-${activeInput.id}-accept-label`">
+                    <span
+                        class="property-field__label"
+                        :id="`project-input-${activeInput.id}-accept-label`"
+                    >
                         {{ t('project.inputAccept') }}
                     </span>
                     <span class="tag-combobox">
