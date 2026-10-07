@@ -31,6 +31,13 @@ export class ProjectNodes {
         };
     }
 
+    static createVariablesInput(project: DirectorProject, name: string): InputNode {
+        return {
+            ...ProjectNodes.createInput(project, name),
+            variables: {},
+        };
+    }
+
     static createCameraCapability(project: DirectorProject, name: string): CapabilityNode {
         return {
             id: ProjectNodes.uniqueId(project, 'camera'),

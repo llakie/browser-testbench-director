@@ -168,6 +168,7 @@ export interface GraphRenderOptions {
     readonly staleNodeIds: ReadonlySet<string>;
     readonly inputFileNames: Readonly<Record<string, string>>;
     readonly chooseFileLabel: string;
+    readonly variableCountLabel: (count: number) => string;
     readonly recordingActive: boolean;
     readonly lockedNodeIds: ReadonlySet<string>;
     readonly playbackTriggerNodeId: string | null;
@@ -336,6 +337,7 @@ export class JointLayerGraph {
             staleNodeIds,
             inputFileNames,
             chooseFileLabel,
+            variableCountLabel,
             recordingActive,
             lockedNodeIds,
             playbackTriggerNodeId,
@@ -436,6 +438,7 @@ export class JointLayerGraph {
                     recordingReady,
                     inputFileName,
                     chooseFileLabel,
+                    variableCountLabel,
                 }),
             );
             cell.attr(

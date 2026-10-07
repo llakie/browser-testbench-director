@@ -8,6 +8,7 @@ interface PreviewRuntimeScriptValues {
     readonly steps: readonly RuntimeStep[];
     readonly executionId: number | null;
     readonly inputs: Readonly<Record<string, string>>;
+    readonly variables?: Readonly<Record<string, string>>;
     readonly cameraInputId: string | null;
     readonly globalStylesheetInputIds: readonly string[];
 }
@@ -17,6 +18,7 @@ export function renderPreviewRuntimeScript(values: PreviewRuntimeScriptValues): 
 const steps = ${JSON.stringify(values.steps)};
 const initialExecutionId = ${JSON.stringify(values.executionId)};
 const inputs = ${JSON.stringify(values.inputs)};
+const variables = ${JSON.stringify(values.variables ?? {})};
 const cameraInputId = ${JSON.stringify(values.cameraInputId)};
 const mergeRaceAbortReason = ${JSON.stringify(MERGE_RACE_ABORT_REASON)};
 let globalStylesheetInputIds = ${JSON.stringify(values.globalStylesheetInputIds)};
@@ -269,7 +271,12 @@ async function mountLayer(step) {
         maxWidth: '100vw',
         maxHeight: '100vh',
     });
-    content.innerHTML = step.html;
+    content.innerHTML = step.html.replace(/\\{\\{\\s*variables\\.([a-z0-9_.]+)\\s*\\}\\}/giu, (_match, key) =>
+        escapeHtml(variables[key] ?? ''),
+    );
+    for (const [key, value] of Object.entries(variables)) {
+        content.style.setProperty('--director-' + key.replace(/\./gu, '-'), value);
+    }
     placeAnchor(step, anchor);
     anchor.append(content);
     layer.append(anchor);
@@ -277,6 +284,12 @@ async function mountLayer(step) {
     rememberLayerRect(step.id);
     trackLayer(step, layer, anchor);
     return content;
+}
+
+function escapeHtml(value) {
+    const element = document.createElement('span');
+    element.textContent = value;
+    return element.innerHTML;
 }
 
 function unmountLayer(step) {
@@ -651,6 +664,7 @@ async function execute(step, signal = activeController.signal) {
         signal,
         results,
         inputs,
+        variables,
         websiteDocument,
     );
     if (step.type === 'browser-action') {

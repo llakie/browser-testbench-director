@@ -1,13 +1,14 @@
 <template>
     <div
         data-workspace-ref="nodeFlyout"
-        class="action-flyout"
+        class="action-flyout flyout-host"
         @keydown.esc.stop.prevent="closeLevel"
     >
         <button
             class="icon-button"
             type="button"
             data-testid="node-actions-trigger"
+            data-flyout-trigger
             :disabled="disabled"
             :aria-label="t('node.actions')"
             :title="t('node.actions')"
@@ -17,7 +18,17 @@
         >
             <span class="bi bi-plus-lg" aria-hidden="true"></span>
         </button>
-        <div v-if="open" class="flyout-menu action-flyout__menu" role="menu">
+        <teleport to="body">
+            <div
+                v-if="open"
+                class="flyout-portal flyout-host"
+                data-flyout-global
+                data-flyout-owner="nodeFlyout"
+                data-flyout-anchor-selector='[data-testid="node-actions-trigger"]'
+                data-flyout-preferred-placement="below"
+                data-flyout-placement="below"
+            >
+                <div class="flyout-menu action-flyout__menu" role="menu">
             <template v-if="!category">
                 <button
                     v-for="item in categories"
@@ -57,6 +68,8 @@
                     <span>{{ t(item.labelKey) }}</span>
                 </button>
             </template>
-        </div>
+                </div>
+            </div>
+        </teleport>
     </div>
 </template>

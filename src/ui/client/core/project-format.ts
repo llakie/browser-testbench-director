@@ -63,6 +63,7 @@ export interface InputNode {
     required: boolean;
     file?: InputFileReference;
     prepare?: { modules: string[] };
+    variables?: Record<string, string>;
 }
 
 export interface CapabilityNode {
@@ -575,7 +576,14 @@ export class ProjectFormat {
                         (module) =>
                             typeof module !== 'string' || !/^projects\/.+\.mjs$/u.test(module),
                     ))) ||
-            (value['file'] !== undefined && !ProjectFormat.isInputFileReference(value['file']))
+            (value['file'] !== undefined && !ProjectFormat.isInputFileReference(value['file'])) ||
+            (value['variables'] !== undefined &&
+                (!ProjectFormat.isRecord(value['variables']) ||
+                    Object.entries(value['variables']).some(
+                        ([key, variable]) =>
+                            !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/u.test(key) ||
+                            typeof variable !== 'string',
+                    )))
         ) {
             throw new TypeError(`Input node ${value['id']} contains invalid settings.`);
         }
@@ -586,7 +594,7 @@ export class ProjectFormat {
 
         ProjectFormat.assertOnlyKeys(
             value,
-            ['id', 'type', 'name', 'position', 'accept', 'required', 'file', 'prepare'],
+            ['id', 'type', 'name', 'position', 'accept', 'required', 'file', 'prepare', 'variables'],
             'Input node',
         );
     }

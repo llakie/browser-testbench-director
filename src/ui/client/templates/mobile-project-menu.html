@@ -4,28 +4,38 @@
             class="icon-button mobile-menu-trigger"
             type="button"
             data-testid="open-mobile-menu"
+            data-flyout-trigger
             :aria-expanded="String(mobileMenuOpen)"
             aria-controls="mobile-project-menu"
             :aria-label="mobileMenuOpen ? t('menu.close') : t('menu.open')"
             :title="mobileMenuOpen ? t('menu.close') : t('menu.open')"
             @click="toggleMobileMenu"
         >
-            <i :class="['bi', mobileMenuOpen ? 'bi-x-lg' : 'bi-list']" aria-hidden="true"></i>
+            <i class="bi bi-list" aria-hidden="true"></i>
         </button>
-        <div
-            v-if="mobileMenuOpen"
-            class="mobile-menu-backdrop"
-            data-testid="mobile-menu-backdrop"
-            @pointerdown.self="closeMobileMenu"
-            @keydown.esc.stop.prevent="closeMobileMenu"
-        >
-            <nav
-                id="mobile-project-menu"
-                data-workspace-ref="mobileMenu"
-                class="mobile-project-menu"
-                :aria-label="t('menu.actions')"
-                tabindex="-1"
+        <teleport to="body">
+            <div
+                v-if="mobileMenuOpen"
+                class="mobile-menu-backdrop"
+                data-testid="mobile-menu-backdrop"
+                @pointerdown.self="closeMobileMenu"
+            ></div>
+            <div
+                v-if="mobileMenuOpen"
+                class="flyout-portal flyout-host mobile-menu-flyout"
+                data-flyout-global
+                data-flyout-anchor-selector='[data-testid="open-mobile-menu"]'
+                data-flyout-preferred-placement="below"
+                data-flyout-placement="below"
+                @keydown.esc.stop.prevent="closeMobileMenu"
             >
+                <nav
+                    id="mobile-project-menu"
+                    data-workspace-ref="mobileMenu"
+                    class="flyout-menu mobile-project-menu"
+                    :aria-label="t('menu.actions')"
+                    tabindex="-1"
+                >
                 <button
                     type="button"
                     data-testid="mobile-open-project-settings"
@@ -98,7 +108,8 @@
                     ></i>
                     <span>{{ t('project.save') }}</span>
                 </button>
-            </nav>
-        </div>
+                </nav>
+            </div>
+        </teleport>
     </div>
 </template>

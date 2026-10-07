@@ -31,6 +31,87 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     t(key: string, parameters: Record<string, string | number> = {}): string {
         return Translator.text(key, parameters);
     },
+    variableEntries(input: InputNode): Array<[string, string]> {
+        return Object.entries(input.variables ?? {});
+    },
+    addVariable(input: InputNode): void {
+        const variables = input.variables;
+
+        if (!variables) {
+            return;
+        }
+
+        let index = 1;
+        let key = 'variable';
+
+        while (key in variables) {
+            key = `variable_${index++}`;
+        }
+
+        variables[key] = '';
+        this.markExecutionDirty();
+        this.renderGraph();
+    },
+    updateVariableKey(input: InputNode, previousKey: string, event: Event): void {
+        const variables = input.variables;
+        const target = event.target as HTMLInputElement;
+
+        if (!variables || !target) {
+            return;
+        }
+
+        const key = target.value
+            .trim()
+            .replace(/([a-z0-9])([A-Z])/gu, '$1_$2')
+            .replace(/[^A-Za-z0-9.]+/gu, '_')
+            .toLowerCase()
+            .split('.')
+            .map((segment: string) => segment.replace(/^_+|_+$/gu, ''))
+            .filter(Boolean)
+            .map((segment: string) =>
+                /^[a-z]/u.test(segment) ? segment : `variable_${segment}`,
+            )
+            .join('.');
+
+        if (!key || key in variables && key !== previousKey) {
+            target.value = previousKey;
+            return;
+        }
+
+        const value = variables[previousKey];
+        delete variables[previousKey];
+        variables[key] = value;
+        target.value = key;
+        this.markExecutionDirty();
+    },
+    updateVariableValue(input: InputNode, key: string, event: Event): void {
+        if (!input.variables) {
+            return;
+        }
+
+        input.variables[key] = (event.target as HTMLInputElement).value;
+        this.markExecutionDirty();
+    },
+    removeVariable(input: InputNode, key: string): void {
+        if (!input.variables) {
+            return;
+        }
+
+        delete input.variables[key];
+        this.markExecutionDirty();
+        this.renderGraph();
+    },
+    async copyVariableReference(kind: 'javascript' | 'html' | 'css', key: string): Promise<void> {
+        const path = key.split('.');
+        const reference =
+            kind === 'javascript'
+                ? `director.variables['${key}']`
+                : kind === 'html'
+                  ? `{{ variables.${path.join('.')} }}`
+                  : `var(--director-${path.join('-')})`;
+        await navigator.clipboard.writeText(reference);
+        this.showNotice(this.t('variables.copied'));
+    },
     renderGraph(): void {
         this.graph?.render(this.project.nodes, this.project.connections, {
             selectedNodeId: this.activeNodeId,
@@ -46,6 +127,7 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
                 ]),
             ),
             chooseFileLabel: this.t('input.chooseFile'),
+            variableCountLabel: (count: number) => this.t('variables.count', { count }),
             recordingActive: this.recordingActive,
             lockedNodeIds: this.executionLockedNodeIds,
             playbackTriggerNodeId: this.playbackTriggerNodeId,
@@ -115,6 +197,13 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     createNode(type: CreatableNodeType): DirectorNode {
         if (type === 'input') {
             return ProjectNodes.createInput(this.project, this.t('node.defaultInputName'));
+        }
+
+        if (type === 'variables-input') {
+            return ProjectNodes.createVariablesInput(
+                this.project,
+                this.t('node.defaultVariablesInputName'),
+            );
         }
 
         if (type === 'camera-capability') {
@@ -483,13 +572,24 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     },
     focusInputAccept(inputId: string): void {
         this.activeInputAcceptId = inputId;
+
+        void nextTick(() => {
+            const input = document.querySelector<HTMLInputElement>(
+                `[data-testid="project-input-${CSS.escape(inputId)}-accept"]`,
+            );
+            const flyout = document.querySelector<HTMLElement>(
+                `[data-flyout-anchor-id="${CSS.escape(inputId)}"]`,
+            );
+
+            if (flyout) {
+                positionFlyout(flyout);
+            }
+        });
     },
     blurInputAccept(inputId: string): void {
-        window.setTimeout(() => {
-            if (this.activeInputAcceptId === inputId) {
-                this.activeInputAcceptId = null;
-            }
-        }, 120);
+        if (this.activeInputAcceptId === inputId) {
+            this.activeInputAcceptId = null;
+        }
     },
     handleInputAcceptKeydown(input: ProjectFileInput, event: KeyboardEvent): void {
         const query = this.inputAcceptQueries[input.id] ?? '';
@@ -810,30 +910,90 @@ export const workspaceEditingMethods: WorkspaceMethodMap = {
     },
     positionFlyout(refName: string): void {
         void nextTick(() => {
-            const flyout = this.workspaceElement(refName) as HTMLElement | null;
+            const flyout = document.querySelector<HTMLElement>(
+                `[data-flyout-owner="${CSS.escape(refName)}"]`,
+            ) ?? (this.workspaceElement(refName) as HTMLElement | null);
 
             if (!flyout) {
                 return;
             }
 
-            const menu = flyout.querySelector<HTMLElement>('.flyout-menu');
-
-            if (menu) {
-                positionFlyout(menu);
-            }
+            positionFlyout(flyout);
         });
     },
     positionOpenFlyouts(): void {
-        document.querySelectorAll<HTMLElement>('.flyout-menu').forEach(positionFlyout);
+        document.querySelectorAll<HTMLElement>('[data-flyout-global], .flyout-menu').forEach(positionFlyout);
     },
     closeNodeMenu(event: PointerEvent): void {
         const flyout = this.workspaceElement('nodeFlyout');
 
-        if (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) {
+        const portal = document.querySelector<HTMLElement>('[data-flyout-owner="nodeFlyout"]');
+
+        if (
+            (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) ||
+            portal?.contains(event.target as Node)
+        ) {
             return;
         }
 
         this.nodeMenuOpen = false;
         this.nodeMenuCategory = '';
+    },
+    closeVariableReferenceMenus(event: PointerEvent): void {
+        const target = event.target;
+        const activeMenu =
+            target instanceof Element ? target.closest<HTMLDetailsElement>('.variable-reference-menu') : null;
+        const portalOwner =
+            target instanceof Element ? target.closest<HTMLElement>('[data-flyout-owner]')?.dataset.flyoutOwner : '';
+        const activePortalMenu = portalOwner?.startsWith('variable-reference-')
+            ? document.querySelector<HTMLDetailsElement>(
+                  `[data-variable-reference-owner="${CSS.escape(portalOwner)}"]`,
+              )
+            : null;
+
+        document
+            .querySelectorAll<HTMLDetailsElement>('.variable-reference-menu[open]')
+            .forEach((menu) => {
+                if (menu !== activeMenu && menu !== activePortalMenu) {
+                    menu.open = false;
+                }
+            });
+
+        if (!activeMenu && !activePortalMenu) {
+            this.activeVariableReferenceKey = null;
+        }
+    },
+    closeInputAcceptSuggestions(event: PointerEvent): void {
+        const target = event.target;
+
+        if (target instanceof Element && target.closest('.tag-combobox, .tag-suggestions')) {
+            return;
+        }
+
+        this.activeInputAcceptId = null;
+    },
+    toggleVariableReferenceMenu(key: string, event: Event): void {
+        const menu = event.currentTarget as HTMLDetailsElement;
+
+        if (!menu.open) {
+            if (this.activeVariableReferenceKey === key) {
+                this.activeVariableReferenceKey = null;
+            }
+
+            return;
+        }
+
+        this.activeVariableReferenceKey = key;
+
+        void nextTick(() => {
+            const owner = menu.dataset.variableReferenceOwner;
+            const flyout = owner
+                ? document.querySelector<HTMLElement>(`[data-flyout-owner="${CSS.escape(owner)}"]`)
+                : null;
+
+            if (flyout) {
+                positionFlyout(flyout);
+            }
+        });
     },
 };

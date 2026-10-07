@@ -61,11 +61,12 @@
                 <p>{{ t('browserSession.languageHint') }}</p>
                 <div class="project-settings-permissions">
                     <span>{{ t('browserSession.permissions') }}</span>
-                    <div class="permission-select" @pointerdown.stop>
+                    <div data-workspace-ref="projectPermissions" class="permission-select flyout-host" @pointerdown.stop>
                         <button
                             class="permission-select__trigger"
                             type="button"
                             data-testid="browser-session-permissions"
+                            data-flyout-trigger
                             :aria-expanded="String(projectPermissionsOpen)"
                             aria-controls="browser-session-permission-options"
                             @click="toggleProjectPermissions"
@@ -73,14 +74,23 @@
                             <span>{{ browserPermissionSummary }}</span>
                             <i class="bi bi-chevron-down" aria-hidden="true"></i>
                         </button>
-                        <div
-                            v-if="projectPermissionsOpen"
-                            id="browser-session-permission-options"
-                            class="permission-select__menu"
-                            role="listbox"
-                            aria-multiselectable="true"
-                            @keydown.esc.stop.prevent="closeProjectPermissions"
-                        >
+                        <teleport to="body">
+                            <div
+                                v-if="projectPermissionsOpen"
+                                class="flyout-portal flyout-host"
+                                data-flyout-global
+                                data-flyout-owner="projectPermissions"
+                                data-flyout-anchor-selector='[data-testid="browser-session-permissions"]'
+                                data-flyout-preferred-placement="above"
+                                data-flyout-placement="above"
+                            >
+                                <div
+                                    id="browser-session-permission-options"
+                                    class="flyout-menu permission-select__menu"
+                                    role="listbox"
+                                    aria-multiselectable="true"
+                                    @keydown.esc.stop.prevent="closeProjectPermissions"
+                                >
                             <toggle-control
                                 v-for="permission in browserPermissions"
                                 :key="permission"
@@ -90,7 +100,9 @@
                                 :test-id="`browser-session-permission-${permission}`"
                                 @change="setBrowserPermission(permission, $event)"
                             ></toggle-control>
-                        </div>
+                                </div>
+                            </div>
+                        </teleport>
                     </div>
                     <p>{{ t('browserSession.permissionsHint') }}</p>
                 </div>

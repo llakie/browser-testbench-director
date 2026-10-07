@@ -38,6 +38,7 @@ function state(
         stoppingRecording: false,
         recordingReady: true,
         chooseFileLabel: 'Choose file',
+        variableCountLabel: (count: number) => `${count} variable(s)`,
         ...overrides,
     };
 }
@@ -104,6 +105,22 @@ test('Graph node presentation distinguishes a visual delay from raw JavaScript',
     assert.equal(presentation.headerText?.text, 'DELAY');
     assert.equal(presentation.header?.fill, 'var(--color-node-wait)');
     assert.match(String(presentation.bodyText?.text), /1200 ms/u);
+});
+
+test('Graph node presentation displays the localized variable count', () => {
+    const variables: DirectorNode = {
+        id: 'variables',
+        type: 'input',
+        name: 'Variables',
+        position: null,
+        accept: '',
+        required: false,
+        variables: { option_a: '$12', option_b: '$120' },
+    };
+    const presentation = attributes(variables, state());
+
+    assert.match(String(presentation.bodyText?.text), /2 variable\(s\)/u);
+    assert.equal(presentation.fileButton?.display, 'none');
 });
 
 test('Graph node presentation exposes stop controls only for active playback and recording', () => {

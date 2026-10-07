@@ -1,5 +1,6 @@
 import { nextTick } from 'vue';
 
+import { positionFlyout } from '../core/flyout-position.js';
 import type { McpClientStatus, WorkspaceMethodMap } from './workspace-model.js';
 
 export const workspaceDialogMethods: WorkspaceMethodMap = {
@@ -10,7 +11,16 @@ export const workspaceDialogMethods: WorkspaceMethodMap = {
             return;
         }
 
-        void nextTick(() => this.workspaceElement('mobileMenu')?.focus());
+        void nextTick(() => {
+            const menu = this.workspaceElement('mobileMenu');
+            const portal = menu?.closest('[data-flyout-global]') as HTMLElement | null;
+
+            if (portal) {
+                positionFlyout(portal);
+            }
+
+            menu?.focus();
+        });
     },
     closeMobileMenu(): void {
         this.mobileMenuOpen = false;
@@ -25,6 +35,18 @@ export const workspaceDialogMethods: WorkspaceMethodMap = {
     },
     toggleProjectPermissions(): void {
         this.projectPermissionsOpen = !this.projectPermissionsOpen;
+
+        if (this.projectPermissionsOpen) {
+            void nextTick(() => {
+                const menu = document.querySelector<HTMLElement>(
+                    '[data-flyout-owner="projectPermissions"]',
+                );
+
+                if (menu) {
+                    positionFlyout(menu);
+                }
+            });
+        }
     },
     closeProjectPermissions(): void {
         this.projectPermissionsOpen = false;

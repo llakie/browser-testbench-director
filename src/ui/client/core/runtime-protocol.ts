@@ -40,6 +40,7 @@ function createDirectorRuntime(
     signal,
     previousResults = {},
     inputs = {},
+    variables = {},
     currentDocument = () => targetDocument,
 ) {
     const aborted = () => {
@@ -51,6 +52,7 @@ function createDirectorRuntime(
         document: targetDocument,
         results: Object.freeze({ ...previousResults }),
         inputs: Object.freeze({ ...inputs }),
+        variables: Object.freeze({ ...variables }),
         speed,
         wait(milliseconds) {
             aborted();

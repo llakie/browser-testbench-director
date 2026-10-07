@@ -1,7 +1,7 @@
 <template>
     <div
         data-workspace-ref="deviceFlyout"
-        class="device-flyout"
+        class="device-flyout flyout-host"
         @keydown.esc.stop.prevent="deviceMenuOpen = false"
     >
         <span class="toolbar-control-label">{{ t('preview.destination') }}</span>
@@ -9,6 +9,7 @@
             class="viewport-label viewport-selector"
             type="button"
             data-testid="viewport-device-trigger"
+            data-flyout-trigger
             :aria-label="t('preview.deviceChoice', { device: previewDestinationLabel })"
             :title="t('preview.deviceChoice', { device: previewDestinationLabel })"
             aria-haspopup="menu"
@@ -18,7 +19,17 @@
             <span :class="['bi', viewportPresetIcon]" aria-hidden="true"></span>
             <span data-testid="viewport-scale">{{ viewportLabel }}</span>
         </button>
-        <div v-if="deviceMenuOpen" class="flyout-menu device-flyout__menu" role="menu">
+        <teleport to="body">
+            <div
+                v-if="deviceMenuOpen"
+                class="flyout-portal flyout-host"
+                data-flyout-global
+                data-flyout-owner="deviceFlyout"
+                data-flyout-anchor-selector='[data-testid="viewport-device-trigger"]'
+                data-flyout-preferred-placement="below"
+                data-flyout-placement="below"
+            >
+                <div class="flyout-menu device-flyout__menu" role="menu">
             <button
                 v-for="preset in viewportPresets"
                 :key="preset.id"
@@ -71,6 +82,8 @@
                 </small>
             </div>
             <small v-else class="device-menu-hint"> {{ t('preview.enableTestbenchHint') }} </small>
-        </div>
+                </div>
+            </div>
+        </teleport>
     </div>
 </template>

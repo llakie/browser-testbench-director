@@ -1,0 +1,34 @@
+<template>
+    <modal-dialog
+        :open="workflowOutputSelectionOpen"
+        :title="t('workflowOutput.title')"
+        :description="t('workflowOutput.description')"
+        :close-label="t('dialog.close')"
+        panel-class="workflow-output-dialog"
+        title-id="workflow-output-title"
+        test-id="workflow-output-backdrop"
+        close-test-id="close-workflow-output"
+        @cancel="closeWorkflowOutputSelection"
+    >
+        <property-field :label="t('workflowOutput.select')">
+            <select v-model="workflowOutputSelectedId" data-dialog-autofocus data-testid="workflow-output-select">
+                <option v-for="output in workflowOutputs" :key="output.id" :value="output.id">
+                    {{ output.name }} — {{ output.filename }}
+                </option>
+            </select>
+        </property-field>
+        <template #actions>
+            <button class="button button--quiet" type="button" @click="closeWorkflowOutputSelection">
+                {{ t('dialog.cancel') }}
+            </button>
+            <button
+                class="button button--primary"
+                type="button"
+                data-testid="play-workflow-output"
+                @click="playWorkflowToOutput(workflowOutputSelectedId)"
+            >
+                {{ t('workflowOutput.play') }}
+            </button>
+        </template>
+    </modal-dialog>
+</template>

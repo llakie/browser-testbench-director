@@ -37,6 +37,13 @@ const items: readonly NodeMenuItem[] = [
     },
     {
         category: 'inputs',
+        type: 'variables-input',
+        icon: 'bi-braces',
+        testId: 'add-variables-input-node',
+        labelKey: 'node.addVariablesInput',
+    },
+    {
+        category: 'inputs',
         type: 'camera-capability',
         icon: 'bi-camera-video',
         testId: 'add-camera-capability-node',

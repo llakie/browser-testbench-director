@@ -9,6 +9,7 @@ import { McpSetupDialog } from './mcp-setup-dialog.js';
 import { NodeEditorPanel } from './node-editor-panel.js';
 import { PreviewPanel } from './preview-panel.js';
 import { ProjectSettingsDialog } from './project-settings-dialog.js';
+import { WorkflowOutputDialog } from './workflow-output-dialog.js';
 import { projectMethods } from './project-controller.js';
 import { workspaceEditingMethods } from './workspace-editing-controller.js';
 import { workspaceDialogMethods } from './workspace-dialog-controller.js';
@@ -65,6 +66,7 @@ export const EditorWorkspace = defineComponent({
         NodeEditorPanel,
         PreviewPanel,
         ProjectSettingsDialog,
+        WorkflowOutputDialog,
     },
     data: () => {
         const project = ProjectFormat.create();
@@ -110,6 +112,7 @@ export const EditorWorkspace = defineComponent({
             inputFileSelectionRevisions: {} as Record<string, number>,
             inputAcceptQueries: {} as Record<string, string>,
             activeInputAcceptId: null as string | null,
+            activeVariableReferenceKey: null as string | null,
             selectedBrowserTargetId: '',
             selectedRecordingTargetId: '',
             browserTargetsLoading: false,
@@ -128,6 +131,8 @@ export const EditorWorkspace = defineComponent({
             recordingMarks: [] as RecordingMark[],
             playbackTriggerNodeId: null as string | null,
             workflowStartPending: false,
+            workflowOutputSelectionOpen: false,
+            workflowOutputSelectedId: '',
             instantAudioNodeId: null as string | null,
             audioPositionMs: 0,
             audioDurationMs: 0,
@@ -224,6 +229,12 @@ export const EditorWorkspace = defineComponent({
         },
         activeOutput(): VideoOutputNode | ScreenshotOutputNode | null {
             return this.activeVideoOutput ?? this.activeScreenshotOutput;
+        },
+        workflowOutputs(): Array<VideoOutputNode | ScreenshotOutputNode> {
+            return this.project.nodes.filter(
+                (node): node is VideoOutputNode | ScreenshotOutputNode =>
+                    node.type === 'video-output' || node.type === 'screenshot-output',
+            );
         },
         inputNodes(): InputNode[] {
             return this.project.nodes.filter((node): node is InputNode => node.type === 'input');
@@ -533,6 +544,8 @@ export const EditorWorkspace = defineComponent({
         document.addEventListener('pointerdown', this.closeDeviceMenu);
         document.addEventListener('pointerdown', this.closeNodeMenu);
         document.addEventListener('pointerdown', this.closeRecordingMenu);
+        document.addEventListener('pointerdown', this.closeInputAcceptSuggestions);
+        document.addEventListener('pointerdown', this.closeVariableReferenceMenus);
         window.addEventListener('message', this.handleRuntimeMessage);
         window.addEventListener('resize', this.positionOpenFlyouts);
         this.audioPositionTimer = setInterval(() => this.refreshAudioPosition(), 50);
@@ -564,6 +577,8 @@ export const EditorWorkspace = defineComponent({
         document.removeEventListener('pointerdown', this.closeDeviceMenu);
         document.removeEventListener('pointerdown', this.closeNodeMenu);
         document.removeEventListener('pointerdown', this.closeRecordingMenu);
+        document.removeEventListener('pointerdown', this.closeInputAcceptSuggestions);
+        document.removeEventListener('pointerdown', this.closeVariableReferenceMenus);
         window.removeEventListener('message', this.handleRuntimeMessage);
         window.removeEventListener('resize', this.positionOpenFlyouts);
         delete (window as Window & { __directorAudioPlayback?: PreviewAudioPlayback })

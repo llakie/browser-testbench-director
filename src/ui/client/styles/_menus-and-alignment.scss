@@ -4,6 +4,80 @@
     flex: 0 0 auto;
 }
 
+.flyout-host {
+    isolation: isolate;
+}
+
+.flyout-host:not([data-flyout-no-arrow]):has(.flyout-menu)::after {
+    position: absolute;
+    z-index: 2;
+    left: var(--flyout-arrow-x);
+    width: 0;
+    height: 0;
+    border-right: 8px solid transparent;
+    border-left: 8px solid transparent;
+    content: '';
+    translate: -50% 0;
+    filter: drop-shadow(0 -1px 0 var(--color-border-strong));
+}
+
+.flyout-host:not([data-flyout-no-arrow]):has(.flyout-menu)[data-flyout-placement='below']::after {
+    top: calc(100% + var(--flyout-gap) - 8px);
+    border-top: 0;
+    border-bottom: 8px solid var(--color-surface-raised);
+}
+
+.flyout-host:not([data-flyout-no-arrow]):has(.flyout-menu)[data-flyout-placement='above']::after {
+    bottom: calc(100% + var(--flyout-gap) - 8px);
+    border-top: 8px solid var(--color-surface-raised);
+    border-right: 8px solid transparent;
+    border-bottom: 0;
+    border-left: 8px solid transparent;
+    filter: drop-shadow(0 1px 0 var(--color-border-strong));
+}
+
+.flyout-host > .flyout-menu {
+    z-index: 1;
+}
+
+.flyout-portal {
+    position: fixed;
+    z-index: var(--z-flyout);
+}
+
+.flyout-portal > .flyout-menu {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    box-sizing: border-box;
+    max-height: inherit;
+    translate: none;
+}
+
+.flyout-menu {
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.flyout-portal.flyout-host:not([data-flyout-no-arrow]):has(.flyout-menu)[data-flyout-placement='below']::after {
+    top: -8px;
+}
+
+.flyout-portal.flyout-host:not([data-flyout-no-arrow]):has(.flyout-menu)[data-flyout-placement='above']::after {
+    bottom: -8px;
+}
+
+.flyout-portal[data-flyout-placement='below'] > .flyout-menu {
+    translate: 0 -1px;
+}
+
+.flyout-portal[data-flyout-placement='above'] > .flyout-menu {
+    translate: 0 1px;
+}
+
 .viewport-selector {
     display: inline-flex;
     align-items: center;
@@ -23,8 +97,7 @@
 .action-flyout__menu {
     position: absolute;
     z-index: var(--z-flyout);
-    top: calc(100% + 4px);
-    left: 0;
+    --flyout-gap: 4px;
     display: grid;
     width: min(360px, calc(100vw - 16px));
     gap: 2px;
@@ -41,16 +114,39 @@
 
 .action-flyout__menu {
     right: 0;
-    left: auto;
     width: 210px;
 }
 
 .flyout-menu {
+    --flyout-arrow-x: 16px;
+    --flyout-gap: 4px;
+
     max-width: calc(100vw - 16px);
     max-height: calc(100dvh - 16px);
     overflow: auto;
     translate: var(--flyout-shift-x, 0) var(--flyout-shift-y, 0);
 }
+
+.flyout-menu[data-flyout-placement='below'] {
+    top: calc(100% + var(--flyout-gap) - 1px);
+    bottom: auto;
+}
+
+.flyout-menu[data-flyout-placement='above'] {
+    top: auto;
+    bottom: calc(100% + var(--flyout-gap));
+}
+
+.flyout-menu[data-flyout-alignment='left'] {
+    right: auto;
+    left: 0;
+}
+
+.flyout-menu[data-flyout-alignment='right'] {
+    right: 0;
+    left: auto;
+}
+
 
 .device-option,
 .action-option {

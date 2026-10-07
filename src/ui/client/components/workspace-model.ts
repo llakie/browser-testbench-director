@@ -10,6 +10,7 @@ export type WorkspacePanel = 'preview' | 'graph' | 'editor';
 export type BrowserTestbenchState = 'checking' | 'running' | 'stopped' | 'starting' | 'stopping';
 export type CreatableNodeType =
     | 'input'
+    | 'variables-input'
     | 'camera-capability'
     | 'layer'
     | 'text-layer'

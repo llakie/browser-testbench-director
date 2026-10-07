@@ -56,6 +56,7 @@ export interface GraphNodePresentationState {
     readonly recordingReady: boolean;
     readonly inputFileName?: string;
     readonly chooseFileLabel: string;
+    readonly variableCountLabel: (count: number) => string;
 }
 
 export class GraphNodePresentation {
@@ -64,6 +65,7 @@ export class GraphNodePresentation {
         state: GraphNodePresentationState,
     ): Record<string, Record<string, unknown>> {
         const input = node.type === 'input';
+        const variableInput = input && node.variables !== undefined;
         const audio = node.type === 'audio';
         const output = node.type === 'video-output' || node.type === 'screenshot-output';
         const hidesPlayControl = input || node.type === 'capability' || audio;
@@ -92,7 +94,7 @@ export class GraphNodePresentation {
                 letterSpacing: 1.4,
             },
             bodyText: {
-                text: GraphNodePresentation.bodyText(node),
+                text: GraphNodePresentation.bodyText(node, state),
                 fill: colors.text,
                 fontFamily: 'Inter, ui-sans-serif, system-ui',
                 fontSize: 13,
@@ -115,9 +117,9 @@ export class GraphNodePresentation {
                 fill: output ? colors.recording : colors.play,
                 opacity: playLocked ? 0.35 : 1,
             },
-            fileButton: { display: input && !hasInputFile ? 'block' : 'none' },
+            fileButton: { display: input && !variableInput && !hasInputFile ? 'block' : 'none' },
             fileButtonText: {
-                display: input && !hasInputFile ? 'block' : 'none',
+                display: input && !variableInput && !hasInputFile ? 'block' : 'none',
                 text: state.chooseFileLabel,
             },
             fileName: {
@@ -202,13 +204,15 @@ export class GraphNodePresentation {
         return labels[node.type] ?? '';
     }
 
-    private static bodyText(node: DirectorNode): string {
+    private static bodyText(node: DirectorNode, state: GraphNodePresentationState): string {
         let detail: string;
 
         if (node.type === 'website') {
             detail = node.url ? GraphNodePresentation.ellipsize(node.url, 28) : 'URL';
         } else if (node.type === 'input') {
-            detail = '';
+            detail = node.variables
+                ? state.variableCountLabel(Object.keys(node.variables).length)
+                : '';
         } else if (node.type === 'capability') {
             detail = 'Virtual camera';
         } else if (node.type === 'layer') {

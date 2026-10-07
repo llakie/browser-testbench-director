@@ -29,6 +29,7 @@ export class PreviewDocument {
         plan: WorkflowPlan,
         executionId: number | null = null,
         inputs: Readonly<Record<string, string>> = {},
+        variables: Readonly<Record<string, string>> = {},
     ): string {
         const websiteUrl = plan.website?.url.trim() ?? '';
         const websiteMarkup = websiteUrl
@@ -38,6 +39,7 @@ export class PreviewDocument {
             steps: PreviewDocument.runtimeSteps(plan),
             executionId,
             inputs,
+            variables,
             cameraInputId: plan.cameraInputId,
             globalStylesheetInputIds: plan.globalStylesheetInputIds,
         });

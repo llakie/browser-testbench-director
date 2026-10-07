@@ -140,6 +140,41 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
             return;
         }
 
+        const outputs = this.workflowOutputs;
+
+        if (outputs.length > 1) {
+            this.workflowOutputSelectedId = outputs[0]?.id ?? '';
+            this.workflowOutputSelectionOpen = true;
+            return;
+        }
+
+        await this.startWorkflowPlayback(outputs[0]);
+    },
+    async playWorkflowToOutput(outputId: string): Promise<void> {
+        const output = this.workflowOutputs.find(
+            (candidate: VideoOutputNode | ScreenshotOutputNode) => candidate.id === outputId,
+        );
+
+        if (!output) {
+            return;
+        }
+
+        this.workflowOutputSelectionOpen = false;
+        await this.startWorkflowPlayback(output);
+    },
+    closeWorkflowOutputSelection(): void {
+        this.workflowOutputSelectionOpen = false;
+    },
+    async startWorkflowPlayback(output?: VideoOutputNode | ScreenshotOutputNode): Promise<void> {
+        const outputPredecessorId = output
+            ? WorkflowGraph.predecessorIds(this.project, output.id)[0]
+            : undefined;
+
+        if (output && !outputPredecessorId) {
+            this.showNotice(this.t('recording.workflowFailed'));
+            return;
+        }
+
         this.workflowStartPending = true;
 
         try {
@@ -149,7 +184,7 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
             await this.previewInitialization;
             this.playbackTriggerNodeId = null;
-            void this.runPlayback('workflow');
+            void this.runPlayback(outputPredecessorId ? 'node' : 'workflow', outputPredecessorId);
             await nextTick();
         } finally {
             this.workflowStartPending = false;
@@ -561,7 +596,14 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                       },
                   }
                 : plan;
-            this.loadPreview(PreviewDocument.buildPlan(localPlan, runId, this.inputData));
+            this.loadPreview(
+                PreviewDocument.buildPlan(
+                    localPlan,
+                    runId,
+                    this.inputData,
+                    this.workflowVariables(plan),
+                ),
+            );
             runtime = await this.waitForPreviewRuntime();
 
             if (plan.website) {
@@ -610,6 +652,12 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
 
         this.lastPreviewPlan = snapshot;
         this.lastPreviewInputs = { ...this.inputData };
+    },
+    workflowVariables(plan: WorkflowPlan): Readonly<Record<string, string>> {
+        return Object.assign(
+            {},
+            ...plan.inputs.map((input: InputNode) => input.variables ?? {}),
+        );
     },
     async initializePreview(): Promise<void> {
         const plan = WorkflowPlanner.plan(this.project, 'root');
@@ -877,6 +925,11 @@ export const workspaceExecutionMethods: WorkspaceMethodMap = {
                   ),
               }
             : plan.website;
-        return PreviewDocument.buildPlan({ ...plan, website, steps: [] }, null, inputs ?? {});
+        return PreviewDocument.buildPlan(
+            { ...plan, website, steps: [] },
+            null,
+            inputs ?? {},
+            this.workflowVariables(plan),
+        );
     },
 };

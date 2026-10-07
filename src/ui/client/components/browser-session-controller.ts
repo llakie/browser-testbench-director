@@ -23,8 +23,12 @@ export const browserSessionMethods: WorkspaceMethodMap = {
     },
     closeDeviceMenu(event: PointerEvent): void {
         const flyout = this.workspaceElement('deviceFlyout');
+        const portal = document.querySelector<HTMLElement>('[data-flyout-owner="deviceFlyout"]');
 
-        if (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) {
+        if (
+            (flyout instanceof HTMLElement && flyout.contains(event.target as Node)) ||
+            portal?.contains(event.target as Node)
+        ) {
             return;
         }
 
